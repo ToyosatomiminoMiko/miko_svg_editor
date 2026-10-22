@@ -1,6 +1,6 @@
 /**
  * 画布上「无法用 CSS 变量表达」的外观/交互几何常量。
- * 能进 styles.css :root 的颜色、线宽、虚线、点半径仍归 CSS（theme.ts 读取）；
+ * 能进 src/styles.css :root 的颜色、线宽、虚线、点半径仍归 CSS（theme.ts 读取）；
  * 这里只放需要参与布局数学、或纯 TS 计算的值，避免 theme.ts 里再塞逻辑。
  */
 
@@ -21,5 +21,5 @@ export const RADIUS_LABEL_DY_PX = -8;
 export const TEXT_FALLBACK_FONT_PX = 12;
 export const TEXT_FALLBACK_CHAR_WIDTH = 7;
 
-/** toast 自动消失时长（毫秒）；只影响 UI 反馈，不参与画布几何 */
+/** 提示（状态栏闪示 / 消息区条目）自动消失时长（毫秒）；只影响 UI 反馈，不参与画布几何 */
 export const TOAST_DURATION_MS = 2600;

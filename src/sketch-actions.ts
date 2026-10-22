@@ -52,7 +52,7 @@ import { vec } from './vec';
 
 /* ======================= 结果与提示 ======================= */
 
-/** 面向用户的一条提示；kind 决定 toast 样式 */
+/** 面向用户的一条提示；kind 决定去处（error 进消息区 / info 状态栏闪示） */
 export interface Notice {
   kind: 'info' | 'error';
   message: string;
@@ -191,18 +191,19 @@ export function applyConstraint(
 /** 删除选中对象；删除的级联（引用约束 / 孤立点）由 model 负责（BUG-4） */
 export function deleteSelected(selection: Selection): ActionResult {
   let removed = 0;
-  for (const id of selection.ents) {
-    const e = getEntity(id);
-    if (e) {
-      removeEntity(e);
-      removed++;
-    }
-  }
-  for (const id of selection.pts) {
-    const p = getPoint(id);
-    if (p) {
-      removePoint(p);
-      removed++;
+  for (const item of selection.items) {
+    if (item.kind === 'ent') {
+      const e = getEntity(item.id);
+      if (e) {
+        removeEntity(e);
+        removed++;
+      }
+    } else {
+      const p = getPoint(item.id);
+      if (p) {
+        removePoint(p);
+        removed++;
+      }
     }
   }
   if (removed === 0) return ok();
@@ -212,11 +213,14 @@ export function deleteSelected(selection: Selection): ActionResult {
 /** 固定/解锁：部分锁定 → 全锁，全锁 → 全解锁；图元取其全部端点/圆心 */
 export function toggleFixed(selection: Selection): ActionResult {
   const ids = new Set<number>();
-  for (const id of selection.ents) {
-    const e = getEntity(id);
+  for (const item of selection.items) {
+    if (item.kind === 'pt') {
+      ids.add(item.id);
+      continue;
+    }
+    const e = getEntity(item.id);
     if (e) for (const pid of entityPointIds(e)) ids.add(pid);
   }
-  for (const id of selection.pts) ids.add(id);
   const pts = [...ids].map(getPoint).filter((p): p is Point => p !== undefined);
   if (pts.length === 0) return fail('先选中图形或点');
   const toFix = !pts.every((p) => p.fixed);
@@ -226,7 +230,10 @@ export function toggleFixed(selection: Selection): ActionResult {
 
 /** 构造线切换：选中的图元里只要还有普通图元就全部转为构造线，否则全部转回普通 */
 export function toggleConstruction(selection: Selection): ActionResult {
-  const ents = selection.ents.map(getEntity).filter((e): e is Entity => e !== undefined);
+  const ents = selection.items
+    .filter((item) => item.kind === 'ent')
+    .map((item) => getEntity(item.id))
+    .filter((e): e is Entity => e !== undefined);
   if (ents.length === 0) return fail('先选中图元');
   const toConstruction = !ents.every((e) => e.construction);
   for (const e of ents) e.construction = toConstruction;
@@ -444,9 +451,10 @@ function dimStep(
 /** 删除工具：点优先于图元，二者都走级联删除 */
 function eraseStep(w: Vec, view: CameraView): ClickOutcome {
   const pt = pickPoint(w, view.z);
-  if (pt) return { pending: null, action: deleteSelected({ ents: [], pts: [pt.id] }) };
+  if (pt) return { pending: null, action: deleteSelected({ items: [{ kind: 'pt', id: pt.id }] }) };
   const ent = pickEntity(w, view.z);
-  if (ent) return { pending: null, action: deleteSelected({ ents: [ent.id], pts: [] }) };
+  if (ent)
+    return { pending: null, action: deleteSelected({ items: [{ kind: 'ent', id: ent.id }] }) };
   return { pending: null };
 }
 

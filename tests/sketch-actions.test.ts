@@ -175,7 +175,7 @@ describe('deleteSelected 级联', () => {
   it('删除图元会级联删除端点与尺寸', () => {
     const { a, b, line } = plainLine();
     const dim = addCon('distancePointPoint', { a: a.id, b: b.id, distance: 100 });
-    const result = deleteSelected({ ents: [line.id], pts: [] });
+    const result = deleteSelected({ items: [{ kind: 'ent', id: line.id }] });
     expect(result.ok).toBe(true);
     expect(model.ents.size).toBe(0);
     expect(model.pts.size).toBe(0);
@@ -186,7 +186,14 @@ describe('deleteSelected 级联', () => {
   it('空选择返回 ok 且不改模型', () => {
     plainLine();
     const before = model.ents.size;
-    expect(deleteSelected({ ents: [999], pts: [999] }).ok).toBe(true);
+    expect(
+      deleteSelected({
+        items: [
+          { kind: 'ent', id: 999 },
+          { kind: 'pt', id: 999 },
+        ],
+      }).ok,
+    ).toBe(true);
     expect(model.ents.size).toBe(before);
   });
 });
@@ -194,21 +201,21 @@ describe('deleteSelected 级联', () => {
 describe('toggleFixed / toggleConstruction', () => {
   it('固定/解锁在两类状态间切换', () => {
     const { a, b, line } = plainLine();
-    expect(toggleFixed({ ents: [line.id], pts: [] }).ok).toBe(true);
+    expect(toggleFixed({ items: [{ kind: 'ent', id: line.id }] }).ok).toBe(true);
     expect(a.fixed).toBe(true);
     expect(b.fixed).toBe(true);
-    toggleFixed({ ents: [line.id], pts: [] });
+    toggleFixed({ items: [{ kind: 'ent', id: line.id }] });
     expect(a.fixed).toBe(false);
-    expect(toggleFixed({ ents: [], pts: [] }).ok).toBe(false);
+    expect(toggleFixed({ items: [] }).ok).toBe(false);
   });
 
   it('构造线切换作用于所有选中图元', () => {
     const { line } = plainLine();
-    expect(toggleConstruction({ ents: [line.id], pts: [] }).ok).toBe(true);
+    expect(toggleConstruction({ items: [{ kind: 'ent', id: line.id }] }).ok).toBe(true);
     expect(line.construction).toBe(true);
-    toggleConstruction({ ents: [line.id], pts: [] });
+    toggleConstruction({ items: [{ kind: 'ent', id: line.id }] });
     expect(line.construction).toBe(false);
-    expect(toggleConstruction({ ents: [], pts: [] }).ok).toBe(false);
+    expect(toggleConstruction({ items: [] }).ok).toBe(false);
   });
 });
 

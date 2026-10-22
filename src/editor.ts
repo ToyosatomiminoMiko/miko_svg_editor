@@ -19,7 +19,6 @@ import { state } from './state';
 import type { Theme } from './theme';
 import { TOOLS } from './tools';
 import type { ToolbarHandle, ToolbarHandlers } from './toolbar';
-import type { HintHandle } from './ui/hint-editor';
 import type { MeasureText, Point, Vec } from './types';
 import { EditorControls, createToolbarHandlers } from './ui/editor-controls';
 import { HintEditor } from './ui/hint-editor';
@@ -38,12 +37,23 @@ export class Editor {
   /** 手势瞬态：拖拽/平移，结束即清；Point 不再有 dragging 标记（§5.3） */
   private gesture: Gesture | null = null;
 
-  constructor(canvas: HTMLCanvasElement, hint: HintHandle, theme: Theme, measureText: MeasureText) {
+  /**
+   * @param canvas 画布节点（应用背景层）
+   * @param statusRoot 状态栏宿主；HintEditor 自己往里建 miko_ui 面板
+   * @param selectionRoot 「已选择」列表宿主；EditorControls 自己往里建面板
+   */
+  constructor(
+    canvas: HTMLCanvasElement,
+    statusRoot: HTMLElement,
+    selectionRoot: HTMLElement,
+    theme: Theme,
+    measureText: MeasureText,
+  ) {
     this.canvas = canvas;
     this.measureText = measureText;
     this.dimFont = theme.dimFont;
     const renderer = new Renderer(canvas, theme);
-    this.hintEditor = new HintEditor(hint, {
+    this.hintEditor = new HintEditor(statusRoot, {
       onCommit: (con, value) => this.controls.apply(commitDim(con, value)),
       onCancel: (session) => {
         if (session.created) this.controls.apply(rollbackDim(session.con, session.pointId));
@@ -54,6 +64,7 @@ export class Editor {
       canvas,
       hintEditor: this.hintEditor,
       renderer,
+      selectionRoot,
       getToolbar: () => this.toolbar,
       clearPending: () => this.clearPending(),
     });
@@ -61,6 +72,11 @@ export class Editor {
     this.attachEvents();
     window.addEventListener('resize', () => renderer.resize());
     renderer.resize();
+  }
+
+  /** info 级提示：由 main.ts 接到 ui/notify 的 initNotifications 上，闪示在状态栏 */
+  flashInfo(message: string): void {
+    this.hintEditor.flashInfo(message);
   }
 
   /** 工具栏构建完成后回填引用，并设置默认工具 */

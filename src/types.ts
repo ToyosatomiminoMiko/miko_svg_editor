@@ -143,10 +143,32 @@ export type Pending =
   | { type: 'rect'; p0: Vec }
   | { type: 'dim'; a: number };
 
-/** 选择集：图元 id 与点 id 分开存，避免靠 id 全局唯一性做二次解释 */
+/** 选择项种类：图元或点（id 分属两个容器，必须带种类才能解释） */
+export type SelectionKind = 'ent' | 'pt';
+
+/**
+ * 选择集里的一项。
+ * 用 { kind, id } 而不是裸 id：model 的点/图元各有自己的 id 空间解释，带种类才不歧义。
+ */
+export interface SelectionItem {
+  kind: SelectionKind;
+  id: number;
+}
+
+/**
+ * 选择集：有序的 SelectionItem 列表，顺序即用户选中顺序。
+ * 用一份列表而不是「图元数组 + 点数组」，是为了让已选列表的展示顺序稳定，
+ * 也让「拖动任一已选图元移动全部已选」只需要遍历这一份集合。
+ */
 export interface Selection {
-  ents: number[];
-  pts: number[];
+  items: SelectionItem[];
+}
+
+/** 已选列表的一行：label 由 selection.ts 生成，UI 层不查模型 */
+export interface SelectionEntry {
+  kind: SelectionKind;
+  id: number;
+  label: string;
 }
 
 /**

@@ -6,9 +6,9 @@
 
 import { EXPORT_EMPTY_MESSAGE, ITER_FULL, type ConstraintAction } from '../config';
 import { buildSVG } from '../export-svg';
-import { clearModel, getEntity, isEmpty } from '../model';
+import { clearModel, isEmpty } from '../model';
 import type { Renderer } from '../renderer';
-import { selectionSummary } from '../selection';
+import { pruneSelection, selectedEntities, selectionEntries, selectionSummary } from '../selection';
 import {
   applyConstraint as applyConstraintAction,
   deleteSelected,
@@ -18,19 +18,22 @@ import {
   type ActionResult,
   type Notice,
 } from '../sketch-actions';
-import { clearSelection, resetInteraction, state } from '../state';
+import { clearSelection, deselect, resetInteraction, state } from '../state';
 import { TOOLS } from '../tools';
 import type { ToolbarHandle, ToolbarHandlers } from '../toolbar';
-import type { Entity, ToolId } from '../types';
+import type { SelectionKind, ToolId } from '../types';
 import { fitView as fitViewport } from '../viewport';
 import { downloadSvg } from './download';
 import type { HintEditor } from './hint-editor';
 import { askConfirm, notify, notifyAll } from './notify';
+import { SelectionListView } from './selection-list';
 
 export interface EditorControlsDeps {
   readonly canvas: HTMLCanvasElement;
   readonly hintEditor: HintEditor;
   readonly renderer: Renderer;
+  /** 「已选择」列表面板的宿主节点 */
+  readonly selectionRoot: HTMLElement;
   /** 读取当前工具栏引用：bindToolbar 在构造之后才发生 */
   getToolbar(): ToolbarHandle | null;
   /** 清空未完成工具操作（Editor 的 pending 状态） */
@@ -38,16 +41,34 @@ export interface EditorControlsDeps {
 }
 
 export class EditorControls implements ToolbarHandlers {
-  constructor(private readonly deps: EditorControlsDeps) {}
+  /** 已选择列表：选中集变化时由 sync() 推给面板，行内「移除」回调走 removeSelection */
+  private readonly selectionList: SelectionListView;
 
-  /** 唯一同步入口：先重绘画布，再按当前 tool/selection/snap 更新提示栏 */
-  sync(): void {
-    this.deps.renderer.render();
-    const tool = TOOLS.find((t) => t.id === state.tool);
-    this.deps.hintEditor.updateStatus(tool?.hint, selectionSummary(), state.snapEnabled);
+  constructor(private readonly deps: EditorControlsDeps) {
+    this.selectionList = new SelectionListView(deps.selectionRoot, {
+      remove: (kind, id) => this.removeSelection(kind, id),
+    });
   }
 
-  /** 领域操作结果：失败/求解提示统一 toast，然后同步画面与提示 */
+  /** 唯一同步入口：先清掉悬空选择，再重绘画布、推已选列表、更新提示栏 */
+  sync(): void {
+    // 删除工具/清空等路径不经过选择逻辑，这里兜底摘掉模型里已不存在的选择项
+    pruneSelection();
+    this.deps.renderer.render();
+    this.selectionList.update(selectionEntries());
+    const tool = TOOLS.find((t) => t.id === state.tool);
+    // 工具栏改成 miko_ui 的分段组后不再有逐按钮 title,快捷键提示统一放状态栏
+    const toolHint = tool ? `${tool.label}（${tool.key.toUpperCase()}） · ${tool.hint}` : undefined;
+    this.deps.hintEditor.updateStatus(toolHint, selectionSummary(), state.snapEnabled);
+  }
+
+  /** 已选列表行内「移除」：只从选择集摘掉这一项，不改模型 */
+  removeSelection(kind: SelectionKind, id: number): void {
+    deselect(kind, id);
+    this.sync();
+  }
+
+  /** 领域操作结果：失败/求解提示统一走 notify，然后同步画面与提示 */
   apply(result: ActionResult): void {
     if (!result.ok) notify(result.reason, 'error');
     else notifyAll(result.notices);
@@ -82,10 +103,7 @@ export class EditorControls implements ToolbarHandlers {
 
   /** 约束按钮：选中图元交给 sketch-actions 查表校验（不适用/重复会有明确提示） */
   applyConstraint(action: ConstraintAction): void {
-    const selected = state.selection.ents
-      .map(getEntity)
-      .filter((e): e is Entity => e !== undefined);
-    this.apply(applyConstraintAction(action, selected));
+    this.apply(applyConstraintAction(action, selectedEntities()));
   }
 
   /**

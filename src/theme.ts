@@ -1,10 +1,11 @@
 /**
- * 画布主题：把 styles.css :root 里的 CSS 变量读成 Theme 对象。
+ * 画布主题：把应用样式（src/styles.css）:root 里的 CSS 变量读成 Theme 对象。
  * 只在 main.ts 启动时读一次，Renderer/Editor 通过构造参数接收，
  * 纯逻辑模块不读 DOM、不读全局主题。
  *
- * 每个 token 都带一份与 styles.css :root 一致的默认值：
+ * 每个 token 都带一份与 src/styles.css :root 一致的默认值：
  * 变量缺失时 canvas 不能静默沿用旧值（P3），dev 下会把缺失的 token 汇总后 console.warn 一次。
+ * 界面控件的配色不在这里读：那是 miko_ui 的 token 体系，画布只消费自己的绘制常量。
  */
 
 export interface Theme {
@@ -55,22 +56,22 @@ export interface Theme {
   dimFont: string;
 }
 
-/** 每个 token 的默认值必须与 styles.css 的 :root 保持一致 */
-const DEFAULT_BG = '#1b1d21';
-const DEFAULT_GRID = '#262a30';
-const DEFAULT_AXIS = '#303740';
-const DEFAULT_GEOM = '#9fd1ff';
-const DEFAULT_CONSTRUCTION = '#5a7fb5';
-const DEFAULT_HOT = '#ffcc55';
+/** 每个 token 的默认值必须与 src/styles.css 的 :root 保持一致 */
+const DEFAULT_BG = '#0e101a';
+const DEFAULT_GRID = 'rgba(142, 159, 199, 0.1)';
+const DEFAULT_AXIS = 'rgba(142, 159, 199, 0.18)';
+const DEFAULT_GEOM = '#9fd4ff';
+const DEFAULT_CONSTRUCTION = 'rgba(109, 213, 255, 0.45)';
+const DEFAULT_HOT = '#ffd38f';
 const DEFAULT_SELECTION = '#ff7ab6';
-const DEFAULT_POINT = '#e6e6e6';
-const DEFAULT_POINT_FIXED = '#ff8a8a';
-const DEFAULT_DIM = '#d3a94a';
-const DEFAULT_PREVIEW = '#5aa9ff';
-const DEFAULT_SNAP = '#4ade80';
-const DEFAULT_MARQUEE_WINDOW = '#6aa8ff';
-const DEFAULT_MARQUEE_CROSS = '#4ade80';
-const DEFAULT_DIM_FONT = '12px system-ui, sans-serif';
+const DEFAULT_POINT = '#dbe4ff';
+const DEFAULT_POINT_FIXED = '#ff9aa8';
+const DEFAULT_DIM = '#e0a56b';
+const DEFAULT_PREVIEW = '#6dd5ff';
+const DEFAULT_SNAP = '#8ee6a5';
+const DEFAULT_MARQUEE_WINDOW = '#6dd5ff';
+const DEFAULT_MARQUEE_CROSS = '#8ee6a5';
+const DEFAULT_DIM_FONT = "12px 'JetBrains Mono Slashed', ui-monospace, monospace";
 
 const DEFAULT_STROKE_WIDTH = 1.5;
 const DEFAULT_STROKE_WIDTH_HOT = 2.4;
@@ -107,7 +108,7 @@ const warnMissing = (names: readonly string[]): void => {
   if (missingWarned || !IS_DEV) return;
   missingWarned = true;
   // eslint-disable-next-line no-console -- P3：dev 下暴露缺失的 canvas 主题 token，避免静默沿用默认值
-  console.warn(`[theme] styles.css 缺少主题 token，已回退默认值: ${names.join(', ')}`);
+  console.warn(`[theme] src/styles.css 缺少主题 token，已回退默认值：${names.join(', ')}`);
 };
 
 /**

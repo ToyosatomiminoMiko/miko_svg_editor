@@ -4,7 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/dev_ui_link.mjs auto",
     "dev": "vite",
+    "ui:link": "node scripts/dev_ui_link.mjs link",
+    "ui:unlink": "node scripts/dev_ui_link.mjs unlink",
+    "ui:status": "node scripts/dev_ui_link.mjs status",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
@@ -46,5 +50,8 @@
     "@typescript-eslint/utils": {
       "typescript": "$typescript"
     }
+  },
+  "dependencies": {
+    "miko_ui": "^0.1.19"
   }
 }

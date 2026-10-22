@@ -1,28 +1,39 @@
 /*
- * 全站样式常量。样式仍是暂定稿，所以颜色/尺寸只在这里定义一份，
- * canvas 的绘制常量也由 src/theme.ts 读取同一批 CSS 变量。
+ * 应用级样式。分工与 miko_ui 的边界：
+ * - 控件外观（token / 按钮 / 面板 / 分段 / 开关 / 消息区 / 数值框）全部来自
+ *   miko_ui/styles.css，本文件不写第二份；
+ * - 本文件只写三件事：页面与宿主的定位布局、miko_ui 组件的消费者变体类
+ *   （app-* / is-invalid 等）、以及 canvas 画布自己的主题 token。
+ *
+ * 所有 app-* 类名都是 miko_ui 组件的**外层**或**追加类名**，不是给只含库类名的
+ * 选择器写外观；面板内边距这类可在调用点调的量优先走库开放的 CSS 变量
+ * （--panel-header-padding / --panel-body-padding）。
  */
 
 :root {
-  /* 画布 */
-  --canvas-bg: #1b1d21;
-  --canvas-grid: #262a30;
-  --canvas-axis: #303740;
+  /* 深色声明：原生控件（range 轨道、滚动条）才会按深色画 */
+  color-scheme: dark;
+
+  /* ---------------- canvas 画布主题 ----------------
+   * 画布绘制常量只在这里定义一份，src/theme.ts 读取同一批变量（缺失时回退同值）。
+   * 颜色尽量引库的 token：界面与画布共用一套配色；只有几何语义专属的颜色
+   * （选中粉、尺寸金色）才写字面量 —— 那是应用场景，不是界面主题。 */
+  --canvas-bg: var(--color-bg-desktop);
+  --canvas-grid: rgba(142, 159, 199, 0.1);
+  --canvas-axis: rgba(142, 159, 199, 0.18);
 
   /* 图元 */
-  --geom: #9fd1ff;
-  --geom-construction: #5a7fb5;
-  --geom-hot: #ffcc55;
+  --geom: var(--color-text-formula);
+  --geom-construction: var(--color-accent-border);
+  --geom-hot: var(--color-warning);
   --selection: #ff7ab6;
-  --point: #e6e6e6;
-  --point-fixed: #ff8a8a;
-  --dim: #d3a94a;
-  --preview: #5aa9ff;
-  --snap: #4ade80;
-  --marquee-window: #6aa8ff;
-  --marquee-cross: #4ade80;
-  /* 无效输入等错误态（canvas 不使用，供 UI 控件的错误描边） */
-  --invalid: #d06a6a;
+  --point: var(--color-text-strong);
+  --point-fixed: var(--color-error);
+  --dim: #e0a56b;
+  --preview: var(--color-accent);
+  --snap: var(--color-success);
+  --marquee-window: var(--color-accent);
+  --marquee-cross: var(--color-success);
 
   /* 画布线宽/尺寸（canvas 侧读取） */
   --stroke-width: 1.5;
@@ -37,7 +48,7 @@
   --selected-ring-extra: 2;
   --snap-arm: 6;
   --marquee-fill-alpha: 0.08;
-  --dim-font: 12px system-ui, sans-serif;
+  --dim-font: 12px var(--code-font-family);
 
   /* 虚线：屏幕像素的 on/off 交替长度（构造线/预览/尺寸/框选） */
   --dash-construction: 5 5;
@@ -51,30 +62,10 @@
 
   /* 1px 描边像素对齐量：0.5 使线落在像素中心 */
   --pixel-align: 0.5;
+}
 
-  /* UI 基础 */
-  --ui-font: 13px/1.4 system-ui, sans-serif;
-  --fg: #ddd;
-  --panel-bg: #23262b;
-  --panel-border: #34383f;
-  --panel-radius: 8px;
-  --panel-shadow: 0 4px 16px #0006;
-  --panel-offset: 12px;
-  --panel-gap: 4px;
-
-  /* 控件 */
-  --control-bg: #2d3138;
-  --control-fg: #cfd3da;
-  --control-border: #3b4048;
-  --control-radius: 5px;
-  --control-padding: 4px 9px;
-  --control-hover-bg: #3a3f48;
-  --accent: #3f6fd8;
-  --accent-fg: #fff;
-
-  /* 提示文字 */
-  --hint-opacity: 0.5;
-  --hint-font-size: 12px;
+* {
+  box-sizing: border-box;
 }
 
 html,
@@ -82,128 +73,288 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  font: var(--ui-font);
-  background: var(--canvas-bg);
-  color: var(--fg);
+  background: var(--color-bg-app);
+  color: var(--color-text);
 }
 
-#canvas {
-  display: block;
+/* 应用根：画布与三块 UI 宿主都绝对定位在它里面 */
+#app {
+  position: relative;
   width: 100vw;
   height: 100vh;
+  overflow: hidden;
+}
+
+/* ------------------------------------------------ 画布（应用背景层） */
+
+.app-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
   touch-action: none;
   cursor: default;
 }
 
-#canvas.is-drawing {
+/* 非选择工具时用十字光标（Editor 负责切换这个类） */
+.app-canvas.is-drawing {
   cursor: crosshair;
 }
 
-#toolbar {
-  position: fixed;
-  left: var(--panel-offset);
-  top: var(--panel-offset);
+/* ------------------------------------------------ 工具栏宿主 */
+
+.app-toolbar {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 10;
+  max-width: calc(100vw - 24px);
+}
+
+/* 面板内边距走库开放的变量，不重写 .ui-panel* 的布局规则 */
+.app-toolbar-panel {
+  --panel-header-padding: 6px 12px;
+  --panel-body-padding: 10px 12px;
+}
+
+/* 面板正文自带 10px 下边距，工具栏里不需要 */
+.app-toolbar-panel .ui-panel-body {
+  margin-bottom: 0;
+}
+
+.app-toolbar-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 第一个小节紧贴标题栏下方，不要额外的分隔线与上内边距 */
+.app-toolbar-content > .control-group:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+/* 按钮行：允许换行，窄视口下约束多按钮不会把面板撑出屏幕 */
+.app-button-row {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--panel-gap);
-  padding: 6px;
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: var(--panel-radius);
-  box-shadow: var(--panel-shadow);
-  max-width: calc(100vw - 40px);
-  z-index: 10;
-}
-
-#toolbar button {
-  background: var(--control-bg);
-  color: var(--control-fg);
-  border: 1px solid var(--control-border);
-  border-radius: var(--control-radius);
-  padding: var(--control-padding);
-  cursor: pointer;
-  font: inherit;
-  white-space: nowrap;
-}
-
-#toolbar button:hover {
-  background: var(--control-hover-bg);
-}
-
-#toolbar button.is-active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-fg);
-}
-
-/* 开关型按钮（吸附）用描边区分，避免和“当前工具”的实心高亮混淆 */
-#toolbar button.is-toggle.is-active {
-  background: transparent;
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-#toolbar .sep {
-  width: 1px;
-  background: var(--control-border);
-  margin: 2px 4px;
-}
-
-#hint {
-  position: fixed;
-  left: var(--panel-offset);
-  bottom: var(--panel-offset);
-  display: flex;
   align-items: center;
+  gap: 6px;
+}
+
+/* ------------------------------------------------ 状态栏宿主 */
+
+.app-status {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 10;
+  max-width: min(760px, calc(100vw - 24px));
+}
+
+.app-status-panel {
+  --panel-header-padding: 6px 12px;
+  --panel-body-padding: 8px 12px;
+}
+
+.app-status-panel .ui-panel-body {
+  margin-bottom: 0;
+}
+
+.app-status-content {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  opacity: var(--hint-opacity);
-  font-size: var(--hint-font-size);
+  min-width: min(420px, calc(100vw - 48px));
+}
+
+/* 尺寸编辑期间隐藏状态文案，只留输入行（与原提示栏一致） */
+.app-status-content.is-editing .app-status-line {
+  display: none;
+}
+
+/* 状态文案是只读 <output>，从库的行末读数改成整行文本 */
+.app-status-line {
+  display: block;
+  margin-left: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+/* 尺寸编辑器：默认隐藏，打开尺寸编辑时移除 is-hidden */
+.app-dim-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.app-dim-editor.is-hidden {
+  display: none;
+}
+
+.app-dim-row {
+  flex: 0 1 auto;
+}
+
+/* 尺寸数值框：.control-row 里的数字框默认 76px，这里加宽到能看全精度值。
+   选择器带 .app-dim-row：库的 `.control-row input[type="number"]` 是 （0，2，1），
+   只写 `input.app-dim-field` （0，1，1） 盖不住宽度与 margin。 */
+.app-dim-row input.app-dim-field {
+  width: 128px;
+  font-size: 13px;
+}
+
+/* 非法输入：保持编辑态并标红（文案在 title 与 aria-invalid 上） */
+.app-dim-row input.app-dim-field.is-invalid {
+  border-color: var(--color-error-border);
+  color: var(--color-error);
+}
+
+.app-dim-keys {
+  font-size: 11px;
+  color: var(--color-text-hint);
+}
+
+/* ------------------------------------------------ 通知区宿主 */
+
+/* 只负责摆位；消息区本体（列排布 / 条目配色 / aria-live）全来自库 */
+.app-notices {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  width: min(440px, calc(100vw - 24px));
   pointer-events: none;
 }
 
-/* 尺寸输入框出现时提示栏整体提亮，输入区单独接收鼠标事件 */
-#hint.is-editing {
-  opacity: 1;
-}
-
-#hint.is-editing #hint-text {
-  display: none;
-}
-
-#hint-editor {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.app-notice-list {
+  max-height: 60vh;
   pointer-events: auto;
 }
 
-#hint-editor[hidden] {
-  display: none;
+/* ------------------------------------------------ 确认框（清空等） */
+
+.app-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
 }
 
-#hint-label {
-  color: var(--accent);
+.app-confirm-panel {
+  width: min(420px, calc(100vw - 32px));
+  --panel-body-padding: 14px 16px;
 }
 
-#hint-input {
-  width: 88px;
-  font: inherit;
-  color: var(--control-fg);
-  background: var(--control-bg);
-  border: 1px solid var(--control-border);
-  border-radius: var(--control-radius);
+.app-confirm-panel .ui-panel-body {
+  margin-bottom: 0;
+}
+
+.app-confirm-text {
+  margin: 0;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.app-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* 主按钮变体：库的 .ui-button 基线用 ：where（），消费者类可以整条盖住 */
+.app-confirm-primary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-badge-ink);
+}
+
+.app-confirm-primary:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-badge-ink);
+  filter: brightness(1.08);
+}
+
+/* ------------------------------------------------ 已选择列表 */
+
+/* 宿主只负责摆位；面板框体与行内控件外观都来自 miko_ui */
+.app-selection {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  width: min(248px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+}
+
+/* 面板内边距与工具栏同口径；min-height 让宿主的 max-height 能真正压住正文 */
+.app-selection-panel {
+  --panel-header-padding: 6px 12px;
+  --panel-body-padding: 10px 12px;
+  min-height: 0;
+}
+
+/* 面板正文自带 10px 下边距；行列表要吃掉剩余高度并在内部滚动 */
+.app-selection-panel .ui-panel-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin-bottom: 0;
+}
+
+.app-selection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app-selection-count {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.app-selection-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-hint);
+}
+
+/* 行外壳的紧凑变体：库默认 7px 8px + 顶端对齐，这里压扁并居中 */
+.app-selection-row {
+  align-items: center;
+  padding: 5px 7px;
+}
+
+.app-selection-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 移除按钮比库基线更小：不重写控件外观，只收字号与内边距 */
+.app-selection-remove {
   padding: 2px 6px;
-  outline: none;
+  font-size: 11px;
 }
 
-#hint-input:focus {
-  border-color: var(--accent);
-}
-
-#hint-input.is-invalid {
-  border-color: var(--invalid);
-}
-
-.hint-keys {
-  opacity: 0.7;
+/* 空态与列表互斥显示 */
+.app-selection .is-hidden {
+  display: none;
 }

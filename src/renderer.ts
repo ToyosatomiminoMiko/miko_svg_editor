@@ -1,15 +1,15 @@
 /**
  * 画布渲染器：网格、图元、点、尺寸标注、预览、框选与吸附标记。
  * 外观（颜色/线宽/虚线/箭头/像素对齐）全部来自构造时注入的 Theme，
- * 主题单一来源是 styles.css 的 :root（theme.ts 只负责读取一次）。
+ * 主题单一来源是应用样式 src/styles.css 的 :root（theme.ts 只负责读取一次）。
  */
 
 import { cam, gridSize, s2w, w2s } from './camera';
 import { TAU, sweepOf } from './config';
 import { dimLayout } from './dimensions';
-import { assertNever, entityPointIds } from './entities';
-import { ends, getEntity, getPoint, model } from './model';
-import { isCrossing } from './selection';
+import { assertNever } from './entities';
+import { ends, getPoint, model } from './model';
+import { isCrossing, isEntitySelected, isPointSelected } from './selection';
 import { state } from './state';
 import type { Theme } from './theme';
 import { vec } from './vec';
@@ -51,10 +51,10 @@ export class Renderer {
     this.drawGrid();
 
     for (const e of model.ents.values()) {
-      this.drawEntity(e, state.selection.ents.includes(e.id), state.hoverEnt === e);
+      this.drawEntity(e, isEntitySelected(e.id), state.hoverEnt === e);
     }
     for (const p of model.pts.values()) {
-      this.drawPoint(p, state.hoverPt === p, this.isPointSelected(p));
+      this.drawPoint(p, state.hoverPt === p, isPointSelected(p));
     }
 
     for (const c of model.cons.values()) this.drawDim(c);
@@ -96,16 +96,6 @@ export class Renderer {
     ctx.moveTo(o.x + theme.pixelAlign, 0);
     ctx.lineTo(o.x + theme.pixelAlign, H);
     ctx.stroke();
-  }
-
-  private isPointSelected(p: Point): boolean {
-    // 直接选中的点，或选中图元的端点，都画成选中态
-    if (state.selection.pts.includes(p.id)) return true;
-    for (const id of state.selection.ents) {
-      const e = getEntity(id);
-      if (e && entityPointIds(e).includes(p.id)) return true;
-    }
-    return false;
   }
 
   private drawEntity(e: Entity, selected: boolean, hovered: boolean): void {

@@ -21,6 +21,13 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
+      # 线上 / CI 只认 registry 上的发布版 miko_ui：这里打印实际解析到的版本备查。
+      # 本步纯信息输出，`|| true` 保证任何情况都不会让 CI 失败（本地软链不该出现在 CI）。
+      - name: 确认 miko_ui 来源为 npm 发布版
+        run: |
+          npm ls miko_ui || true
+          npm run ui:status || true
+
       - name: 类型检查
         run: npm run typecheck
 

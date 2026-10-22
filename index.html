@@ -3,26 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <!-- 空 data URI:避免浏览器自动请求 /favicon.ico 产生一条 404 控制台错误 -->
+    <link rel="icon" href="data:," />
     <title>SVG 草图板</title>
   </head>
   <body>
-    <canvas id="canvas"></canvas>
-    <div id="toolbar"></div>
-    <div id="hint">
-      <span id="hint-text"></span>
-      <span id="hint-editor" hidden>
-        <span id="hint-label"></span>
-        <input
-          id="hint-input"
-          type="text"
-          inputmode="decimal"
-          autocomplete="off"
-          spellcheck="false"
-          aria-label="尺寸数值"
-        />
-        <span class="hint-keys">回车确认 · Esc 取消</span>
-      </span>
-    </div>
+    <!-- 页面只留一个挂载点:画布与整块 UI 都由 src/main.ts 用 miko_ui 的 DOM 原语装配 -->
+    <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
