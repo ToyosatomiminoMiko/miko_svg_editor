@@ -1,14 +1,17 @@
 /**
- * 画布渲染器：网格、图元、点、尺寸标注、预览与吸附标记。
- * 所有颜色/线宽来自 theme.ts（即 styles.css 的 CSS 变量）。
+ * 画布渲染器：网格、图元、点、尺寸标注、预览、框选与吸附标记。
+ * 外观（颜色/线宽/虚线/箭头/像素对齐）全部来自构造时注入的 Theme，
+ * 主题单一来源是 styles.css 的 :root（theme.ts 只负责读取一次）。
  */
 
 import { cam, gridSize, s2w, w2s } from './camera';
+import { TAU, sweepOf } from './config';
 import { dimLayout } from './dimensions';
-import { entityPointIds } from './entities';
-import { E, P, ends, model } from './model';
+import { assertNever, entityPointIds } from './entities';
+import { ends, getEntity, getPoint, model } from './model';
+import { isCrossing } from './selection';
 import { state } from './state';
-import { readTheme, type Theme } from './theme';
+import type { Theme } from './theme';
 import { vec } from './vec';
 import type { Constraint, Entity, Point, Vec } from './types';
 
@@ -17,25 +20,20 @@ export class Renderer {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly theme: Theme;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, theme: Theme) {
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('浏览器不支持 canvas 2d');
     this.canvas = canvas;
     this.ctx = ctx;
-    this.theme = readTheme();
-  }
-
-  /** 尺寸命中判定也要用同一份字体/主题 */
-  getTheme(): Theme {
-    return this.theme;
+    this.theme = theme;
   }
 
   resize(): void {
     const dpr = window.devicePixelRatio || 1;
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
-    cam.W = w;
-    cam.H = h;
+    cam.viewportW = w;
+    cam.viewportH = h;
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -43,20 +41,20 @@ export class Renderer {
   }
 
   render(): void {
-    const { ctx } = this;
-    const W = cam.W;
-    const H = cam.H;
+    const { ctx, theme } = this;
+    const W = cam.viewportW;
+    const H = cam.viewportH;
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = this.theme.bg;
+    ctx.fillStyle = theme.bg;
     ctx.fillRect(0, 0, W, H);
 
     this.drawGrid();
 
     for (const e of model.ents.values()) {
-      this.drawEntity(e, state.sel.includes(e.id), state.hoverEnt === e);
+      this.drawEntity(e, state.selection.ents.includes(e.id), state.hoverEnt === e);
     }
     for (const p of model.pts.values()) {
-      this.drawPoint(p, p === state.hoverPt, this.isPointSelected(p));
+      this.drawPoint(p, state.hoverPt === p, this.isPointSelected(p));
     }
 
     for (const c of model.cons.values()) this.drawDim(c);
@@ -68,22 +66,24 @@ export class Renderer {
 
   private drawGrid(): void {
     const { ctx, theme } = this;
+    const W = cam.viewportW;
+    const H = cam.viewportH;
     const g = gridSize();
     const a = s2w({ x: 0, y: 0 });
-    const b = s2w({ x: cam.W, y: cam.H });
+    const b = s2w({ x: W, y: H });
 
     ctx.strokeStyle = theme.grid;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = theme.hairlineWidth;
     ctx.beginPath();
     for (let x = Math.floor(a.x / g) * g; x <= b.x; x += g) {
-      const sx = Math.round(w2s({ x, y: 0 }).x) + 0.5;
+      const sx = Math.round(w2s({ x, y: 0 }).x) + theme.pixelAlign;
       ctx.moveTo(sx, 0);
-      ctx.lineTo(sx, cam.H);
+      ctx.lineTo(sx, H);
     }
     for (let y = Math.floor(a.y / g) * g; y <= b.y; y += g) {
-      const sy = Math.round(w2s({ x: 0, y }).y) + 0.5;
+      const sy = Math.round(w2s({ x: 0, y }).y) + theme.pixelAlign;
       ctx.moveTo(0, sy);
-      ctx.lineTo(cam.W, sy);
+      ctx.lineTo(W, sy);
     }
     ctx.stroke();
 
@@ -91,18 +91,18 @@ export class Renderer {
     const o = w2s({ x: 0, y: 0 });
     ctx.strokeStyle = theme.axis;
     ctx.beginPath();
-    ctx.moveTo(0, o.y + 0.5);
-    ctx.lineTo(cam.W, o.y + 0.5);
-    ctx.moveTo(o.x + 0.5, 0);
-    ctx.lineTo(o.x + 0.5, cam.H);
+    ctx.moveTo(0, o.y + theme.pixelAlign);
+    ctx.lineTo(W, o.y + theme.pixelAlign);
+    ctx.moveTo(o.x + theme.pixelAlign, 0);
+    ctx.lineTo(o.x + theme.pixelAlign, H);
     ctx.stroke();
   }
 
   private isPointSelected(p: Point): boolean {
     // 直接选中的点，或选中图元的端点，都画成选中态
-    if (state.sel.includes(p.id)) return true;
-    for (const id of state.sel) {
-      const e = E(id);
+    if (state.selection.pts.includes(p.id)) return true;
+    for (const id of state.selection.ents) {
+      const e = getEntity(id);
       if (e && entityPointIds(e).includes(p.id)) return true;
     }
     return false;
@@ -122,28 +122,42 @@ export class Renderer {
         : e.construction
           ? theme.construction
           : theme.geom;
-    ctx.setLineDash(e.construction ? [5, 5] : []);
+    ctx.setLineDash(e.construction ? theme.dashConstruction : []);
     ctx.lineCap = 'round';
 
-    if (e.type === 'line') {
-      const [a, b] = ends(e);
-      const A = w2s(a);
-      const B = w2s(b);
-      ctx.beginPath();
-      ctx.moveTo(A.x, A.y);
-      ctx.lineTo(B.x, B.y);
-      ctx.stroke();
-    } else {
-      const c = P(e.c);
-      if (!c) return;
-      const C = w2s(c);
-      ctx.beginPath();
-      if (e.type === 'circle') {
-        ctx.arc(C.x, C.y, Math.abs(e.r) * cam.z, 0, Math.PI * 2);
-      } else {
-        ctx.arc(C.x, C.y, Math.abs(e.r) * cam.z, e.a0, e.a1);
+    switch (e.type) {
+      case 'line': {
+        const [a, b] = ends(e);
+        const A = w2s(a);
+        const B = w2s(b);
+        ctx.beginPath();
+        ctx.moveTo(A.x, A.y);
+        ctx.lineTo(B.x, B.y);
+        ctx.stroke();
+        break;
       }
-      ctx.stroke();
+      case 'circle': {
+        const c = getPoint(e.c);
+        if (!c) break;
+        const C = w2s(c);
+        ctx.beginPath();
+        // r >= 0 是 addCircle/solver 保证的不变量，这里不再取 abs
+        ctx.arc(C.x, C.y, e.r * cam.z, 0, TAU);
+        ctx.stroke();
+        break;
+      }
+      case 'arc': {
+        const c = getPoint(e.c);
+        if (!c) break;
+        const C = w2s(c);
+        // 扫角统一走 sweepOf：起终点同角=整圆（整圆画整圆，与创建/导出/拾取一致）
+        ctx.beginPath();
+        ctx.arc(C.x, C.y, e.r * cam.z, e.a0, e.a0 + sweepOf(e.a0, e.a1));
+        ctx.stroke();
+        break;
+      }
+      default:
+        assertNever(e);
     }
     ctx.setLineDash([]);
   }
@@ -157,7 +171,7 @@ export class Renderer {
         ? theme.pointRadiusHot
         : theme.pointRadius;
     ctx.beginPath();
-    ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+    ctx.arc(s.x, s.y, r, 0, TAU);
     ctx.fillStyle = p.fixed
       ? theme.pointFixed
       : selected
@@ -168,14 +182,15 @@ export class Renderer {
     ctx.fill();
     if (selected) {
       ctx.beginPath();
-      ctx.arc(s.x, s.y, r + 2, 0, Math.PI * 2);
-      ctx.lineWidth = 1;
+      ctx.arc(s.x, s.y, r + theme.selectedRingExtra, 0, TAU);
+      ctx.lineWidth = theme.hairlineWidth;
       ctx.strokeStyle = theme.selection;
       ctx.stroke();
     }
   }
 
-  private lineW(a: Vec, b: Vec): void {
+  /** 世界坐标线段（预览用） */
+  private lineWorld(a: Vec, b: Vec): void {
     const A = w2s(a);
     const B = w2s(b);
     this.ctx.beginPath();
@@ -184,24 +199,24 @@ export class Renderer {
     this.ctx.stroke();
   }
 
-  /** 屏幕坐标下画线段（尺寸标注用） */
-  private lineS(A: Vec, B: Vec): void {
+  /** 屏幕坐标线段（尺寸标注用） */
+  private lineScreen(from: Vec, to: Vec): void {
     const { ctx } = this;
     ctx.beginPath();
-    ctx.moveTo(A.x, A.y);
-    ctx.lineTo(B.x, B.y);
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
     ctx.stroke();
   }
 
-  /** 从 from 指向 to 画箭头（实心三角，屏幕坐标） */
-  private arrowS(from: Vec, to: Vec): void {
-    const { ctx } = this;
+  /** 从 from 指向 to 画实心三角箭头（屏幕坐标） */
+  private arrowScreen(from: Vec, to: Vec): void {
+    const { ctx, theme } = this;
     const d = { x: from.x - to.x, y: from.y - to.y };
     const L = Math.hypot(d.x, d.y) || 1;
     const ux = d.x / L;
     const uy = d.y / L;
-    const size = 8;
-    const w = 3;
+    const size = theme.arrowSize;
+    const w = theme.arrowHalfWidth;
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(from.x - ux * size + uy * w, from.y - uy * size - ux * w);
@@ -212,7 +227,7 @@ export class Renderer {
   }
 
   private drawDim(c: Constraint): void {
-    const layout = dimLayout(c);
+    const layout = dimLayout(c, cam);
     if (!layout) return;
 
     const { ctx, theme } = this;
@@ -220,48 +235,50 @@ export class Renderer {
     ctx.fillStyle = theme.dim;
 
     if (layout.kind === 'distance') {
-      ctx.lineWidth = 1;
-      ctx.setLineDash([3, 3]);
-      this.lineS(layout.A, layout.A2);
-      this.lineS(layout.B, layout.B2);
+      ctx.lineWidth = theme.hairlineWidth;
+      ctx.setLineDash(theme.dashDim);
+      this.lineScreen(layout.A, layout.A2);
+      this.lineScreen(layout.B, layout.B2);
       ctx.setLineDash([]);
-      this.lineS(layout.A2, layout.B2);
-      this.arrowS(layout.A2, layout.B2);
-      this.arrowS(layout.B2, layout.A2);
+      this.lineScreen(layout.A2, layout.B2);
+      this.arrowScreen(layout.A2, layout.B2);
+      this.arrowScreen(layout.B2, layout.A2);
 
-      ctx.font = theme.dimFont;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'bottom';
-      ctx.fillText(layout.text, layout.textPos.x, layout.textPos.y);
+      this.drawDimText(layout.text, layout.textPos, 'center');
     } else {
-      ctx.font = theme.dimFont;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'bottom';
-      ctx.fillText(layout.text, layout.textPos.x, layout.textPos.y);
+      this.drawDimText(layout.text, layout.textPos, 'left');
     }
+  }
+
+  private drawDimText(text: string, pos: Vec, align: CanvasTextAlign): void {
+    const { ctx, theme } = this;
+    ctx.font = theme.dimFont;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(text, pos.x, pos.y);
   }
 
   private drawPreview(): void {
     const p = state.pending;
     if (!p) return;
-    const cur = state.snap ? state.snap.pos : state.cursorW;
+    const cur = state.snap ? state.snap.pos : state.cursorWorld;
     const { ctx, theme } = this;
 
     ctx.save();
     ctx.strokeStyle = theme.preview;
     ctx.lineWidth = theme.strokeWidth;
-    ctx.setLineDash([5, 4]);
+    ctx.setLineDash(theme.dashPreview);
 
     switch (p.type) {
       case 'line':
-        this.lineW(p.start, cur);
+        this.lineWorld(p.start, cur);
         break;
       case 'circle': {
-        const c = P(p.center);
+        const c = getPoint(p.center);
         if (c) {
           const s = w2s(c);
           ctx.beginPath();
-          ctx.arc(s.x, s.y, vec.dist(c, cur) * cam.z, 0, Math.PI * 2);
+          ctx.arc(s.x, s.y, vec.dist(c, cur) * cam.z, 0, TAU);
           ctx.stroke();
         }
         break;
@@ -273,51 +290,51 @@ export class Renderer {
         break;
       }
       case 'arc': {
-        const c = P(p.c);
+        const c = getPoint(p.c);
         if (!c) break;
         const s = w2s(c);
         if (p.stage === 1) {
           ctx.beginPath();
-          ctx.arc(s.x, s.y, vec.dist(c, cur) * cam.z, 0, Math.PI * 2);
+          ctx.arc(s.x, s.y, vec.dist(c, cur) * cam.z, 0, TAU);
           ctx.stroke();
         } else if (p.r !== undefined && p.a0 !== undefined) {
           const a1 = Math.atan2(cur.y - c.y, cur.x - c.x);
-          let sw = a1 - p.a0;
-          while (sw < 0) sw += Math.PI * 2;
+          // BUG-10：预览与创建统一用 sweepOf，同角时预览也画整圆
+          const sweep = sweepOf(p.a0, a1);
           ctx.beginPath();
-          ctx.arc(s.x, s.y, p.r * cam.z, p.a0, p.a0 + sw);
+          ctx.arc(s.x, s.y, p.r * cam.z, p.a0, p.a0 + sweep);
           ctx.stroke();
         }
         break;
       }
       case 'dim': {
-        const a = P(p.a);
-        if (a) this.lineW(a, cur);
+        const a = getPoint(p.a);
+        if (a) this.lineWorld(a, cur);
         break;
       }
+      default:
+        assertNever(p);
     }
     ctx.setLineDash([]);
     ctx.restore();
   }
 
-  /** 框选矩形：由下往上拖是交叉选择，由上往下是窗口选择，用颜色区分 */
+  /** 框选矩形：方向判定与命中判定共用 selection.isCrossing（下→上交叉 / 上→下窗口） */
   private drawMarquee(): void {
     const m = state.marquee;
     if (!m) return;
     const { ctx, theme } = this;
-    const A = w2s(m.a);
-    const B = w2s(m.b);
-    const x = Math.min(A.x, B.x);
-    const y = Math.min(A.y, B.y);
-    const w = Math.abs(B.x - A.x);
-    const h = Math.abs(B.y - A.y);
-    const crossing = m.b.y < m.a.y;
+    const crossing = isCrossing(m.s0, m.currentS);
+    const x = Math.min(m.s0.x, m.currentS.x);
+    const y = Math.min(m.s0.y, m.currentS.y);
+    const w = Math.abs(m.currentS.x - m.s0.x);
+    const h = Math.abs(m.currentS.y - m.s0.y);
 
     ctx.save();
     ctx.strokeStyle = crossing ? theme.marqueeCross : theme.marqueeWindow;
     ctx.fillStyle = ctx.strokeStyle;
     ctx.lineWidth = theme.strokeWidth;
-    ctx.setLineDash([4, 3]);
+    ctx.setLineDash(theme.dashMarquee);
     ctx.globalAlpha = theme.marqueeFillAlpha;
     ctx.fillRect(x, y, w, h);
     ctx.globalAlpha = 1;

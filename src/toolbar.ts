@@ -1,8 +1,10 @@
 /**
- * 工具栏 DOM 构建。按钮文案/顺序来自 tools.ts，动作由调用方注入。
+ * 工具栏 DOM 构建。按钮表来自 tools.ts 的 TOOLS 与 config/constraints-meta 的 CONSTRAINT_ACTIONS，
+ * 动作由调用方（Editor）注入。
  */
 
-import { CONSTRAINT_BUTTONS, TOOLS, type ConstraintAction } from './tools';
+import { CONSTRAINT_ACTIONS } from './config';
+import { TOOLS, type ConstraintAction } from './tools';
 import type { ToolId } from './types';
 
 export interface ToolbarHandlers {
@@ -10,6 +12,7 @@ export interface ToolbarHandlers {
   applyConstraint(kind: ConstraintAction): void;
   toggleSnap(): void;
   toggleFixed(): void;
+  toggleConstruction(): void;
   fitView(): void;
   exportSVG(): void;
   clearAll(): void;
@@ -40,7 +43,10 @@ export function buildToolbar(root: HTMLElement, handlers: ToolbarHandlers): Tool
   };
 
   for (const t of TOOLS) {
-    toolButtons.set(t.id, addButton(t.label, `${t.key.toUpperCase()} 键`, () => handlers.setTool(t.id)));
+    toolButtons.set(
+      t.id,
+      addButton(t.label, `${t.key.toUpperCase()} 键`, () => handlers.setTool(t.id)),
+    );
   }
 
   const addSeparator = (): void => {
@@ -50,13 +56,19 @@ export function buildToolbar(root: HTMLElement, handlers: ToolbarHandlers): Tool
   };
   addSeparator();
 
-  for (const c of CONSTRAINT_BUTTONS) {
+  for (const c of CONSTRAINT_ACTIONS) {
     addButton(c.label, '给选中图形加约束', () => handlers.applyConstraint(c.id));
   }
   addSeparator();
 
-  const snapBtn = addButton('吸附', '开/关吸附（S 键切换）', () => handlers.toggleSnap(), 'is-toggle');
+  const snapBtn = addButton(
+    '吸附',
+    '开/关吸附（S 键切换）',
+    () => handlers.toggleSnap(),
+    'is-toggle',
+  );
   addButton('固定', '固定/解锁选中图形的点', () => handlers.toggleFixed());
+  addButton('构造', '切换选中图元的构造线虚显/导出虚线', () => handlers.toggleConstruction());
   addButton('适应', '缩放显示整张草图', () => handlers.fitView());
   addButton('导出SVG', '下载当前草图', () => handlers.exportSVG());
   addButton('清空', '删除所有图元', () => handlers.clearAll());

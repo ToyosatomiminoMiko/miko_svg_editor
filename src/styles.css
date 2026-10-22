@@ -21,17 +21,36 @@
   --snap: #4ade80;
   --marquee-window: #6aa8ff;
   --marquee-cross: #4ade80;
+  /* 无效输入等错误态（canvas 不使用，供 UI 控件的错误描边） */
+  --invalid: #d06a6a;
 
   /* 画布线宽/尺寸（canvas 侧读取） */
   --stroke-width: 1.5;
   --stroke-width-hot: 2.4;
   --selection-width: 2.6;
+  /* 网格/尺寸线/选中环等 1px 发丝线 */
+  --hairline-width: 1;
   --point-radius: 2.6;
   --point-radius-hot: 4.5;
   --point-selected-radius: 5.4;
+  /* 选中点外圈相对点半径的额外距离 */
+  --selected-ring-extra: 2;
   --snap-arm: 6;
   --marquee-fill-alpha: 0.08;
   --dim-font: 12px system-ui, sans-serif;
+
+  /* 虚线：屏幕像素的 on/off 交替长度（构造线/预览/尺寸/框选） */
+  --dash-construction: 5 5;
+  --dash-preview: 5 4;
+  --dash-dim: 3 3;
+  --dash-marquee: 4 3;
+
+  /* 尺寸箭头：长度与半宽（屏幕像素） */
+  --arrow-size: 8;
+  --arrow-half-width: 3;
+
+  /* 1px 描边像素对齐量：0.5 使线落在像素中心 */
+  --pixel-align: 0.5;
 
   /* UI 基础 */
   --ui-font: 13px/1.4 system-ui, sans-serif;
@@ -182,10 +201,9 @@ body {
 }
 
 #hint-input.is-invalid {
-  border-color: #d06a6a;
+  border-color: var(--invalid);
 }
 
 .hint-keys {
   opacity: 0.7;
 }
-

@@ -1,0 +1,15 @@
+# 构建产物与依赖
+dist/
+node_modules/
+
+# 审计报告（本地文档，不参与格式化）
+audit/
+
+# 依赖锁文件由 npm 生成，格式化没有意义
+package-lock.json
+
+# 本机 npm 缓存（~/.npm 不可写时用工作区缓存）
+.npm-cache/
+
+# 测试覆盖率产物
+coverage/

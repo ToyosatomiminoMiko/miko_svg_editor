@@ -1,0 +1,107 @@
+/*
+ * 轻提示与确认框的外观。
+ * DOM 由 src/ui/notify.ts 创建；颜色/尺寸复用 styles.css :root 的 UI token，
+ * 缺失时用同一组默认值兜底，保证单独加载也不崩。
+ */
+
+/* ---------------- toast ---------------- */
+
+.toast-host {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.toast {
+  max-width: 46ch;
+  padding: 8px 12px;
+  border: 1px solid var(--panel-border, #34383f);
+  border-radius: var(--panel-radius, 8px);
+  background: var(--panel-bg, #23262b);
+  color: var(--fg, #ddd);
+  box-shadow: var(--panel-shadow, 0 4px 16px #0006);
+  font: var(--ui-font, 13px/1.4 system-ui, sans-serif);
+  animation: toast-in 0.16s ease-out;
+}
+
+.toast--error {
+  border-color: var(--invalid, #d06a6a);
+  color: var(--invalid, #d06a6a);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------------- 确认框 ---------------- */
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0007;
+}
+
+.confirm-box {
+  min-width: 260px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 16px 18px;
+  border: 1px solid var(--panel-border, #34383f);
+  border-radius: var(--panel-radius, 8px);
+  background: var(--panel-bg, #23262b);
+  color: var(--fg, #ddd);
+  box-shadow: var(--panel-shadow, 0 4px 16px #0006);
+  font: var(--ui-font, 13px/1.4 system-ui, sans-serif);
+}
+
+.confirm-text {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.confirm-btn {
+  padding: var(--control-padding, 4px 9px);
+  border: 1px solid var(--control-border, #3b4048);
+  border-radius: var(--control-radius, 5px);
+  background: var(--control-bg, #2d3138);
+  color: var(--control-fg, #cfd3da);
+  cursor: pointer;
+  font: inherit;
+}
+
+.confirm-btn:hover {
+  background: var(--control-hover-bg, #3a3f48);
+}
+
+.confirm-btn--primary {
+  border-color: var(--accent, #3f6fd8);
+  background: var(--accent, #3f6fd8);
+  color: var(--accent-fg, #fff);
+}
+
+.confirm-btn:focus-visible {
+  outline: 2px solid var(--accent, #3f6fd8);
+  outline-offset: 2px;
+}

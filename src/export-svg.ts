@@ -1,71 +1,79 @@
 /**
- * SVG 导出。只导出图元（线/圆/圆弧），点与约束不输出。
- * 圆弧用 SVG 的 A 命令描述，角度沿用屏幕坐标（y 向下，顺时针为正）。
+ * SVG 导出：只导出图元（线/圆/圆弧），点与约束不输出。
+ * 纯函数：输入全局 model，输出 SVG 字符串，不碰 window/document（下载由 ui/download.ts 负责）。
+ * 圆弧扫角语义统一走 config/angle.sweepOf：起终点同角（整圆）导出 <circle>，
+ * 其余用 A 命令；否则起终点格式化后重合，按规范整段不渲染（BUG-1）。
  */
 
-import { P, ends, model, modelBounds } from './model';
+import {
+  DEFAULT_EXPORT_STYLE,
+  EXPORT_DECIMALS,
+  EXPORT_STROKE_MIN,
+  EXPORT_STROKE_REF,
+  formatNumber,
+  isFullSweep,
+  sweepOf,
+} from './config';
+import type { ExportStyle } from './config';
+import { assertNever } from './entities';
+import { sketchBounds } from './geometry';
+import { ends, getPoint, model } from './model';
+import type { Entity, Vec } from './types';
 
-export function buildSVG(): string | null {
-  const bb = modelBounds();
+/** 导出整张草图为 SVG；没有可导出的图元时返回 null（提示文案由调用方处理） */
+export function buildSVG(style: Partial<ExportStyle> = {}): string | null {
+  // 空判定只看图元：model.isEmpty() 还会算上临时点/尺寸，而导出只关心有没有可导出的几何
+  if (model.ents.size === 0) return null;
+  const bb = sketchBounds();
   if (!bb) return null;
-  const { minx, miny, bw, bh } = bb;
-  // 以包围盒尺寸估算一个与画面观感接近的线宽
-  const strokeWidth = Math.max(0.2, Math.max(bw, bh) / 500);
 
-  const n = (v: number): string => {
-    const s = (+v.toFixed(4)).toString();
-    return s === '-0' ? '0' : s;
-  };
+  const merged: ExportStyle = { ...DEFAULT_EXPORT_STYLE, ...style };
+  const n = (v: number): string => formatNumber(v, EXPORT_DECIMALS);
+  // 以包围盒尺寸估算一个与画面观感接近的线宽
+  const strokeWidth = Math.max(EXPORT_STROKE_MIN, Math.max(bb.bw, bb.bh) / EXPORT_STROKE_REF);
+  const dash = (e: Entity): string => (e.construction ? ` stroke-dasharray="${merged.dash}"` : '');
+  const circle = (c: Vec, r: number, extra: string): string =>
+    `<circle cx="${n(c.x)}" cy="${n(c.y)}" r="${n(r)}"${extra}/>`;
 
   const body: string[] = [];
   for (const e of model.ents.values()) {
-    const dash = e.construction ? ' stroke-dasharray="4 4"' : '';
-    if (e.type === 'line') {
-      const [a, b] = ends(e);
-      body.push(
-        `<line x1="${n(a.x)}" y1="${n(a.y)}" x2="${n(b.x)}" y2="${n(b.y)}"${dash}/>`,
-      );
-    } else if (e.type === 'circle') {
-      const c = P(e.c);
-      if (!c) continue;
-      body.push(
-        `<circle cx="${n(c.x)}" cy="${n(c.y)}" r="${n(Math.abs(e.r))}"${dash}/>`,
-      );
-    } else {
-      const c = P(e.c);
-      if (!c) continue;
-      const r = Math.abs(e.r);
-      let sweep = e.a1 - e.a0;
-      while (sweep <= 0) sweep += Math.PI * 2;
-      const x0 = c.x + r * Math.cos(e.a0);
-      const y0 = c.y + r * Math.sin(e.a0);
-      const x1 = c.x + r * Math.cos(e.a0 + sweep);
-      const y1 = c.y + r * Math.sin(e.a0 + sweep);
-      const large = sweep > Math.PI ? 1 : 0;
-      body.push(
-        `<path d="M ${n(x0)} ${n(y0)} A ${n(r)} ${n(r)} 0 ${large} 1 ${n(x1)} ${n(y1)}"${dash}/>`,
-      );
+    switch (e.type) {
+      case 'line': {
+        const [a, b] = ends(e);
+        body.push(`<line x1="${n(a.x)}" y1="${n(a.y)}" x2="${n(b.x)}" y2="${n(b.y)}"${dash(e)}/>`);
+        break;
+      }
+      case 'circle': {
+        const c = getPoint(e.c);
+        if (c) body.push(circle(c, e.r, dash(e)));
+        break;
+      }
+      case 'arc': {
+        const c = getPoint(e.c);
+        if (!c) break;
+        const sweep = sweepOf(e.a0, e.a1);
+        if (isFullSweep(sweep)) {
+          body.push(circle(c, e.r, dash(e)));
+          break;
+        }
+        const x0 = c.x + e.r * Math.cos(e.a0);
+        const y0 = c.y + e.r * Math.sin(e.a0);
+        const x1 = c.x + e.r * Math.cos(e.a0 + sweep);
+        const y1 = c.y + e.r * Math.sin(e.a0 + sweep);
+        const large = sweep > Math.PI ? 1 : 0;
+        body.push(
+          `<path d="M ${n(x0)} ${n(y0)} A ${n(e.r)} ${n(e.r)} 0 ${large} 1 ${n(x1)} ${n(y1)}"${dash(e)}/>`,
+        );
+        break;
+      }
+      default:
+        assertNever(e);
     }
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${n(minx)} ${n(miny)} ${n(bw)} ${n(bh)}" width="${n(bw)}" height="${n(bh)}">
-<g fill="none" stroke="#111" stroke-width="${strokeWidth}" stroke-linecap="round">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${n(bb.minx)} ${n(bb.miny)} ${n(bb.bw)} ${n(bb.bh)}" width="${n(bb.bw)}" height="${n(bb.bh)}">
+<g fill="none" stroke="${merged.stroke}" stroke-width="${n(strokeWidth)}" stroke-linecap="${merged.lineCap}">
 ${body.join('\n')}
 </g>
 </svg>`;
-}
-
-export function exportSVG(): void {
-  const svg = buildSVG();
-  if (!svg) {
-    window.alert('草图是空的');
-    return;
-  }
-  const blob = new Blob([svg], { type: 'image/svg+xml' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'sketch.svg';
-  a.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

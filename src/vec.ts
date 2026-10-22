@@ -8,12 +8,6 @@ export const vec = {
   sub(a: Vec, b: Vec): Vec {
     return { x: a.x - b.x, y: a.y - b.y };
   },
-  add(a: Vec, b: Vec): Vec {
-    return { x: a.x + b.x, y: a.y + b.y };
-  },
-  mul(a: Vec, s: number): Vec {
-    return { x: a.x * s, y: a.y * s };
-  },
   dot(a: Vec, b: Vec): number {
     return a.x * b.x + a.y * b.y;
   },
@@ -23,15 +17,17 @@ export const vec = {
   len(a: Vec): number {
     return Math.hypot(a.x, a.y);
   },
+  /** 长度；零长度返回 1，作为残差归一化的分母（避免除零，且零长度时残差为 0） */
+  safeLen(a: Vec): number {
+    return Math.hypot(a.x, a.y) || 1;
+  },
   dist(a: Vec, b: Vec): number {
     return Math.hypot(a.x - b.x, a.y - b.y);
   },
-  /** 单位化；零向量返回自身 */
-  norm(a: Vec): Vec {
-    const l = Math.hypot(a.x, a.y) || 1;
-    return { x: a.x / l, y: a.y / l };
-  },
-  perp(a: Vec): Vec {
-    return { x: -a.y, y: a.x };
+  /** 左法线（逆时针 90°）的单位向量；零向量返回零向量，零分量避免出现 -0 */
+  unitPerp(a: Vec): Vec {
+    const l = Math.hypot(a.x, a.y);
+    if (!l) return { x: 0, y: 0 };
+    return { x: a.y === 0 ? 0 : -a.y / l, y: a.x / l };
   },
 };

@@ -1,0 +1,203 @@
+/**
+ * solver.ts 的 LM 求解行为（node 环境直接跑，无 DOM）。
+ * 覆盖：收敛、冲突约束不可满足、无效约束不崩且上报、圆弧角度不是自由度（BUG-14）、
+ * exclude 集合的点不被移动、半径 setter 钳制到 >= 0。
+ * 每个用例 clearModel() 后重新搭 fixture，注意 solveSketch 会原地修改模型。
+ */
+
+import { beforeEach, describe, expect, it } from 'vitest';
+import { ITER_FULL } from '../src/config';
+import { addArc, addCircle, addCon, addLine, addPt, clearModel, model } from '../src/model';
+import { solveSketch } from '../src/solver';
+
+beforeEach(() => {
+  clearModel();
+});
+
+describe('基本收敛', () => {
+  it('无约束：residual=0、converged、无无效约束', () => {
+    addLine(addPt(0, 0), addPt(10, 5));
+    const result = solveSketch();
+    expect(result.residual).toBe(0);
+    expect(result.converged).toBe(true);
+    expect(result.invalidConstraints).toEqual([]);
+  });
+
+  it('水平约束：求解后两端 y 相等，residual ≈ 0', () => {
+    const a = addPt(0, 0);
+    const b = addPt(10, 5);
+    const line = addLine(a, b);
+    addCon('horizontal', { e: line.id });
+
+    const result = solveSketch();
+
+    expect(result.residual).toBeLessThan(1e-9);
+    expect(result.converged).toBe(true);
+    expect(Math.abs(a.y - b.y)).toBeLessThan(1e-6);
+    expect(result.invalidConstraints).toEqual([]);
+  });
+
+  it('固定点不参与求解：约束残差由自由点承担', () => {
+    const a = addPt(0, 0, true);
+    const b = addPt(10, 5);
+    const line = addLine(a, b);
+    addCon('horizontal', { e: line.id });
+
+    const result = solveSketch();
+
+    expect(a.x).toBe(0);
+    expect(a.y).toBe(0);
+    expect(b.y).toBeCloseTo(0, 6);
+    expect(result.converged).toBe(true);
+  });
+});
+
+describe('冲突约束', () => {
+  it('固定端点上的水平+竖直约束无解：residual > 0 且 converged=false', () => {
+    const a = addPt(0, 0, true);
+    const b = addPt(10, 5, true);
+    const line = addLine(a, b);
+    addCon('horizontal', { e: line.id });
+    addCon('vertical', { e: line.id });
+
+    const result = solveSketch();
+
+    // 水平残差 5、竖直残差 10 → 平方和 125；点都固定，没有任何可调参数
+    expect(result.residual).toBeCloseTo(5 * 5 + 10 * 10, 9);
+    expect(result.converged).toBe(false);
+    expect(result.invalidConstraints).toEqual([]);
+  });
+
+  it('长度 + 水平 + 竖直三条约束互相矛盾：residual > 0 且 converged=false', () => {
+    const a = addPt(0, 0);
+    const b = addPt(10, 0);
+    const line = addLine(a, b);
+    addCon('distancePointPoint', { a: a.id, b: b.id, distance: 10 });
+    addCon('horizontal', { e: line.id });
+    addCon('vertical', { e: line.id });
+
+    const result = solveSketch();
+
+    expect(result.residual).toBeGreaterThan(1e-3);
+    expect(result.converged).toBe(false);
+  });
+});
+
+describe('无效约束（引用悬空 / 种类不符 / 数值缺失）', () => {
+  it('无效约束记入 invalidConstraints，跳过其残差且不抛错', () => {
+    const center = addPt(0, 0);
+    const circle = addCircle(center, 10);
+    const a = addPt(0, 0);
+    const b = addPt(10, 0);
+    addLine(a, b);
+
+    const wrongKind = addCon('horizontal', { e: circle.id });
+    const dangling = addCon('coincident', { a: 999, b: 998 });
+    const nonFinite = addCon('distancePointPoint', {
+      a: a.id,
+      b: b.id,
+      distance: Number.NaN,
+    });
+
+    const result = solveSketch();
+
+    expect(result.invalidConstraints.sort()).toEqual(
+      [wrongKind.id, dangling.id, nonFinite.id].sort(),
+    );
+    // 全部被跳过 → 没有可求的残差，视为满足
+    expect(result.residual).toBe(0);
+    expect(result.converged).toBe(true);
+  });
+
+  it('部分有效部分无效：有效约束仍照常求解', () => {
+    const a = addPt(0, 0);
+    const b = addPt(10, 5);
+    const line = addLine(a, b);
+    const valid = addCon('horizontal', { e: line.id });
+    const invalid = addCon('coincident', { a: 999, b: 998 });
+
+    const result = solveSketch();
+
+    expect(result.invalidConstraints).toEqual([invalid.id]);
+    expect(result.converged).toBe(true);
+    expect(Math.abs(a.y - b.y)).toBeLessThan(1e-6);
+    expect(model.cons.has(valid.id)).toBe(true);
+  });
+});
+
+describe('圆弧角度不是自由度（BUG-14）', () => {
+  it('radius 求解只改 r，a0/a1 严格不变', () => {
+    const center = addPt(0, 0);
+    const arc = addArc(center, 10, 0.3, 2.1);
+    addCon('radius', { e: arc.id, radius: 5 });
+
+    const result = solveSketch();
+
+    expect(result.converged).toBe(true);
+    expect(arc.r).toBeCloseTo(5, 6);
+    expect(arc.a0).toBe(0.3);
+    expect(arc.a1).toBe(2.1);
+  });
+
+  it('整圆弧（a0 === a1）在求解后仍保持整圆语义', () => {
+    const center = addPt(0, 0);
+    const arc = addArc(center, 10, 0, 0);
+    addCon('radius', { e: arc.id, radius: 4 });
+    solveSketch();
+    expect(arc.a0).toBe(0);
+    expect(arc.a1).toBe(0);
+    expect(arc.r).toBeCloseTo(4, 6);
+  });
+});
+
+describe('exclude 集合', () => {
+  it('被排除的点坐标完全不变，其余点承担残差', () => {
+    const a = addPt(0, 0);
+    const b = addPt(10, 5);
+    const line = addLine(a, b);
+    addCon('horizontal', { e: line.id });
+
+    const result = solveSketch(ITER_FULL, new Set([a.id]));
+
+    expect(a.x).toBe(0);
+    expect(a.y).toBe(0);
+    expect(b.y).toBeCloseTo(a.y, 6);
+    expect(result.converged).toBe(true);
+  });
+});
+
+describe('半径钳制', () => {
+  it('半径约束目标为负时 r 仍 >= 0（setter 钳制），残差无法归零', () => {
+    const center = addPt(0, 0);
+    const circle = addCircle(center, 10);
+    addCon('radius', { e: circle.id, radius: -5 });
+
+    const result = solveSketch();
+
+    expect(circle.r).toBeGreaterThanOrEqual(0);
+    expect(circle.r).toBe(0);
+    expect(result.residual).toBeGreaterThan(0);
+    expect(result.converged).toBe(false);
+  });
+});
+
+describe('返回结构', () => {
+  it('residual / converged / invalidConstraints 字段始终存在且为有限数', () => {
+    addLine(addPt(0, 0), addPt(1, 1));
+    const result = solveSketch();
+    expect(Number.isFinite(result.residual)).toBe(true);
+    expect(typeof result.converged).toBe('boolean');
+    expect(Array.isArray(result.invalidConstraints)).toBe(true);
+  });
+
+  it('maxIter=0 时只评估一次残差，不迭代', () => {
+    const a = addPt(0, 0);
+    const b = addPt(10, 5);
+    const line = addLine(a, b);
+    addCon('horizontal', { e: line.id });
+    const before = { ax: a.x, ay: a.y, bx: b.x, by: b.y };
+    const result = solveSketch(0);
+    expect(result.residual).toBe(25);
+    expect({ ax: a.x, ay: a.y, bx: b.x, by: b.y }).toEqual(before);
+  });
+});
