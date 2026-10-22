@@ -24,7 +24,7 @@ import {
 } from './config';
 import { gridSize } from './camera';
 import { assertNever } from './entities';
-import { ends, getPoint, model, ownedPointIds } from './model';
+import { arcGeometry, ends, getPoint, model, ownedPointIds } from './model';
 import { vec } from './vec';
 import type { Entity, Point, PointEntity, Rect, Snap, Vec } from './types';
 
@@ -115,13 +115,18 @@ export function pickEntity(w: Vec, zoom: number): Entity | null {
         d = distToSeg(w, a, b);
         break;
       }
-      case 'circle':
-      case 'arc': {
+      case 'circle': {
         const c = getPoint(e.c);
         if (!c) break;
-        const ang = Math.atan2(w.y - c.y, w.x - c.x);
-        if (e.type === 'arc' && !angInArc(ang, e.a0, e.a1)) break;
         d = Math.abs(vec.dist(w, c) - e.r);
+        break;
+      }
+      case 'arc': {
+        const g = arcGeometry(e);
+        if (!g) break;
+        const ang = Math.atan2(w.y - g.center.y, w.x - g.center.x);
+        if (!angInArc(ang, g.a0, g.a1)) break;
+        d = Math.abs(vec.dist(w, g.center) - g.r);
         break;
       }
       default:
@@ -171,13 +176,24 @@ export function computeSnap(w: Vec, zoom: number): Snap | null {
         }
         break;
       }
-      case 'circle':
-      case 'arc': {
+      case 'circle': {
         const c = getPoint(e.c);
         if (!c) break;
         const ang = Math.atan2(w.y - c.y, w.x - c.x);
-        if (e.type === 'arc' && !angInArc(ang, e.a0, e.a1)) break;
         const on = { x: c.x + e.r * Math.cos(ang), y: c.y + e.r * Math.sin(ang) };
+        const d = vec.dist(on, w);
+        if (d < tol) cands.push({ pos: on, d, pri: SNAP_PRIORITY.curve });
+        break;
+      }
+      case 'arc': {
+        const g = arcGeometry(e);
+        if (!g) break;
+        const ang = Math.atan2(w.y - g.center.y, w.x - g.center.x);
+        if (!angInArc(ang, g.a0, g.a1)) break;
+        const on = {
+          x: g.center.x + g.r * Math.cos(ang),
+          y: g.center.y + g.r * Math.sin(ang),
+        };
         const d = vec.dist(on, w);
         if (d < tol) cands.push({ pos: on, d, pri: SNAP_PRIORITY.curve });
         break;
@@ -264,8 +280,8 @@ function entitySamples(e: Entity): Vec[] {
       return c ? circleSamples(c, e.r, 0, TAU) : [];
     }
     case 'arc': {
-      const c = getPoint(e.c);
-      return c ? circleSamples(c, e.r, e.a0, sweepOf(e.a0, e.a1)) : [];
+      const g = arcGeometry(e);
+      return g ? circleSamples(g.center, g.r, g.a0, sweepOf(g.a0, g.a1)) : [];
     }
     case 'point': {
       const p = getPoint(e.p);
@@ -289,11 +305,16 @@ function entityBounds(e: Entity): Rect | null {
       return c ? { minx: c.x - e.r, miny: c.y - e.r, maxx: c.x + e.r, maxy: c.y + e.r } : null;
     }
     case 'arc': {
-      const c = getPoint(e.c);
-      if (!c) return null;
-      const sweep = sweepOf(e.a0, e.a1);
+      const g = arcGeometry(e);
+      if (!g) return null;
+      const sweep = sweepOf(g.a0, g.a1);
       if (isFullSweep(sweep)) {
-        return { minx: c.x - e.r, miny: c.y - e.r, maxx: c.x + e.r, maxy: c.y + e.r };
+        return {
+          minx: g.center.x - g.r,
+          miny: g.center.y - g.r,
+          maxx: g.center.x + g.r,
+          maxy: g.center.y + g.r,
+        };
       }
       let minx = Infinity;
       let miny = Infinity;
@@ -305,15 +326,13 @@ function entityBounds(e: Entity): Rect | null {
         if (p.x > maxx) maxx = p.x;
         if (p.y > maxy) maxy = p.y;
       };
-      grow({ x: c.x + e.r * Math.cos(e.a0), y: c.y + e.r * Math.sin(e.a0) });
-      grow({
-        x: c.x + e.r * Math.cos(e.a0 + sweep),
-        y: c.y + e.r * Math.sin(e.a0 + sweep),
-      });
+      // 起终点用实际端点（端点可能因求解有极小径向误差），象限极值按圆心+半径算
+      grow(g.start);
+      grow(g.end);
       for (let k = 0; k < 4; k++) {
         const ang = (Math.PI / 2) * k;
-        if (angInArc(ang, e.a0, e.a1)) {
-          grow({ x: c.x + e.r * Math.cos(ang), y: c.y + e.r * Math.sin(ang) });
+        if (angInArc(ang, g.a0, g.a1)) {
+          grow({ x: g.center.x + g.r * Math.cos(ang), y: g.center.y + g.r * Math.sin(ang) });
         }
       }
       return { minx, miny, maxx, maxy };

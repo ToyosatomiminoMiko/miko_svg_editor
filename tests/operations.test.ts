@@ -14,6 +14,7 @@ import {
   addLine,
   addPointEntity,
   addPt,
+  arcGeometry,
   clearModel,
   getEntity,
   getPoint,
@@ -297,7 +298,7 @@ describe('画布点击补参数', () => {
     expect([...model.ents.values()][0]).toMatchObject({ type: 'circle', r: 10 });
   });
 
-  it('圆弧：圆心 → 起点 → 终点，半径与角度由位置推出', () => {
+  it('圆弧：圆心 → 起点 → 终点，三个点都进入模型，半径/角度由点推出', () => {
     const session = createSession('arc');
     for (const w of [
       { x: 0, y: 0 },
@@ -307,16 +308,62 @@ describe('画布点击补参数', () => {
       expect(clickCommand(session, input(w)).filled).toBe(true);
     }
     expect(isComplete(session)).toBe(true);
+    expect(model.pts.size).toBe(3);
 
     const outcome = executeCommand(session, 1);
     expect(outcome.kind).toBe('action');
     const arc = [...model.ents.values()][0];
     expect(arc?.type).toBe('arc');
-    if (arc?.type === 'arc') {
-      expect(arc.r).toBeCloseTo(10, 6);
-      expect(arc.a0).toBeCloseTo(0, 12);
-      expect(arc.a1).toBeCloseTo(Math.PI / 2, 12);
-    }
+    if (!arc || arc.type !== 'arc') throw new Error('圆弧未创建');
+    const g = arcGeometry(arc);
+    expect(g?.r).toBeCloseTo(10, 6);
+    expect(g?.a0).toBeCloseTo(0, 12);
+    expect(g?.a1).toBeCloseTo(Math.PI / 2, 12);
+    expect(g?.start.x).toBeCloseTo(10, 12);
+    expect(g?.start.y).toBeCloseTo(0, 12);
+    expect(g?.end.x).toBeCloseTo(0, 12);
+    expect(g?.end.y).toBeCloseTo(10, 12);
+  });
+
+  it('圆弧起点/终点吸附到已有点时复用同一个点（端点即共享点）', () => {
+    const startPoint = addPt(10, 0);
+    const endPoint = addPt(0, 10);
+    const session = createSession('arc');
+
+    expect(clickCommand(session, input({ x: 0, y: 0 })).filled).toBe(true);
+    const snapStart: Snap = { pos: { x: 10, y: 0 }, pt: startPoint, d: 0, pri: 0 };
+    const snapEnd: Snap = { pos: { x: 0, y: 10 }, pt: endPoint, d: 0, pri: 0 };
+    expect(clickCommand(session, input({ x: 10, y: 0 }, snapStart)).filled).toBe(true);
+    expect(clickCommand(session, input({ x: 0, y: 10 }, snapEnd)).filled).toBe(true);
+
+    expect(model.pts.size).toBe(3); // 只有圆心是新建的
+    const outcome = executeCommand(session, 1);
+    expect(outcome.kind).toBe('action');
+
+    const arc = [...model.ents.values()][0];
+    if (!arc || arc.type !== 'arc') throw new Error('圆弧未创建');
+    expect(arc.a).toBe(startPoint.id);
+    expect(arc.b).toBe(endPoint.id);
+  });
+
+  it('圆弧终点再点起点（复用同一个点）按整圆处理，不产生重合的第二端点', () => {
+    const session = createSession('arc');
+    expect(clickCommand(session, input({ x: 0, y: 0 })).filled).toBe(true);
+    expect(clickCommand(session, input({ x: 10, y: 0 })).filled).toBe(true);
+    const startPoint = [...model.pts.values()].find((p) => p.x === 10 && p.y === 0);
+    if (!startPoint) throw new Error('起点未创建');
+    const snapStart: Snap = { pos: { x: 10, y: 0 }, pt: startPoint, d: 0, pri: 0 };
+
+    expect(clickCommand(session, input({ x: 10, y: 0 }, snapStart)).filled).toBe(true);
+    const outcome = executeCommand(session, 1);
+    expect(outcome.kind).toBe('action');
+    if (outcome.kind === 'action') expect(outcome.result.ok).toBe(true);
+
+    const arc = [...model.ents.values()][0];
+    if (!arc || arc.type !== 'arc') throw new Error('圆弧未创建');
+    expect(arc.a).toBe(startPoint.id);
+    expect(arc.b).toBe(startPoint.id);
+    expect(model.pts.size).toBe(2); // 圆心 + 起点（整圆两端同点）
   });
 
   it('矩形：两个位置槽位不建点，执行时由 createRect 统一取/建四角', () => {

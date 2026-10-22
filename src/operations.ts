@@ -14,7 +14,7 @@
  */
 
 import type { CameraView } from './camera';
-import { MIN_RADIUS, formatDimValue, type ResolvedConstraint } from './config';
+import { formatDimValue, type ResolvedConstraint } from './config';
 import { dimLabel, pickDim, type DimConstraint } from './dimensions';
 import { entityLabel, isCurveEntity } from './entities';
 import { pickEntity, pickPoint, pickPointEntity } from './geometry';
@@ -43,8 +43,8 @@ import { vec } from './vec';
 
 /**
  * 一个参数槽位里装的东西。
- * - point：模型里的几何点（独立点 / 端点 / 圆心 / 点图元引用的点）；
- * - position：只有世界坐标的位置（圆半径点、弧起终点、矩形对角点用，不创建模型点）；
+ * - point：模型里的几何点（独立点 / 直线端点 / 圆或圆弧圆心 / 圆弧端点 / 点图元引用的点）；
+ * - position：只有世界坐标的位置（圆半径点、矩形对角点用，不创建模型点）；
  * - entity：图元对象（含点图元——构造/删除这类按图元身份处理的槽位需要它）；
  * - dim：已有尺寸标注。
  */
@@ -110,6 +110,11 @@ export interface SlotSpec {
   ) => string | undefined;
   /** 同一对象被重复填进本槽位时的提示；缺省用通用文案 */
   readonly duplicateReason?: string;
+  /**
+   * 允许复用已填进其它槽位的同一个点（圆弧终点复用起点 = 整圆）。
+   * 只对点操作数有意义：把「同一个点不能重复作为参数」的通用去重让给 execute 判断。
+   */
+  readonly allowDuplicate?: boolean;
 }
 
 const acceptsPoint = (op: Operand): boolean => op.kind === 'point';
@@ -123,14 +128,14 @@ const acceptsDim = (op: Operand): boolean => op.kind === 'dim';
 const acceptsPointLineCurve = (op: Operand): boolean =>
   op.kind === 'point' || acceptsLineOrCurve(op);
 
-/** 点击可新建点的槽位（绘图起点/终点、尺寸第二点） */
+/** 点击可新建点的槽位（直线/圆弧起点终点、圆心、尺寸点） */
 const createPointSlot = (key: string, prompt: string): SlotSpec => ({
   key,
   prompt,
   accepts: acceptsPoint,
   place: 'point',
 });
-/** 只取位置的槽位（圆半径、弧起终点、矩形对角点） */
+/** 只取位置的槽位（圆半径位置、矩形对角点） */
 const positionSlot = (key: string, prompt: string): SlotSpec => ({
   key,
   prompt,
@@ -252,24 +257,21 @@ const arcOperation: OperationMeta = {
   label: '圆弧',
   group: 'draw',
   tool: 'arc',
+  // 圆心/起点/终点都是真实点：空白点击会建点，吸附到已有点时复用同一个 Point
   slots: () => [
     createPointSlot('圆心', '点一个圆心'),
-    positionSlot('起点', '点一个起点（决定半径与起始角）'),
-    positionSlot('终点', '点一个终点（与起点同角即整圆）'),
+    createPointSlot('起点', '点一个起点（决定半径与起始角）'),
+    // 终点允许直接复用起点（同一个点 → a0 === a1 → 整圆），所以打开 allowDuplicate
+    { ...createPointSlot('终点', '点一个终点（再点起点即整圆）'), allowDuplicate: true },
   ],
-  execute(values) {
+  execute(values, ctx) {
     const center = values[0];
     const start = values[1];
     const end = values[2];
-    if (!isPointOperand(center) || !isPositionOperand(start) || !isPositionOperand(end)) {
+    if (!isPointOperand(center) || !isPointOperand(start) || !isPointOperand(end)) {
       return actionOut(actionFail('缺少圆心或起终点'));
     }
-    const c = center.point;
-    // 半径退化时按 MIN_RADIUS 创建（与旧 arc 状态机一致），避免零半径图元
-    const r = Math.max(MIN_RADIUS, vec.dist(c, start.pos));
-    const a0 = Math.atan2(start.pos.y - c.y, start.pos.x - c.x);
-    const a1 = Math.atan2(end.pos.y - c.y, end.pos.x - c.x);
-    return actionOut(createArc(c, r, a0, a1));
+    return actionOut(createArc(center.point, start.point, end.point, ctx.owned));
   },
 };
 
@@ -409,7 +411,8 @@ const constructionOperation: OperationMeta = {
  * 「重合」的上下文排除（写模型前就挡住无意义约束）：
  * - 同一个点不能和自己重合；
  * - 点已经是目标直线的端点 → pointOnLine 恒成立，是假约束；
- * - 点已经是目标圆/弧的圆心 → pointOnCircle 会把半径挤成 0。
+ * - 点已经是目标圆/弧的圆心 → pointOnCircle 会把半径挤成 0；
+ * - 点已经是目标圆弧的起点/终点 → pointOnCircle 同样恒成立，是假约束。
  */
 function coincidentConflict(anchor: Point, target: Operand): string | undefined {
   if (target.kind === 'point') {
@@ -421,6 +424,9 @@ function coincidentConflict(anchor: Point, target: Operand): string | undefined 
     return '这个点已经是该直线的端点';
   }
   if (isCurveEntity(e) && e.c === anchor.id) return '这个点已经是该圆/弧的圆心';
+  if (e.type === 'arc' && (e.a === anchor.id || e.b === anchor.id)) {
+    return '这个点已经是该圆弧的端点';
+  }
   return undefined;
 }
 
@@ -721,7 +727,7 @@ function fillOne(session: CommandSession, operand: Operand, reasons: string[]): 
     const slot = slots[i];
     if (!slot || session.values[i] !== undefined) continue;
     if (!slot.accepts(operand)) continue;
-    if (isOperandUsed(session, operand)) {
+    if (!slot.allowDuplicate && isOperandUsed(session, operand)) {
       reasons.push(slot.duplicateReason ?? '同一个对象不能重复作为参数');
       continue;
     }
@@ -857,7 +863,7 @@ export function clickCommand(session: CommandSession, input: ClickInput): FillRe
       // 先尝试已有点（普通点 / 点图元 / 吸附点）：尺寸第二点、从已有点起画都走这里
       let filled = false;
       for (const operand of cands.operands) {
-        if (isOperandUsed(session, operand)) {
+        if (!slot.allowDuplicate && isOperandUsed(session, operand)) {
           if (slot.accepts(operand)) {
             reasons.push(slot.duplicateReason ?? '同一个对象不能重复作为参数');
           }
@@ -891,7 +897,7 @@ export function clickCommand(session: CommandSession, input: ClickInput): FillRe
     }
 
     for (const operand of cands.operands) {
-      if (isOperandUsed(session, operand)) {
+      if (!slot.allowDuplicate && isOperandUsed(session, operand)) {
         // 只对「这个槽位本来会接受它」的重复对象给提示，避免噪声
         if (slot.accepts(operand)) {
           reasons.push(slot.duplicateReason ?? '同一个对象不能重复作为参数');
@@ -938,7 +944,7 @@ function appendRepeat(
   if (!last?.repeat) return false;
   const cands = clickCandidates(input);
   for (const operand of cands.operands) {
-    if (isOperandUsed(session, operand)) continue;
+    if (!last.allowDuplicate && isOperandUsed(session, operand)) continue;
     if (!last.accepts(operand)) continue;
     if (last.reject?.(operand, session.values)) continue;
     session.values.push(operand);

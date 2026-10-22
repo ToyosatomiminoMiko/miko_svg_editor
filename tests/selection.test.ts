@@ -9,7 +9,15 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DRAG_THRESHOLD_PX } from '../src/config';
 import { cam } from '../src/camera';
-import { addCircle, addLine, addPt, clearModel, getPoint, removeEntity } from '../src/model';
+import {
+  addCircle,
+  addLine,
+  addPt,
+  arcGeometry,
+  clearModel,
+  getPoint,
+  removeEntity,
+} from '../src/model';
 import {
   applyMarquee,
   clearHover,
@@ -25,6 +33,7 @@ import {
 } from '../src/selection';
 import { resetInteraction, selectOnly, state } from '../src/state';
 import type { Marquee, SelectionItem } from '../src/types';
+import { addArcByAngles } from './fixtures';
 
 beforeEach(() => {
   clearModel();
@@ -129,6 +138,21 @@ describe('clickSelect 单选', () => {
     expect(result.hit).toBe('entity');
     expect(result.startMarquee).toBe(false);
     expect(state.selection.items).toEqual([entItem(line.id)]);
+  });
+});
+
+describe('clickSelect 圆弧端点', () => {
+  it('点击圆弧端点按普通点选中（与线段端点一致）', () => {
+    const center = addPt(0, 0);
+    const arc = addArcByAngles(center, 10, 0, Math.PI / 2);
+    const g = arcGeometry(arc);
+    if (!g) throw new Error('圆弧引用缺失');
+
+    const result = clickSelect(g.start, 1, false);
+
+    expect(result.hit).toBe('point');
+    expect(result.dragPoints).toEqual([g.start]);
+    expect(state.selection.items).toEqual([{ kind: 'pt', id: g.start.id }]);
   });
 });
 
@@ -280,6 +304,16 @@ describe('selectionDragPoints / isPointSelected', () => {
     selectOnly([ptItem(end.id), entItem(line.id)]);
 
     expect(selectionDragPoints().map((p) => p.id)).toEqual([end.id, line.b]);
+  });
+
+  it('选中圆弧时圆心与起点/终点一起成为拖拽点（整弧平移）', () => {
+    const center = addPt(0, 0);
+    const arc = addArcByAngles(center, 10, 0, Math.PI / 2);
+    const g = arcGeometry(arc);
+    if (!g) throw new Error('圆弧引用缺失');
+    selectOnly([entItem(arc.id)]);
+
+    expect(selectionDragPoints().map((p) => p.id)).toEqual([center.id, g.start.id, g.end.id]);
   });
 });
 

@@ -29,6 +29,7 @@ import {
   addLine,
   addPointEntity,
   addPt,
+  arcGeometry,
   clearModel,
   getEntity,
   getPoint,
@@ -58,6 +59,7 @@ import {
 import { dimForEntity } from '../src/sketch-actions';
 import { resetInteraction, selectOnly, state } from '../src/state';
 import type { Marquee, MeasureText, Point, SelectionItem, Snap, Vec } from '../src/types';
+import { addArcByAngles } from './fixtures';
 
 const view: CameraView = { x: 0, y: 0, z: 1, viewportW: 800, viewportH: 600 };
 const measure: MeasureText = (text) => text.length * 10;
@@ -427,6 +429,22 @@ describe('点工具（统一命令引擎）', () => {
       expect(outcome.result.notices[0]?.message).toContain('提升');
     }
     expect(pointEntityOf(a.id)).toBeDefined();
+  });
+
+  it('吸附到圆弧端点时同样复用该点并提升为点图元（圆弧端点就是普通点）', () => {
+    const center = addPt(0, 0);
+    const arc = addArcByAngles(center, 10, 0, Math.PI / 2);
+    const g = arcGeometry(arc);
+    if (!g) throw new Error('圆弧引用缺失');
+    const session = createSession('point');
+
+    clickCommand(session, click({ x: g.start.x, y: g.start.y }, snapAt(g.start)));
+    expect(model.pts.size).toBe(3); // 没有新建点
+
+    const outcome = executeCommand(session, 1);
+    expect(outcome.kind).toBe('action');
+    expect(pointEntityOf(g.start.id)).toBeDefined();
+    expect(arc.a).toBe(g.start.id); // 圆弧仍引用同一个点：图元身份变了，几何没变
   });
 
   it('已有点图元再次创建：返回 info 提示且不重复创建', () => {

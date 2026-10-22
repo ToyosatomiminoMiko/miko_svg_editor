@@ -74,14 +74,15 @@ export function entityLabel(e: Entity): string {
  */
 type DimTarget = { kind: 'distance'; a: number; b: number } | { kind: 'radius'; e: number };
 
-/** 图元引用的点 id：直线是两端点，圆/弧是圆心，点图元是它自己那个点 */
+/** 图元引用的点 id：直线是两端点，圆是圆心，圆弧是圆心+起点+终点，点图元是它自己那个点 */
 export function entityPointIds(e: Entity): number[] {
   switch (e.type) {
     case 'line':
       return [e.a, e.b];
     case 'circle':
-    case 'arc':
       return [e.c];
+    case 'arc':
+      return [e.c, e.a, e.b];
     case 'point':
       return [e.p];
     default:

@@ -1,13 +1,14 @@
 /**
  * export-svg.ts 的纯导出逻辑（node 环境，不碰 window/document）。
- * 关键语义：整圆弧（a0 == a1）导出 <circle>；部分弧用 A 命令且 large-arc/sweep 正确；
+ * 关键语义：整圆弧（起终点同点）导出 <circle>；部分弧用 A 命令且 large-arc/sweep 正确；
  * construction 图元带虚线；style 可覆盖；输出里不允许出现 NaN / Infinity。
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_EXPORT_STYLE, EXPORT_DASH, EXPORT_STROKE } from '../src/config';
 import { buildSVG } from '../src/export-svg';
-import { addArc, addCircle, addLine, addPt, clearModel } from '../src/model';
+import { addCircle, addLine, addPt, clearModel } from '../src/model';
+import { addArcByAngles } from './fixtures';
 
 beforeEach(() => {
   clearModel();
@@ -34,22 +35,22 @@ describe('图元导出', () => {
     expect(buildSVG()).toContain('<circle cx="0" cy="0" r="10"/>');
   });
 
-  it('整圆弧（a0 === a1）导出 <circle> 而不是退化的 path', () => {
-    addArc(addPt(0, 0), 10, 0, 0);
+  it('整圆弧（起终点同点）导出 <circle> 而不是退化的 path', () => {
+    addArcByAngles(addPt(0, 0), 10, 0, 0);
     const svg = buildSVG();
     expect(svg).toContain('<circle cx="0" cy="0" r="10"/>');
     expect(svg).not.toContain('<path');
   });
 
   it('部分圆弧导出 <path>，小弧 large-arc=0、sweep=1', () => {
-    addArc(addPt(0, 0), 10, 0, Math.PI / 2);
+    addArcByAngles(addPt(0, 0), 10, 0, Math.PI / 2);
     const svg = buildSVG();
     // 起点 (10,0)、终点 (0,10)，扫角 π/2 < π → A rx ry rot large sweep x y 中为 0 0 1
     expect(svg).toContain('<path d="M 10 0 A 10 10 0 0 1 0 10"/>');
   });
 
   it('大弧导出 large-arc=1', () => {
-    addArc(addPt(0, 0), 10, 0, (3 * Math.PI) / 2);
+    addArcByAngles(addPt(0, 0), 10, 0, (3 * Math.PI) / 2);
     const svg = buildSVG();
     // 扫角 3π/2 > π → large-arc=1、sweep=1
     expect(svg).toContain('A 10 10 0 1 1');
@@ -68,7 +69,7 @@ describe('图元导出', () => {
   it('输出不含 NaN / Infinity（含各类图元）', () => {
     addLine(addPt(0, 0), addPt(10, 10));
     addCircle(addPt(5, 5), 3);
-    addArc(addPt(20, 20), 4, 0.5, 2.5);
+    addArcByAngles(addPt(20, 20), 4, 0.5, 2.5);
     const svg = buildSVG();
     expect(svg).not.toBeNull();
     expect(svg).not.toMatch(/NaN|Infinity|-Infinity/);

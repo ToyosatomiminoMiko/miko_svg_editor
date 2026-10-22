@@ -8,12 +8,15 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { AUTO_AXIS_RATIO, DIM_DEFAULT_OFFSET_PX } from '../src/config';
 import { isDimConstraint, dimValue } from '../src/dimensions';
+import { entityPointIds } from '../src/entities';
 import {
   addCircle,
   addCon,
   addLine,
   addPt,
+  arcGeometry,
   clearModel,
+  curveRadius,
   getEntity,
   getPoint,
   model,
@@ -34,6 +37,7 @@ import {
   toggleFixed,
 } from '../src/sketch-actions';
 import { resetInteraction } from '../src/state';
+import { addArcByAngles } from './fixtures';
 
 beforeEach(() => {
   clearModel();
@@ -90,15 +94,86 @@ describe('createCircle / createArc', () => {
   it('半径太小拒绝创建', () => {
     const c = addPt(0, 0);
     expect(createCircle(c, 1e-5).ok).toBe(false);
-    expect(createArc(c, 1e-5, 0, 1).ok).toBe(false);
+
+    const tinyStart = addPt(1e-5, 0);
+    const tinyEnd = addPt(0, 1e-5);
+    expect(createArc(c, tinyStart, tinyEnd, new Set([tinyStart.id, tinyEnd.id])).ok).toBe(false);
     expect(model.ents.size).toBe(0);
   });
 
-  it('合法半径创建图元', () => {
+  it('合法半径创建图元；圆弧的起点/终点成为模型点', () => {
     const c = addPt(0, 0);
     expect(createCircle(c, 10).ok).toBe(true);
-    expect(createArc(c, 10, 0, Math.PI).ok).toBe(true);
+    const start = addPt(10, 0);
+    const end = addPt(0, 10);
+    expect(createArc(c, start, end, new Set([start.id, end.id])).ok).toBe(true);
     expect(model.ents.size).toBe(2);
+
+    const arc = [...model.ents.values()].find((e) => e.type === 'arc');
+    if (!arc || arc.type !== 'arc') throw new Error('圆弧未创建');
+    expect(entityPointIds(arc)).toEqual([c.id, start.id, end.id]);
+    const g = arcGeometry(arc);
+    expect(g?.r).toBeCloseTo(10, 6);
+    expect(g?.a0).toBeCloseTo(0, 12);
+    expect(g?.a1).toBeCloseTo(Math.PI / 2, 12);
+  });
+
+  it('终点是本次新建的点：只决定终止角，按起点半径投到圆上', () => {
+    const c = addPt(0, 0);
+    const start = addPt(10, 0);
+    const end = addPt(0, 5); // 点击半径 5；圆弧半径仍由起点决定
+    const created = new Set([start.id, end.id]);
+    expect(createArc(c, start, end, created).ok).toBe(true);
+    expect(end.x).toBeCloseTo(0, 12);
+    expect(end.y).toBeCloseTo(10, 12);
+    expect(model.ents.size).toBe(1);
+  });
+
+  it('终点是已有点：复用该点并以它定半径，起点被挪到同一个圆上', () => {
+    const c = addPt(0, 0);
+    const start = addPt(10, 0); // 本次新建
+    const end = addPt(0, 20); // 已有点：圆弧要接上它
+
+    expect(createArc(c, start, end, new Set([start.id])).ok).toBe(true);
+
+    // 起点保持极角 0、半径改成 |终点 - 圆心| = 20
+    expect(start.x).toBeCloseTo(20, 12);
+    expect(start.y).toBeCloseTo(0, 12);
+    const arc = [...model.ents.values()][0];
+    if (!arc || arc.type !== 'arc') throw new Error('圆弧未创建');
+    expect(curveRadius(arc)).toBeCloseTo(20, 12);
+  });
+
+  it('两端都是已有点但不共圆：拒绝创建，不改动既有几何', () => {
+    const c = addPt(0, 0);
+    const start = addPt(10, 0);
+    const end = addPt(0, 20);
+    const before = [start.x, start.y, end.x, end.y];
+
+    const result = createArc(c, start, end, new Set());
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain('圆上');
+    expect(model.ents.size).toBe(0);
+    expect([start.x, start.y, end.x, end.y]).toEqual(before);
+  });
+
+  it('起终点重合按整圆处理：复用起点，不留重合的第二端点', () => {
+    const c = addPt(0, 0);
+    const start = addPt(10, 0);
+    const end = addPt(10, 0);
+    const created = new Set([start.id, end.id]);
+
+    expect(createArc(c, start, end, created).ok).toBe(true);
+
+    // 圆心 + 起点；临时终点被丢弃，模型里没有两个重合端点
+    expect(model.pts.size).toBe(2);
+    const arc = [...model.ents.values()][0];
+    if (!arc || arc.type !== 'arc') throw new Error('圆弧未创建');
+    expect(arc.a).toBe(start.id);
+    expect(arc.b).toBe(start.id);
+    const g = arcGeometry(arc);
+    expect(g?.r).toBeCloseTo(10, 12);
   });
 });
 
@@ -185,6 +260,15 @@ describe('dimForEntity', () => {
     if (!second.ok) return;
     expect(second.created).toBe(false);
     expect(second.con.id).toBe(first.con.id);
+  });
+
+  it('圆弧半径尺寸取派生半径（圆心到起点的距离）', () => {
+    const arc = addArcByAngles(addPt(0, 0, true), 10, 0, Math.PI / 2);
+    const result = dimForEntity(arc, 1);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.con.type).toBe('radius');
+    expect(dimValue(result.con)).toBe(10);
   });
 
   it('直线创建距离尺寸，offset 按当前缩放换算成世界偏移', () => {

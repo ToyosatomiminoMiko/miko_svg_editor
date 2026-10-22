@@ -6,6 +6,7 @@
  */
 
 import {
+  ARC_ENDPOINT_RADII_REL_TOL,
   AUTO_AXIS_RATIO,
   DIM_DEFAULT_OFFSET_PX,
   ITER_CONSTRAINT,
@@ -35,6 +36,8 @@ import {
   addLine,
   addPointEntity,
   addPt,
+  curveRadius,
+  discardPoint,
   findConstraint,
   getEntity,
   getPoint,
@@ -123,10 +126,58 @@ export function createCircle(center: Point, r: number): ActionResult {
   return actionOk(solve(ITER_INCREMENTAL));
 }
 
-/** 画圆弧：a0/a1 原样存，整圆语义由 config/angle.sweepOf 统一（第三击同角 = 整圆） */
-export function createArc(center: Point, r: number, a0: number, a1: number): ActionResult {
-  if (r < MIN_RADIUS) return actionFail('半径太小，未创建圆弧');
-  addArc(center, r, a0, a1);
+/** 把点沿「圆心 → 点」的方向放到指定半径上（只改半径、不改角度）；与圆心重合时按 0 角放置 */
+function placeOnCircle(p: Point, center: Point, r: number): void {
+  const d = vec.dist(center, p);
+  const ang = d < MIN_DRAW_LENGTH ? 0 : Math.atan2(p.y - center.y, p.x - center.x);
+  p.x = center.x + r * Math.cos(ang);
+  p.y = center.y + r * Math.sin(ang);
+}
+
+/**
+ * 画圆弧：圆心 + 起点 + 终点，半径 = |起点 - 圆心|。
+ * 三个点都是模型里的真实点：起点/终点可以是本次点击新建的，也可以复用吸附到的已有点
+ * （复用即共享同一个 Point，圆弧直接接上既有几何，无需再加重合约束）。
+ *
+ * 端点共圆是圆弧的结构不变量，创建时就把几何落成合法状态，避免求解器去「猜」改哪个点：
+ * - 起点新建、终点是已有点：以终点定半径，把起点挪到圆上（接上既有终点）；
+ * - 终点新建：把终点按起点半径投到圆上（终点只决定终止角，与旧语义一致）；
+ * - 两端都是已有点：半径必须一致，否则说明两点本来不共圆，报错而不是静默改既有几何。
+ * 起终点重合按整圆处理（sweepOf 语义），并复用起点，避免留一个重合的临时点。
+ */
+export function createArc(
+  center: Point,
+  start: Point,
+  end: Point,
+  created: ReadonlySet<number>,
+): ActionResult {
+  const rStart = vec.dist(center, start);
+  const rEnd = vec.dist(center, end);
+  const startIsNew = created.has(start.id);
+  const endIsNew = created.has(end.id);
+
+  if (!endIsNew && startIsNew) {
+    if (rEnd < MIN_RADIUS) return actionFail('终点离圆心太近，未创建圆弧');
+    placeOnCircle(start, center, rEnd);
+  } else if (endIsNew) {
+    if (rStart < MIN_RADIUS) return actionFail('半径太小，未创建圆弧');
+    placeOnCircle(end, center, rStart);
+  } else {
+    const tol = Math.max(MIN_DRAW_LENGTH, Math.max(rStart, rEnd) * ARC_ENDPOINT_RADII_REL_TOL);
+    if (Math.abs(rStart - rEnd) > tol) {
+      return actionFail('终点不在圆上：起点与终点到圆心的距离不同，未创建圆弧');
+    }
+  }
+
+  if (vec.dist(center, start) < MIN_RADIUS) return actionFail('半径太小，未创建圆弧');
+  if (vec.dist(start, end) < MIN_DRAW_LENGTH && endIsNew && end.id !== start.id) {
+    // 整圆：终点是本次新建的另一个点且与起点重合 → 丢掉它，两端复用起点
+    discardPoint(end);
+    addArc(center, start, start);
+  } else {
+    // 也包括 end 就是 start（终点槽位直接复用起点）：a0 === a1 → 整圆
+    addArc(center, start, end);
+  }
   return actionOk(solve(ITER_INCREMENTAL));
 }
 
@@ -244,7 +295,7 @@ export function dimForEntity(e: Entity, zoom: number): DimResult {
   if (target.kind === 'radius') {
     const ent = getEntity(target.e);
     if (!isCurveEntity(ent)) return { ok: false, reason: '该图元不能标注半径' };
-    const con = addCon('radius', { e: ent.id, radius: ent.r });
+    const con = addCon('radius', { e: ent.id, radius: curveRadius(ent) });
     if (!isDimConstraint(con)) return { ok: false, reason: '尺寸创建失败' };
     return { ok: true, con, created: true, notices: solve(ITER_CONSTRAINT) };
   }

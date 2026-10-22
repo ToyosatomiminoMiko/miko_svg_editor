@@ -45,6 +45,12 @@ export const MIN_DIM_DISTANCE = 1e-6;
 /** 圆 / 圆弧的最小半径；半径小于该值不创建图元 */
 export const MIN_RADIUS = 1e-4;
 
+/**
+ * 圆弧创建时，两个「已有点」端点到圆心的距离允许的相对误差。
+ * 超过它说明两个已有点本来就不共圆：宁可报错也不静默改动既有几何。
+ */
+export const ARC_ENDPOINT_RADII_REL_TOL = 1e-6;
+
 /** 矩形的最小边长；任一边更短则不创建矩形 */
 export const MIN_RECT_EDGE = 1e-4;
 

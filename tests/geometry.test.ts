@@ -17,8 +17,9 @@ import {
   rectOf,
   sketchBounds,
 } from '../src/geometry';
-import { addArc, addCircle, addLine, addPt, clearModel, model } from '../src/model';
+import { addCircle, addLine, addPt, arcGeometry, clearModel, model } from '../src/model';
 import { state } from '../src/state';
+import { addArcByAngles } from './fixtures';
 
 beforeEach(() => {
   clearModel();
@@ -66,7 +67,7 @@ describe('pickEntity', () => {
 
   it('部分圆弧只命中弧段角度内；整圆弧任意角度都命中', () => {
     const center = addPt(0, 0);
-    const quarter = addArc(center, 10, 0, Math.PI / 2);
+    const quarter = addArcByAngles(center, 10, 0, Math.PI / 2);
     const onArc = { x: 10 * Math.cos(Math.PI / 4), y: 10 * Math.sin(Math.PI / 4) };
     const offArc = { x: -onArc.x, y: -onArc.y };
     expect(pickEntity(onArc, 1)).toBe(quarter);
@@ -74,11 +75,36 @@ describe('pickEntity', () => {
 
     clearModel();
     const c2 = addPt(0, 0);
-    const full = addArc(c2, 10, 0, 0); // a0 === a1 → 整圆
+    const full = addArcByAngles(c2, 10, 0, 0); // a0 === a1 → 整圆
     for (let k = 0; k < 8; k++) {
       const ang = (TAU * k) / 8;
       expect(pickEntity({ x: 10 * Math.cos(ang), y: 10 * Math.sin(ang) }, 1)).toBe(full);
     }
+  });
+});
+
+describe('圆弧端点就是普通点', () => {
+  it('pickPoint 命中圆心与起点/终点；pickEntity 仍按弧段命中', () => {
+    const center = addPt(0, 0);
+    const arc = addArcByAngles(center, 10, 0, Math.PI / 2);
+    const g = arcGeometry(arc);
+    if (!g) throw new Error('圆弧引用缺失');
+    expect(pickPoint(g.start, 1)).toBe(g.start);
+    expect(pickPoint(g.end, 1)).toBe(g.end);
+    expect(pickPoint(center, 1)).toBe(center);
+    // 端点上既有点又有弧：拾取层先返回点（选择语义再由 selection.clickSelect 决定）
+    expect(pickPoint({ x: 10, y: 0 }, 1)).toBe(g.start);
+    expect(pickEntity({ x: 10, y: 0 }, 1)).toBe(arc);
+  });
+
+  it('computeSnap 在圆弧端点仍按最高优先级的「已有点」返回', () => {
+    const center = addPt(0, 0);
+    const arc = addArcByAngles(center, 10, 0, Math.PI / 2);
+    const g = arcGeometry(arc);
+    if (!g) throw new Error('圆弧引用缺失');
+    const snap = computeSnap({ x: g.end.x + 1, y: g.end.y + 1 }, 1);
+    expect(snap?.pt).toBe(g.end);
+    expect(snap?.pri).toBe(SNAP_PRIORITY.point);
   });
 });
 
@@ -147,7 +173,7 @@ describe('sketchBounds', () => {
 
   it('圆弧按弧段紧包围盒，整圆弧按整圆', () => {
     const center = addPt(0, 0);
-    addArc(center, 10, 0, Math.PI / 2);
+    addArcByAngles(center, 10, 0, Math.PI / 2);
     // 弧段边界含 0 / π/2 两个方向的三角值，用 closeTo 避免浮点末位差异
     const bb = sketchBounds();
     expect(bb?.minx).toBeCloseTo(-1.5, 12);
@@ -159,7 +185,7 @@ describe('sketchBounds', () => {
 
     clearModel();
     const c2 = addPt(0, 0);
-    addArc(c2, 10, 0, 0); // 整圆
+    addArcByAngles(c2, 10, 0, 0); // 整圆
     expect(sketchBounds()).toEqual({
       minx: -12,
       miny: -12,

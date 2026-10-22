@@ -1,7 +1,8 @@
 /**
  * 约束求解器：LM（Levenberg–Marquardt）+ 数值雅可比，原地修改 model 里的参数。
- * 自由度 = 未 fixed 且不在 exclude 集合里的点的 x,y + 圆/圆弧的 r。
- * 圆弧的 a0/a1 不进入任何残差，因此不是自由度（BUG-14）；r 的 setter 钳制到 >= 0。
+ * 自由度 = 未 fixed 且不在 exclude 集合里的点的 x,y + 圆的 r。
+ * 圆弧没有标量参数：半径/起终角都由它的圆心/起点/终点点导出（见 model.arcGeometry），
+ * 「终点与起点共圆」作为内部结构残差参与求解；两端点因此和线段端点一样是真正的自由度。
  *
  * 残差评估遇到无效约束（引用悬空/种类不符/数值缺失，或残差抛错/非有限）时，
  * 把约束 id 记入 invalidConstraints 并把该条残差按 0 计入，保证后续迭代仍可跑；
@@ -21,7 +22,8 @@ import {
 } from './config';
 import { RESID, isConstraintRefsValid } from './constraints';
 import { assertNever } from './entities';
-import { model } from './model';
+import { arcGeometry, model } from './model';
+import { vec } from './vec';
 
 interface Param {
   get: () => number;
@@ -73,8 +75,10 @@ function buildParams(excludedPointIds?: ReadonlySet<number>): Param[] {
       case 'point':
         // 直线/点图元没有独立参数：坐标都在 model.pts 里，已经作为自由度加入
         break;
-      case 'circle':
       case 'arc':
+        // 圆弧也没有独立参数：圆心/起点/终点的坐标已经在 model.pts 里；共圆由结构残差约束
+        break;
+      case 'circle':
         ps.push({
           get: () => e.r,
           set: (v) => {
@@ -116,6 +120,14 @@ function evalResiduals(invalid: Set<number>): number[] {
       continue;
     }
     for (const v of r) out.push(v);
+  }
+  // 圆弧的结构残差：终点必须落在「圆心 + 起点」确定的圆上。
+  // 不放进 Constraint 表：它不可删除、不出现在约束按钮里，只维持圆弧的自洽；
+  // 引用缺失（级联删除漏网）时跳过，与约束的 invalid 语义区分开。
+  for (const e of model.ents.values()) {
+    if (e.type !== 'arc') continue;
+    const g = arcGeometry(e);
+    if (g) out.push(vec.dist(g.end, g.center) - g.r);
   }
   return out;
 }
@@ -227,11 +239,16 @@ export function solveSketch(
       for (let b = 0; b < a; b++) normal[a * n + b] = at(normal, b * n + a);
     }
 
-    /* 阻尼试探：成功则接受并减小 λ，失败则增大 λ 重试 */
+    /*
+     * 阻尼试探：成功则接受并减小 λ，失败则增大 λ 重试。
+     * 阻尼必须用标量 λ 而不是按 JᵀJ 对角缩放：欠约束时 JᵀJ 在零空间奇异
+     * （例如圆弧两端点可以整体绕圆心旋转而残差不变），各向异性的阻尼会把
+     * 「无位移」的零空间方向也推出伪位移（给圆弧加半径尺寸会莫名其妙转一个角度）。
+     */
     let improved = false;
     for (let t = 0; t < RETRY_LIMIT; t++) {
       const damped = Float64Array.from(normal);
-      for (let a = 0; a < n; a++) addAt(damped, a * n + a, lambda * (1 + at(normal, a * n + a)));
+      for (let a = 0; a < n; a++) addAt(damped, a * n + a, lambda);
       const rhs = new Float64Array(n);
       for (let a = 0; a < n; a++) rhs[a] = -at(g, a);
       const dx = gauss(damped, rhs, n);

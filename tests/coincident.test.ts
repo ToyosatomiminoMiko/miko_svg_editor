@@ -3,14 +3,23 @@
  * 「重合」不是单一 kind：同一个按钮按「锚点 + 目标对象」分派到三种残差——
  * 2 个点 → coincident、点 + 直线 → pointOnLine、点 + 圆/弧 → pointOnCircle。
  * 本文件从两层钉住它，避免「按钮能点但写错 kind / 残差永远不收敛」：
- * 1) 槽位填充与上下文排除：点图元按点身份参与；点已是目标直线端点/圆心的组合在
- *    填槽位阶段就被挡住（假约束 / 半径被挤成 0），对象数/类型不对时保持收集态且不写模型；
+ * 1) 槽位填充与上下文排除：点图元/圆弧端点均按点身份参与；点已是目标直线端点/圆心/
+ *    圆弧端点的组合在填槽位阶段就被挡住（假约束 / 半径被挤成 0），对象数/类型不对时保持收集态且不写模型；
  * 2) 求解：execute 写入后立即求解（ITER_CONSTRAINT），用残差≈0 证明
  *    constraints.ts 的 coincident / pointOnLine / pointOnCircle 方程确实收敛。
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { addArc, addCircle, addLine, addPointEntity, addPt, clearModel, model } from '../src/model';
+import {
+  addCircle,
+  addLine,
+  addPointEntity,
+  addPt,
+  arcGeometry,
+  clearModel,
+  curveRadius,
+  model,
+} from '../src/model';
 import {
   createSession,
   executeCommand,
@@ -20,6 +29,7 @@ import {
 import { resetInteraction } from '../src/state';
 import type { Entity, Point, Selection } from '../src/types';
 import { vec } from '../src/vec';
+import { addArcByAngles } from './fixtures';
 
 const sel = (entities: readonly Entity[] = [], points: readonly Point[] = []): Selection => ({
   items: [
@@ -123,7 +133,7 @@ describe('重合：多态分派', () => {
   });
 
   it('点 + 圆弧 → pointOnCircle（圆/弧共用同一目标种类）', () => {
-    const arc = addArc(addPt(0, 0, true), 10, 0, Math.PI);
+    const arc = addArcByAngles(addPt(0, 0, true), 10, 0, Math.PI);
     const p = addPt(20, 0);
 
     const result = run(sel([arc], [p]));
@@ -154,7 +164,7 @@ describe('重合：多态分派', () => {
     const center = addPt(0, 0, true);
     const circle = addCircle(center, 10);
     const arcCenter = addPt(50, 50, true);
-    const arc = addArc(arcCenter, 10, 0, Math.PI);
+    const arc = addArcByAngles(arcCenter, 10, 0, Math.PI);
 
     for (const [entity, point] of [
       [circle, center],
@@ -169,7 +179,20 @@ describe('重合：多态分派', () => {
     expect(cons()).toHaveLength(0);
     // 守卫保证圆不会被求解器压成零半径
     expect(circle.r).toBe(10);
-    expect(arc.r).toBe(10);
+    expect(curveRadius(arc)).toBe(10);
+  });
+
+  it('点已是圆弧起点/终点 → 填槽位阶段拒绝（pointOnCircle 会恒成立）', () => {
+    const center = addPt(0, 0);
+    const arc = addArcByAngles(center, 10, 0, Math.PI / 2);
+    const g = arcGeometry(arc);
+    if (!g) throw new Error('圆弧引用缺失');
+
+    for (const p of [g.start, g.end]) {
+      const { reasons } = arm(sel([arc], [p]));
+      expect(reasons.some((r) => r.includes('端点'))).toBe(true);
+    }
+    expect(cons()).toHaveLength(0);
   });
 
   it('同一个点不能和自己重合（显式点 + 拥有它的点图元）', () => {

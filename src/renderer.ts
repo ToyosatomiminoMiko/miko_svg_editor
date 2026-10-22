@@ -8,7 +8,7 @@ import { cam, gridSize, s2w, w2s } from './camera';
 import { TAU, sweepOf } from './config';
 import { dimLayout } from './dimensions';
 import { assertNever } from './entities';
-import { ends, getPoint, model, ownedPointIds } from './model';
+import { arcGeometry, ends, getPoint, model, ownedPointIds } from './model';
 import { commandPreview } from './operations';
 import {
   isCommandEntity,
@@ -158,12 +158,13 @@ export class Renderer {
         break;
       }
       case 'arc': {
-        const c = getPoint(e.c);
-        if (!c) break;
-        const C = w2s(c);
+        // 半径/起终角由圆心与两端点推出（端点本身是普通点，可单独拖拽/约束）
+        const g = arcGeometry(e);
+        if (!g) break;
+        const C = w2s(g.center);
         // 扫角统一走 sweepOf：起终点同角=整圆（整圆画整圆，与创建/导出/拾取一致）
         ctx.beginPath();
-        ctx.arc(C.x, C.y, e.r * cam.z, e.a0, e.a0 + sweepOf(e.a0, e.a1));
+        ctx.arc(C.x, C.y, g.r * cam.z, g.a0, g.a0 + sweepOf(g.a0, g.a1));
         ctx.stroke();
         break;
       }

@@ -47,15 +47,21 @@ export interface CircleEntity extends EntityBase {
   r: number;
 }
 
+/**
+ * 圆弧：圆心 + 起点 + 终点三个点。
+ * 半径 = |起点 - 圆心|，起终角是两点相对圆心的极角（不是存下来的标量）：
+ * 半径与角度都由点推出来（见 model.arcGeometry），所以圆弧的端点、圆心是真实的求解自由度，
+ * 可以像线段端点一样被拾取/拖拽/固定/约束/共享（例如直接复用直线端点）。
+ * 「终点与起点共圆」是结构不变量：solver 把它作为内部残差，不是用户可删的 Constraint。
+ */
 export interface ArcEntity extends EntityBase {
   type: 'arc';
+  /** 圆心点 */
   c: number;
-  /** 不变量：r >= 0 */
-  r: number;
-  /** 起点角（弧度） */
-  a0: number;
-  /** 终点角（弧度）；扫角语义见 config/angle.ts 的 sweepOf() */
-  a1: number;
+  /** 起点（决定半径与起始角） */
+  a: number;
+  /** 终点（决定终止角）；与起点同角 / 同位置时按整圆处理，见 config/angle.ts 的 sweepOf() */
+  b: number;
 }
 
 /**

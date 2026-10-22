@@ -1,14 +1,16 @@
 /**
  * solver.ts 的 LM 求解行为（node 环境直接跑，无 DOM）。
- * 覆盖：收敛、冲突约束不可满足、无效约束不崩且上报、圆弧角度不是自由度（BUG-14）、
- * exclude 集合的点不被移动、半径 setter 钳制到 >= 0。
+ * 覆盖：收敛、冲突约束不可满足、无效约束不崩且上报、圆弧端点自由度与共圆结构残差、
+ * exclude 集合的点不被移动、圆半径 setter 钳制到 >= 0。
  * 每个用例 clearModel() 后重新搭 fixture，注意 solveSketch 会原地修改模型。
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { ITER_FULL } from '../src/config';
-import { addArc, addCircle, addCon, addLine, addPt, clearModel, model } from '../src/model';
+import { addCircle, addCon, addLine, addPt, arcGeometry, clearModel, model } from '../src/model';
 import { solveSketch } from '../src/solver';
+import { vec } from '../src/vec';
+import { addArcByAngles } from './fixtures';
 
 beforeEach(() => {
   clearModel();
@@ -125,28 +127,50 @@ describe('无效约束（引用悬空 / 种类不符 / 数值缺失）', () => {
   });
 });
 
-describe('圆弧角度不是自由度（BUG-14）', () => {
-  it('radius 求解只改 r，a0/a1 严格不变', () => {
-    const center = addPt(0, 0);
-    const arc = addArc(center, 10, 0.3, 2.1);
+describe('圆弧：端点自由度 + 共圆结构残差', () => {
+  it('radius 求解移动端点；求解后终点仍与起点共圆', () => {
+    const center = addPt(0, 0, true);
+    const arc = addArcByAngles(center, 10, 0.3, 2.1);
     addCon('radius', { e: arc.id, radius: 5 });
 
     const result = solveSketch();
 
+    const g = arcGeometry(arc);
+    if (!g) throw new Error('圆弧引用缺失');
     expect(result.converged).toBe(true);
-    expect(arc.r).toBeCloseTo(5, 6);
-    expect(arc.a0).toBe(0.3);
-    expect(arc.a1).toBe(2.1);
+    expect(g.r).toBeCloseTo(5, 6);
+    expect(vec.dist(g.end, g.center)).toBeCloseTo(g.r, 6);
+    // 圆心固定、只改半径：两个端点沿径向移动，极角基本不变（角度不是独立参数，只是派生量）
+    expect(g.a0).toBeCloseTo(0.3, 4);
+    expect(g.a1).toBeCloseTo(2.1, 4);
   });
 
-  it('整圆弧（a0 === a1）在求解后仍保持整圆语义', () => {
-    const center = addPt(0, 0);
-    const arc = addArc(center, 10, 0, 0);
+  it('整圆弧（起终点是同一点）在求解后仍保持整圆语义', () => {
+    const center = addPt(0, 0, true);
+    const arc = addArcByAngles(center, 10, 0, 0);
     addCon('radius', { e: arc.id, radius: 4 });
     solveSketch();
-    expect(arc.a0).toBe(0);
-    expect(arc.a1).toBe(0);
-    expect(arc.r).toBeCloseTo(4, 6);
+    const g = arcGeometry(arc);
+    if (!g) throw new Error('圆弧引用缺失');
+    expect(g.start).toBe(g.end);
+    expect(g.r).toBeCloseTo(4, 6);
+    expect(g.a0).toBeCloseTo(g.a1, 12);
+  });
+
+  it('手动把终点拖离圆后求解：共圆残差把它拉回同一个圆', () => {
+    const center = addPt(0, 0, true);
+    const arc = addArcByAngles(center, 10, 0, Math.PI / 2);
+    const before = arcGeometry(arc);
+    if (!before) throw new Error('圆弧引用缺失');
+    before.end.x = 20;
+    before.end.y = 0;
+
+    const result = solveSketch();
+
+    const g = arcGeometry(arc);
+    if (!g) throw new Error('圆弧引用缺失');
+    expect(result.converged).toBe(true);
+    expect(vec.dist(g.end, g.center)).toBeCloseTo(g.r, 6);
   });
 });
 

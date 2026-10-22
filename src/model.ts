@@ -12,7 +12,7 @@ import {
   POINT_REF_KEYS,
   constraintRefKey,
 } from './config';
-import { entityPointIds } from './entities';
+import { entityPointIds, type CurveEntity } from './entities';
 import { vec } from './vec';
 import type {
   ArcEntity,
@@ -50,6 +50,51 @@ export const getEntity = (id: number | undefined): Entity | undefined =>
 
 /** 直线两端点；引用完整性由 model 的级联删除保证 */
 export const ends = (e: LineEntity): [Point, Point] => [getPoint(e.a)!, getPoint(e.b)!];
+
+/** 圆弧的派生几何：三个引用点 + 由点算出的半径与起终角；引用缺失返回 null */
+export interface ArcGeometry {
+  readonly center: Point;
+  readonly start: Point;
+  readonly end: Point;
+  /** 半径 = |起点 - 圆心| */
+  readonly r: number;
+  /** 起点角（弧度） */
+  readonly a0: number;
+  /** 终点角（弧度）；扫角语义见 config/angle.ts 的 sweepOf() */
+  readonly a1: number;
+}
+
+/**
+ * 由圆心/起点/终点三个点推导圆弧几何。
+ * 半径和角度都不另存字段：点才是权威，圆弧端点因此可以像线段端点一样参与求解与约束。
+ * 引用缺失返回 null（渲染/拾取这类只读路径据此跳过），需要抛错的调用方自己判空。
+ */
+export function arcGeometry(e: ArcEntity): ArcGeometry | null {
+  const center = getPoint(e.c);
+  const start = getPoint(e.a);
+  const end = getPoint(e.b);
+  if (!center || !start || !end) return null;
+  return {
+    center,
+    start,
+    end,
+    r: vec.dist(center, start),
+    a0: Math.atan2(start.y - center.y, start.x - center.x),
+    a1: Math.atan2(end.y - center.y, end.x - center.x),
+  };
+}
+
+/**
+ * 圆/弧的半径：圆读自身参数 r，圆弧由圆心到起点的距离决定。
+ * 引用缺失只可能来自级联删除漏网（正常路径不会发生），直接抛错让求解器记入无效约束，
+ * 而不是静默返回 0 把「数据坏了」伪装成「半径退化成 0」。
+ */
+export function curveRadius(e: CurveEntity): number {
+  if (e.type === 'circle') return e.r;
+  const g = arcGeometry(e);
+  if (!g) throw new Error(`圆弧 #${e.id} 缺少圆心或端点`);
+  return g.r;
+}
 
 /**
  * 按坐标找已有点（容差 MIN_DRAW_LENGTH）。
@@ -119,15 +164,17 @@ export function addCircle(c: Point, r: number): CircleEntity {
   return e;
 }
 
-/** 圆弧半径钳制到 >= 0；扫角语义见 config/angle.sweepOf() */
-export function addArc(c: Point, r: number, a0: number, a1: number): ArcEntity {
+/**
+ * 圆弧：圆心 + 起点 + 终点。半径/角度不存字段，由三个点推出（见 arcGeometry）；
+ * 端点共圆由 solver 的内部残差保证，因此这里没有 r 钳制——半径等于两点距离，天然 >= 0。
+ */
+export function addArc(c: Point, a: Point, b: Point): ArcEntity {
   const e: ArcEntity = {
     id: newId(),
     type: 'arc',
     c: c.id,
-    r: Math.max(0, r),
-    a0,
-    a1,
+    a: a.id,
+    b: b.id,
     construction: false,
   };
   model.ents.set(e.id, e);

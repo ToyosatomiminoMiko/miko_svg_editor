@@ -11,7 +11,7 @@
 
 import { CONSTRAINT_META, wrapPi } from './config';
 import type { CurveEntity } from './entities';
-import { ends, getEntity, getPoint } from './model';
+import { curveRadius, ends, getEntity, getPoint } from './model';
 import { vec } from './vec';
 import type { Constraint, ConstraintKind, LineEntity, Point } from './types';
 
@@ -93,7 +93,7 @@ export const RESID: Record<ConstraintKind, (c: Constraint) => number[]> = {
   pointOnCircle(c) {
     const e = curveOf(c.e);
     const p = pointOf(c.p);
-    return [vec.dist(p, pointOf(e.c)) - e.r];
+    return [vec.dist(p, pointOf(e.c)) - curveRadius(e)];
   },
 
   /** 线-圆相切：圆心到直线的距离 = 半径 */
@@ -102,14 +102,14 @@ export const RESID: Record<ConstraintKind, (c: Constraint) => number[]> = {
     const circ = curveOf(c.circ);
     const cc = pointOf(circ.c);
     const d = vec.sub(b, a);
-    return [Math.abs(vec.crs(vec.sub(cc, a), d)) / vec.safeLen(d) - circ.r];
+    return [Math.abs(vec.crs(vec.sub(cc, a), d)) / vec.safeLen(d) - curveRadius(circ)];
   },
 
   /** 圆-圆相切（外切）：圆心距 = 半径和 */
   tangentCircleCircle(c) {
     const e1 = curveOf(c.e1);
     const e2 = curveOf(c.e2);
-    return [vec.dist(pointOf(e1.c), pointOf(e2.c)) - (e1.r + e2.r)];
+    return [vec.dist(pointOf(e1.c), pointOf(e2.c)) - (curveRadius(e1) + curveRadius(e2))];
   },
 
   concentric(c) {
@@ -119,7 +119,7 @@ export const RESID: Record<ConstraintKind, (c: Constraint) => number[]> = {
   },
 
   equalRadius(c) {
-    return [curveOf(c.e1).r - curveOf(c.e2).r];
+    return [curveRadius(curveOf(c.e1)) - curveRadius(curveOf(c.e2))];
   },
 
   /* --- 尺寸类（同时是约束） --- */
@@ -135,7 +135,7 @@ export const RESID: Record<ConstraintKind, (c: Constraint) => number[]> = {
   },
 
   radius(c) {
-    return [curveOf(c.e).r - c.radius!];
+    return [curveRadius(curveOf(c.e)) - c.radius!];
   },
 
   angle(c) {

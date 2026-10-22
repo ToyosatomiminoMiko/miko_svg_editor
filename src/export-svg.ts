@@ -19,7 +19,7 @@ import {
 import type { ExportStyle } from './config';
 import { assertNever } from './entities';
 import { sketchBounds } from './geometry';
-import { ends, getPoint, model } from './model';
+import { arcGeometry, ends, getPoint, model } from './model';
 import type { Entity, Vec } from './types';
 
 /** 导出整张草图为 SVG；没有可导出的图元时返回 null（提示文案由调用方处理） */
@@ -51,20 +51,17 @@ export function buildSVG(style: Partial<ExportStyle> = {}): string | null {
         break;
       }
       case 'arc': {
-        const c = getPoint(e.c);
-        if (!c) break;
-        const sweep = sweepOf(e.a0, e.a1);
+        // 端点就是模型点：整圆按 <circle>，其余弧的起终点直接用两个端点坐标
+        const g = arcGeometry(e);
+        if (!g) break;
+        const sweep = sweepOf(g.a0, g.a1);
         if (isFullSweep(sweep)) {
-          body.push(circle(c, e.r, dash(e)));
+          body.push(circle(g.center, g.r, dash(e)));
           break;
         }
-        const x0 = c.x + e.r * Math.cos(e.a0);
-        const y0 = c.y + e.r * Math.sin(e.a0);
-        const x1 = c.x + e.r * Math.cos(e.a0 + sweep);
-        const y1 = c.y + e.r * Math.sin(e.a0 + sweep);
         const large = sweep > Math.PI ? 1 : 0;
         body.push(
-          `<path d="M ${n(x0)} ${n(y0)} A ${n(e.r)} ${n(e.r)} 0 ${large} 1 ${n(x1)} ${n(y1)}"${dash(e)}/>`,
+          `<path d="M ${n(g.start.x)} ${n(g.start.y)} A ${n(g.r)} ${n(g.r)} 0 ${large} 1 ${n(g.end.x)} ${n(g.end.y)}"${dash(e)}/>`,
         );
         break;
       }

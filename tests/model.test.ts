@@ -9,13 +9,16 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { INITIAL_SEQ, MIN_DRAW_LENGTH } from '../src/config';
+import { entityPointIds } from '../src/entities';
 import {
   addArc,
   addCircle,
   addCon,
   addLine,
   addPt,
+  arcGeometry,
   clearModel,
+  curveRadius,
   ends,
   findConstraint,
   getEntity,
@@ -44,12 +47,29 @@ describe('新增对象', () => {
     expect(model.seq).toBe(6);
   });
 
-  it('圆/圆弧半径钳制到 >= 0', () => {
+  it('圆半径钳制到 >= 0', () => {
     const c = addPt(0, 0);
     expect(addCircle(c, -5).r).toBe(0);
     expect(addCircle(c, 5).r).toBe(5);
-    expect(addArc(c, -1, 0, Math.PI).r).toBe(0);
-    expect(addArc(c, 2, 0, Math.PI).r).toBe(2);
+  });
+
+  it('圆弧半径由起点到圆心的距离决定，没有独立参数', () => {
+    const c = addPt(0, 0);
+    const start = addPt(3, 4); // |start - c| = 5
+    const end = addPt(-3, 4);
+    const arc = addArc(c, start, end);
+    expect(curveRadius(arc)).toBe(5);
+    const g = arcGeometry(arc);
+    expect(g?.a0).toBeCloseTo(Math.atan2(4, 3), 12);
+    expect(g?.a1).toBeCloseTo(Math.atan2(4, -3), 12);
+  });
+
+  it('圆弧引用圆心与两个端点（三个点都可被共享/级联删除）', () => {
+    const c = addPt(0, 0);
+    const start = addPt(10, 0);
+    const end = addPt(0, 10);
+    const arc = addArc(c, start, end);
+    expect(entityPointIds(arc)).toEqual([c.id, start.id, end.id]);
   });
 
   it('ends 按图元端点取点对象', () => {
