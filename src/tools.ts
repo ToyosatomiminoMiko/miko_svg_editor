@@ -19,7 +19,7 @@ export const TOOLS: readonly ToolMeta[] = [
   { id: 'circle', label: '圆', key: 'c', hint: '先点圆心，再点半径' },
   { id: 'arc', label: '圆弧', key: 'a', hint: '圆心 → 起点 → 终点' },
   { id: 'rect', label: '矩形', key: 'r', hint: '两个对角点，自动加水平/竖直约束' },
-  { id: 'dim', label: '尺寸', key: 'd', hint: '点两点标距离；点圆/弧直接标半径' },
+  { id: 'dim', label: '尺寸', key: 'd', hint: '点两点标距离 · 点线标长度 · 点圆/弧标半径 · 点已有尺寸改值' },
   { id: 'erase', label: '删除', key: 'e', hint: '点击要删的点或图形' },
 ];
 

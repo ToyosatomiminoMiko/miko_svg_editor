@@ -4,6 +4,15 @@
  */
 
 import { cam, s2w, zoomAt } from './camera';
+import {
+  findDimForEntity,
+  findDistanceDim,
+  formatDimValue,
+  dimValue,
+  pickDim,
+  setDimValue,
+} from './dimensions';
+import { entityDimTarget, entityPointIds } from './entities';
 import { exportSVG as downloadSVG } from './export-svg';
 import {
   computeSnap,
@@ -23,9 +32,9 @@ import {
   addLine,
   addPt,
   clearModel,
-  ends,
   model,
   modelBounds,
+  removeConstraint,
   removeEntity,
   removePoint,
 } from './model';
@@ -34,8 +43,17 @@ import { solveSketch } from './solver';
 import { state } from './state';
 import { TOOLS, type ConstraintAction } from './tools';
 import type { ToolbarHandle, ToolbarHandlers } from './toolbar';
-import type { Entity, Point, Snap, ToolId, Vec } from './types';
+import type { Constraint, Entity, Point, Snap, ToolId, Vec } from './types';
 import { vec } from './vec';
+
+/** 底部提示栏里的尺寸输入框节点，由 main.ts 从 index.html 取出后传入 */
+export interface HintHandle {
+  root: HTMLElement;
+  text: HTMLElement;
+  editor: HTMLElement;
+  label: HTMLElement;
+  input: HTMLInputElement;
+}
 
 interface DragState {
   items: { p: Point; ox: number; oy: number }[];
@@ -53,7 +71,7 @@ interface PanState {
 
 export class Editor implements ToolbarHandlers {
   private readonly canvas: HTMLCanvasElement;
-  private readonly hint: HTMLElement;
+  private readonly hint: HintHandle;
   private readonly renderer: Renderer;
   private toolbar: ToolbarHandle | null = null;
   private drag: DragState | null = null;
@@ -64,12 +82,15 @@ export class Editor implements ToolbarHandlers {
   private marqueeStartS: Vec | null = null;
   private marqueeActive = false;
   private marqueeAdd = false;
+  /** 正在编辑的尺寸；created 表示本次刚创建，Esc 要撤销掉 */
+  private dimEdit: { con: Constraint; created: boolean; pointId?: number } | null = null;
 
-  constructor(canvas: HTMLCanvasElement, hint: HTMLElement) {
+  constructor(canvas: HTMLCanvasElement, hint: HintHandle) {
     this.canvas = canvas;
     this.hint = hint;
     this.renderer = new Renderer(canvas);
     this.attachEvents();
+    this.bindHintEditor();
     window.addEventListener('resize', () => this.renderer.resize());
     this.renderer.resize();
   }
@@ -84,8 +105,10 @@ export class Editor implements ToolbarHandlers {
   /* ======================= 工具栏动作 ======================= */
 
   setTool(id: ToolId): void {
+    // 切工具时先结算输入框：合法值提交，非法值放弃
+    if (this.dimEdit && !this.commitDimEdit()) this.cancelDimEdit();
     state.tool = id;
-    state.pending = null;
+    this.clearPending();
     state.snap = null;
     this.resetMarquee();
     if (id !== 'select') state.sel = [];
@@ -139,13 +162,7 @@ export class Editor implements ToolbarHandlers {
     for (const id of state.sel) {
       const e = E(id);
       if (e) {
-        if (e.type === 'line') {
-          const [a, b] = ends(e);
-          ids.add(a.id);
-          ids.add(b.id);
-        } else {
-          ids.add(e.c);
-        }
+        for (const pid of entityPointIds(e)) ids.add(pid);
       } else if (P(id)) {
         ids.add(id);
       }
@@ -186,6 +203,7 @@ export class Editor implements ToolbarHandlers {
     // 只删图元后可能剩下孤立点，所以以点为准判断是否为空
     if (model.pts.size === 0) return;
     if (!window.confirm('清空整张草图？')) return;
+    if (this.dimEdit) this.cancelDimEdit();
     clearModel();
     state.sel = [];
     state.pending = null;
@@ -214,7 +232,148 @@ export class Editor implements ToolbarHandlers {
     else if (pts > 0) parts.push(`已选 ${pts} 个点`);
 
     if (!state.snapEnabled) parts.push('吸附已关');
-    this.hint.textContent = parts.join(' · ');
+    this.hint.text.textContent = parts.join(' · ');
+  }
+
+  /* ======================= 尺寸输入框 ======================= */
+
+  /**
+   * 输入框的按键与失焦处理。
+   * 输入框聚焦时 stopPropagation，让画布的单键快捷键（v/l/c/a/r/d/e/s）失效；
+   * 点击输入框以外的任何位置 = 先结算输入，再让这次点击继续生效。
+   */
+  private bindHintEditor(): void {
+    const { input } = this.hint;
+
+    input.addEventListener('keydown', (ev) => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        this.commitDimEdit();
+      } else if (ev.key === 'Escape') {
+        ev.preventDefault();
+        this.cancelDimEdit();
+      }
+    });
+    input.addEventListener('input', () => input.classList.remove('is-invalid'));
+    // Tab 等失焦也按提交处理；hide 时已先清空 dimEdit，不会重复触发
+    input.addEventListener('blur', () => {
+      if (this.dimEdit) this.commitDimEdit();
+    });
+
+    window.addEventListener(
+      'pointerdown',
+      (ev) => {
+        if (!this.dimEdit) return;
+        if (this.hint.editor.contains(ev.target as Node | null)) return;
+        // 非法输入保持编辑并吞掉这次点击，避免在不确定的值上继续操作
+        if (!this.commitDimEdit()) {
+          ev.stopPropagation();
+          ev.preventDefault();
+        }
+      },
+      true,
+    );
+  }
+
+  /** 打开输入框：编辑刚创建的尺寸或点中的已有尺寸 */
+  private openDimEdit(con: Constraint, created: boolean, label: string, pointId?: number): void {
+    this.dimEdit = { con, created, pointId };
+    this.hint.root.classList.add('is-editing');
+    this.hint.editor.hidden = false;
+    this.hint.label.textContent = label;
+    this.hint.input.value = formatDimValue(dimValue(con));
+    this.hint.input.classList.remove('is-invalid');
+    // 延后一个任务再聚焦：pointerdown 的默认行为会把焦点移到 body，立即聚焦会被马上 blur 掉
+    window.setTimeout(() => {
+      if (this.dimEdit?.con !== con) return;
+      this.hint.input.focus();
+      this.hint.input.select();
+    }, 0);
+  }
+
+  /**
+   * 提交输入值。
+   * @returns 是否已提交；数值非法时返回 false 并保持编辑状态
+   */
+  private commitDimEdit(): boolean {
+    const edit = this.dimEdit;
+    if (!edit) return true;
+
+    const raw = this.hint.input.value.trim();
+    const value = Number(raw);
+    // 长度/半径必须是有限正数；空串 Number('') === 0，用 raw 兜住
+    if (!raw || !Number.isFinite(value) || value <= 0) {
+      this.hint.input.classList.add('is-invalid');
+      this.hint.input.focus();
+      this.hint.input.select();
+      return false;
+    }
+
+    this.dimEdit = null;
+    this.hideDimEditor();
+    setDimValue(edit.con, value);
+    solveSketch(120);
+    this.render();
+    return true;
+  }
+
+  /** 取消输入：新建的尺寸撤销掉（含这次顺手建的点），编辑已有的保持原值 */
+  private cancelDimEdit(): void {
+    const edit = this.dimEdit;
+    if (!edit) return;
+    this.dimEdit = null;
+    this.hideDimEditor();
+    if (edit.created) {
+      removeConstraint(edit.con);
+      if (edit.pointId !== undefined) {
+        const p = P(edit.pointId);
+        if (p) removePoint(p);
+      }
+      solveSketch(40);
+    }
+    this.render();
+  }
+
+  private hideDimEditor(): void {
+    this.hint.editor.hidden = true;
+    this.hint.root.classList.remove('is-editing');
+    this.hint.input.blur();
+    this.refreshHint();
+  }
+
+  /** 尺寸工具点中图元：按类型创建（或编辑已有）尺寸 */
+  private startEntityDim(e: Entity): void {
+    const target = entityDimTarget(e);
+
+    if (target.kind === 'radius') {
+      const existing = findDimForEntity(e);
+      if (existing) {
+        this.openDimEdit(existing, false, '半径');
+        return;
+      }
+      const ent = E(target.e);
+      if (!ent || ent.type === 'line') return;
+      const con = addCon('radius', { e: target.e, r: ent.r });
+      solveSketch(40);
+      this.openDimEdit(con, true, '半径');
+      return;
+    }
+
+    const existing = findDimForEntity(e);
+    if (existing) {
+      this.openDimEdit(existing, false, '长度');
+      return;
+    }
+    const a = P(target.a);
+    const b = P(target.b);
+    if (!a || !b) return;
+    const d = vec.dist(a, b);
+    if (d < 1e-9) return;
+    // 点击点就在线上，投影为 0，所以用固定屏幕偏移把尺寸线推离线本身
+    const con = addCon('distancePP', { a: target.a, b: target.b, d, offset: 14 / cam.z });
+    solveSketch(40);
+    this.openDimEdit(con, true, '长度');
   }
 
   /* ======================= 事件 ======================= */
@@ -322,6 +481,8 @@ export class Editor implements ToolbarHandlers {
   }
 
   private onKeyDown(ev: KeyboardEvent): void {
+    // 输入框打开时键盘归输入框管，避免打数字时触发单键快捷键
+    if (this.dimEdit) return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
     if (ev.key === 'Escape') {
       this.cancelAction();
@@ -344,13 +505,17 @@ export class Editor implements ToolbarHandlers {
   /* ======================= 工具状态机 ======================= */
 
   private cancelAction(): void {
+    if (this.dimEdit) {
+      this.cancelDimEdit();
+      return;
+    }
     if (this.marqueeStartS) {
       this.resetMarquee();
       this.render();
       return;
     }
     if (state.pending) {
-      state.pending = null;
+      this.clearPending();
       this.render();
       return;
     }
@@ -361,6 +526,16 @@ export class Editor implements ToolbarHandlers {
     state.sel = [];
     this.refreshHint();
     this.render();
+  }
+
+  /** 清空未完成操作；顺手删掉这次点击新建、但还没并入图元的孤立点 */
+  private clearPending(): void {
+    const pending = state.pending;
+    if (pending && 'newPt' in pending && pending.newPt !== undefined) {
+      const p = P(pending.newPt);
+      if (p) removePoint(p);
+    }
+    state.pending = null;
   }
 
   private resetMarquee(): void {
@@ -413,7 +588,14 @@ export class Editor implements ToolbarHandlers {
       case 'line': {
         const pending = state.pending;
         if (!pending || pending.type !== 'line') {
-          state.pending = { type: 'line', start: pos, startPt: this.acquirePoint(snap, w) };
+          const startPt = this.acquirePoint(snap, w);
+          state.pending = {
+            type: 'line',
+            start: pos,
+            startPt,
+            // 吸附到已有点时复用，不算新点
+            newPt: snap?.pt ? undefined : startPt.id,
+          };
         } else {
           const a = pending.start;
           if (vec.dist(a, pos) < 1e-6) return;
@@ -438,15 +620,22 @@ export class Editor implements ToolbarHandlers {
         const pending = state.pending;
         if (!pending || pending.type !== 'circle') {
           const c = this.acquirePoint(snap, w);
-          state.pending = { type: 'circle', center: c.id };
+          state.pending = { type: 'circle', center: c.id, newPt: snap?.pt ? undefined : c.id };
         } else {
           const c = P(pending.center);
           if (c) {
             const r = vec.dist(c, pos);
-            if (r > 1e-4) addCircle(c, r);
+            if (r > 1e-4) {
+              addCircle(c, r);
+              state.pending = null;
+              solveSketch(40);
+            } else {
+              // 半径太小没画出圆：把刚建的圆心点一起清掉
+              this.clearPending();
+            }
+          } else {
+            state.pending = null;
           }
-          state.pending = null;
-          solveSketch(40);
         }
         break;
       }
@@ -456,7 +645,7 @@ export class Editor implements ToolbarHandlers {
         const pending = state.pending;
         if (!pending || pending.type !== 'arc') {
           const c = this.acquirePoint(snap, w);
-          state.pending = { type: 'arc', c: c.id, stage: 1 };
+          state.pending = { type: 'arc', c: c.id, stage: 1, newPt: snap?.pt ? undefined : c.id };
         } else if (pending.stage === 1) {
           const c = P(pending.c);
           if (!c) {
@@ -470,6 +659,7 @@ export class Editor implements ToolbarHandlers {
             stage: 2,
             r,
             a0: Math.atan2(pos.y - c.y, pos.x - c.x),
+            newPt: pending.newPt,
           };
         } else {
           const c = P(pending.c);
@@ -516,40 +706,56 @@ export class Editor implements ToolbarHandlers {
       /* -------- 尺寸 -------- */
       case 'dim': {
         const pending = state.pending;
-        if (!pending || pending.type !== 'dim') {
-          const p = pickPoint(w);
-          if (p) {
-            state.pending = { type: 'dim', a: p.id, startW: { x: p.x, y: p.y } };
-            break;
-          }
-          const e = pickEntity(w);
-          if (e && e.type !== 'line') {
-            addCon('radius', { e: e.id, r: e.r });
-            solveSketch(40);
-          } else if (e && e.type === 'line') {
-            const a = P(e.a);
-            if (a) state.pending = { type: 'dim', a: e.a, b: e.b, startW: { x: a.x, y: a.y } };
-          }
-        } else {
+        if (pending && pending.type === 'dim') {
           const a = P(pending.a);
           if (!a) {
             state.pending = null;
             break;
           }
           const p = pickPoint(w);
+          if (p && p.id === a.id) {
+            // 点回起点视为取消
+            state.pending = null;
+            break;
+          }
           const b = p ?? addPt(pos.x, pos.y);
           const d = vec.dist(a, b);
           if (d > 1e-6) {
-            // 标注偏移：点击位置在法线方向的投影
-            const dir = vec.sub(b, a);
-            const L = vec.len(dir) || 1;
-            const nrm = { x: -dir.y / L, y: dir.x / L };
-            const off = vec.dot(vec.sub(w, a), nrm);
-            addCon('distancePP', { a: a.id, b: b.id, d, offset: off });
-            solveSketch(60);
+            const existing = p ? findDistanceDim(a.id, p.id) : undefined;
+            if (existing) {
+              this.openDimEdit(existing, false, '距离');
+            } else {
+              // 标注偏移：点击位置在法线方向的投影
+              const dir = vec.sub(b, a);
+              const L = vec.len(dir) || 1;
+              const nrm = { x: -dir.y / L, y: dir.x / L };
+              const off = vec.dot(vec.sub(w, a), nrm);
+              const con = addCon('distancePP', { a: a.id, b: b.id, d, offset: off });
+              solveSketch(60);
+              // 第二点是这次点击新建的：Esc 撤销时连它一起删
+              this.openDimEdit(con, true, '距离', p ? undefined : b.id);
+            }
+          } else if (!p) {
+            // 退化成零距离：删掉刚建的点
+            removePoint(b);
           }
           state.pending = null;
+          break;
         }
+
+        // 已有尺寸标注优先：单击进入编辑
+        const dim = pickDim(w, this.renderer.getTheme());
+        if (dim) {
+          this.openDimEdit(dim, false, dim.type === 'radius' ? '半径' : '距离');
+          break;
+        }
+        const p = pickPoint(w);
+        if (p) {
+          state.pending = { type: 'dim', a: p.id };
+          break;
+        }
+        const e = pickEntity(w);
+        if (e) this.startEntityDim(e);
         break;
       }
 
@@ -594,8 +800,10 @@ export class Editor implements ToolbarHandlers {
         }
         const ent = pickEntity(w);
         if (ent) {
-          const pts = ent.type === 'line' ? [P(ent.a), P(ent.b)] : [P(ent.c)];
-          this.startDrag(pts.filter((p): p is Point => Boolean(p)));
+          const pts = entityPointIds(ent)
+            .map((id) => P(id))
+            .filter((p): p is Point => Boolean(p));
+          this.startDrag(pts);
           state.sel = [ent.id];
           this.refreshHint();
           return;

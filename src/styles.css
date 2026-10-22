@@ -134,7 +134,58 @@ body {
   position: fixed;
   left: var(--panel-offset);
   bottom: var(--panel-offset);
+  display: flex;
+  align-items: center;
+  gap: 8px;
   opacity: var(--hint-opacity);
   font-size: var(--hint-font-size);
   pointer-events: none;
 }
+
+/* 尺寸输入框出现时提示栏整体提亮，输入区单独接收鼠标事件 */
+#hint.is-editing {
+  opacity: 1;
+}
+
+#hint.is-editing #hint-text {
+  display: none;
+}
+
+#hint-editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+#hint-editor[hidden] {
+  display: none;
+}
+
+#hint-label {
+  color: var(--accent);
+}
+
+#hint-input {
+  width: 88px;
+  font: inherit;
+  color: var(--control-fg);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--control-radius);
+  padding: 2px 6px;
+  outline: none;
+}
+
+#hint-input:focus {
+  border-color: var(--accent);
+}
+
+#hint-input.is-invalid {
+  border-color: #d06a6a;
+}
+
+.hint-keys {
+  opacity: 0.7;
+}
+

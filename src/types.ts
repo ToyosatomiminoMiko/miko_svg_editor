@@ -109,12 +109,17 @@ export interface Snap {
   pri: number;
 }
 
+/**
+ * 未完成的绘制操作。
+ * newPt：这次点击顺手创建的点的 id；取消时要把这个孤立点删掉，
+ * 已经并入图元的点不会再标在这里。
+ */
 export type Pending =
-  | { type: 'line'; start: Vec; startPt: Point }
-  | { type: 'circle'; center: number }
-  | { type: 'arc'; c: number; stage: 1 | 2; r?: number; a0?: number }
+  | { type: 'line'; start: Vec; startPt: Point; newPt?: number }
+  | { type: 'circle'; center: number; newPt?: number }
+  | { type: 'arc'; c: number; stage: 1 | 2; r?: number; a0?: number; newPt?: number }
   | { type: 'rect'; p0: Vec }
-  | { type: 'dim'; a: number; b?: number; startW: Vec };
+  | { type: 'dim'; a: number };
 
 export interface EditorState {
   tool: ToolId;

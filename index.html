@@ -8,7 +8,14 @@
 <body>
   <canvas id="canvas"></canvas>
   <div id="toolbar"></div>
-  <div id="hint"></div>
+  <div id="hint">
+    <span id="hint-text"></span>
+    <span id="hint-editor" hidden>
+      <span id="hint-label"></span>
+      <input id="hint-input" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" aria-label="尺寸数值">
+      <span class="hint-keys">回车确认 · Esc 取消</span>
+    </span>
+  </div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

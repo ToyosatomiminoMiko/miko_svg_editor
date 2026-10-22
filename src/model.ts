@@ -3,6 +3,7 @@
  * 求解逻辑在 solver.ts，约束方程在 constraints.ts。
  */
 
+import { entityPointIds } from './entities';
 import type {
   ArcEntity,
   CircleEntity,
@@ -96,10 +97,14 @@ export function removeEntity(e: Entity): void {
   }
 }
 
+/** 删除一条约束（新建尺寸后 Esc 撤销用）；引用完整性由调用方保证 */
+export function removeConstraint(c: Constraint): void {
+  model.cons.delete(c.id);
+}
+
 export function removePoint(p: Point): void {
   for (const e of [...model.ents.values()]) {
-    const hit = e.type === 'line' ? e.a === p.id || e.b === p.id : e.c === p.id;
-    if (hit) removeEntity(e);
+    if (entityPointIds(e).includes(p.id)) removeEntity(e);
   }
   for (const c of [...model.cons.values()]) {
     if (refsAny(c, POINT_REF_KEYS, p.id)) model.cons.delete(c.id);

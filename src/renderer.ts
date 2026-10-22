@@ -4,13 +4,13 @@
  */
 
 import { cam, gridSize, s2w, w2s } from './camera';
+import { dimLayout } from './dimensions';
+import { entityPointIds } from './entities';
 import { E, P, ends, model } from './model';
 import { state } from './state';
 import { readTheme, type Theme } from './theme';
 import { vec } from './vec';
 import type { Constraint, Entity, Point, Vec } from './types';
-
-const fmt = (v: number): string => (Math.abs(v) < 1e-9 ? '0' : (+v.toFixed(2)).toString());
 
 export class Renderer {
   readonly canvas: HTMLCanvasElement;
@@ -23,6 +23,11 @@ export class Renderer {
     this.canvas = canvas;
     this.ctx = ctx;
     this.theme = readTheme();
+  }
+
+  /** 尺寸命中判定也要用同一份字体/主题 */
+  getTheme(): Theme {
+    return this.theme;
   }
 
   resize(): void {
@@ -98,8 +103,7 @@ export class Renderer {
     if (state.sel.includes(p.id)) return true;
     for (const id of state.sel) {
       const e = E(id);
-      if (!e) continue;
-      if (e.type === 'line' ? e.a === p.id || e.b === p.id : e.c === p.id) return true;
+      if (e && entityPointIds(e).includes(p.id)) return true;
     }
     return false;
   }
@@ -180,67 +184,60 @@ export class Renderer {
     this.ctx.stroke();
   }
 
-  /** 从 from 指向 to 画箭头（实心三角） */
-  private arrowW(from: Vec, to: Vec): void {
+  /** 屏幕坐标下画线段（尺寸标注用） */
+  private lineS(A: Vec, B: Vec): void {
     const { ctx } = this;
-    const A = w2s(from);
-    const B = w2s(to);
-    const d = { x: A.x - B.x, y: A.y - B.y };
+    ctx.beginPath();
+    ctx.moveTo(A.x, A.y);
+    ctx.lineTo(B.x, B.y);
+    ctx.stroke();
+  }
+
+  /** 从 from 指向 to 画箭头（实心三角，屏幕坐标） */
+  private arrowS(from: Vec, to: Vec): void {
+    const { ctx } = this;
+    const d = { x: from.x - to.x, y: from.y - to.y };
     const L = Math.hypot(d.x, d.y) || 1;
     const ux = d.x / L;
     const uy = d.y / L;
     const size = 8;
     const w = 3;
     ctx.beginPath();
-    ctx.moveTo(A.x, A.y);
-    ctx.lineTo(A.x - ux * size + uy * w, A.y - uy * size - ux * w);
-    ctx.lineTo(A.x - ux * size - uy * w, A.y - uy * size + ux * w);
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(from.x - ux * size + uy * w, from.y - uy * size - ux * w);
+    ctx.lineTo(from.x - ux * size - uy * w, from.y - uy * size + ux * w);
     ctx.closePath();
     ctx.fillStyle = ctx.strokeStyle;
     ctx.fill();
   }
 
   private drawDim(c: Constraint): void {
-    const { ctx, theme } = this;
-    if (c.type === 'distancePP') {
-      const a = P(c.a);
-      const b = P(c.b);
-      if (!a || !b) return;
-      const d = vec.sub(b, a);
-      const L = vec.len(d) || 1;
-      const nrm = { x: -d.y / L, y: d.x / L };
-      const off = c.offset ?? 0;
-      const A = { x: a.x + nrm.x * off, y: a.y + nrm.y * off };
-      const B = { x: b.x + nrm.x * off, y: b.y + nrm.y * off };
+    const layout = dimLayout(c);
+    if (!layout) return;
 
-      ctx.strokeStyle = theme.dim;
+    const { ctx, theme } = this;
+    ctx.strokeStyle = theme.dim;
+    ctx.fillStyle = theme.dim;
+
+    if (layout.kind === 'distance') {
       ctx.lineWidth = 1;
       ctx.setLineDash([3, 3]);
-      this.lineW(a, A);
-      this.lineW(b, B);
+      this.lineS(layout.A, layout.A2);
+      this.lineS(layout.B, layout.B2);
       ctx.setLineDash([]);
-      this.lineW(A, B);
-      this.arrowW(A, B);
-      this.arrowW(B, A);
+      this.lineS(layout.A2, layout.B2);
+      this.arrowS(layout.A2, layout.B2);
+      this.arrowS(layout.B2, layout.A2);
 
-      const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
-      const s = w2s(mid);
       ctx.font = theme.dimFont;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillStyle = theme.dim;
-      ctx.fillText(fmt(c.d ?? 0), s.x, s.y - 4);
-    } else if (c.type === 'radius') {
-      const e = E(c.e);
-      if (!e || e.type === 'line') return;
-      const cc = P(e.c);
-      if (!cc) return;
-      const s = w2s(cc);
+      ctx.fillText(layout.text, layout.textPos.x, layout.textPos.y);
+    } else {
       ctx.font = theme.dimFont;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'bottom';
-      ctx.fillStyle = theme.dim;
-      ctx.fillText('R' + fmt(e.r), s.x + 8, s.y - 8);
+      ctx.fillText(layout.text, layout.textPos.x, layout.textPos.y);
     }
   }
 
