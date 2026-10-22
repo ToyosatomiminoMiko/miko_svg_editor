@@ -22,6 +22,7 @@ import type {
   Entity,
   LineEntity,
   Point,
+  PointEntity,
 } from './types';
 
 /** 模型里点/图元/约束的容器；`seq` 是三者共用的全局自增 id 序列 */
@@ -65,6 +66,38 @@ export function addPt(x: number, y: number, fixed = false): Point {
   const p: Point = { id: newId(), x, y, fixed };
   model.pts.set(p.id, p);
   return p;
+}
+
+/**
+ * 把已有点包成点图元（可绘制、可选择、可导出的独立点）。
+ * 点的坐标仍留在 Point 上，所以点图元与线段端点共享同一个求解自由度；
+ * 创建入口（sketch-actions.createPoint）负责「一个点最多一个点图元」的去重。
+ */
+export function addPointEntity(pt: Point): PointEntity {
+  const e: PointEntity = { id: newId(), type: 'point', p: pt.id, construction: false };
+  model.ents.set(e.id, e);
+  return e;
+}
+
+/** 找到拥有某个点的点图元；没有则返回 undefined（一个点最多被一个点图元拥有） */
+export function pointEntityOf(pointId: number): PointEntity | undefined {
+  for (const e of model.ents.values()) {
+    if (e.type === 'point' && e.p === pointId) return e;
+  }
+  return undefined;
+}
+
+/**
+ * 被点图元拥有的点 id 集合。
+ * 拾取/框选/渲染用这份集合把「点图元的点」按图元处理：
+ * 否则同一个点会同时以 pt 与 ent 两种身份出现在选择集/已选择列表里。
+ */
+export function ownedPointIds(): Set<number> {
+  const ids = new Set<number>();
+  for (const e of model.ents.values()) {
+    if (e.type === 'point') ids.add(e.p);
+  }
+  return ids;
 }
 
 export function addLine(a: Point, b: Point): LineEntity {

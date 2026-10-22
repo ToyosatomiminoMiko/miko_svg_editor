@@ -1,5 +1,5 @@
 /**
- * 草图领域操作：画线/圆/弧/矩形、加约束、删除、固定、构造线、尺寸创建，以及点击状态机。
+ * 草图领域操作：画点/线/圆/弧/矩形、加约束、删除、固定、构造线、尺寸创建，以及点击状态机。
  * 纯逻辑层：只依赖 model/solver/config/geometry/dimensions/entities，不实际读写全局 state——
  * 点击状态机把「下一个 pending」作为结果返回，由 Editor 写回 state；
  * 所有求解统一走 solve()，它消费 SolveResult 并把用户可感知的失败翻译成提示（BUG-5）。
@@ -21,6 +21,7 @@ import {
   MIN_RECT_EDGE,
   SOLVE_WARN_EPS,
   type ConstraintAction,
+  type ConstraintSelection,
 } from './config';
 import {
   isDimConstraint,
@@ -30,18 +31,20 @@ import {
   setDimValue,
   type DimConstraint,
 } from './dimensions';
-import { entityDimTarget, entityPointIds } from './entities';
+import { entityDimTarget, entityPointIds, isCurveEntity } from './entities';
 import { pickEntity, pickPoint } from './geometry';
 import {
   addArc,
   addCircle,
   addCon,
   addLine,
+  addPointEntity,
   addPt,
   findConstraint,
   getEntity,
   getPoint,
   pointAt,
+  pointEntityOf,
   removeConstraint,
   removeEntity,
   removePoint,
@@ -159,16 +162,42 @@ export function createRect(a: Vec, b: Vec): ActionResult {
   return ok(solve(ITER_INCREMENTAL));
 }
 
+/**
+ * 点工具：在吸附位置放一个「点图元」。
+ * - 吸附到已有点（线段端点 / 圆心 / 独立点）时复用那个点再包成点图元，
+ *   把已有顶点「提升」为独立点：之后删掉相邻图元，这个点仍然保留；
+ * - 该点已经是点图元：不重复创建（一个点最多一个图元身份）；
+ * - 没有吸附点：在吸附/指针位置新建点并包成点图元。
+ * 点没有独立参数，也不影响已有约束，因此不触发求解。
+ */
+export function createPoint(w: Vec, snap: Snap | null): ActionResult {
+  const existing = snap?.pt;
+  if (existing) {
+    if (pointEntityOf(existing.id)) {
+      return ok([{ kind: 'info', message: '这里已经有一个点' }]);
+    }
+    addPointEntity(existing);
+    return ok([{ kind: 'info', message: '已把现有点提升为独立点' }]);
+  }
+  const pos = snap ? snap.pos : w;
+  const p = addPt(pos.x, pos.y);
+  addPointEntity(p);
+  return ok();
+}
+
 /* ======================= 选择集操作 ======================= */
 
-/** 约束按钮：查 CONSTRAINT_ACTIONS 的 resolve 做适用校验，按引用去重后添加（BUG-3） */
+/**
+ * 约束按钮：查 CONSTRAINT_ACTIONS 的 resolve 做适用校验，按引用去重后添加（BUG-3）。
+ * 选择集包含图元与显式选中的点：「重合」以点为主，需要两者都给到 resolve 做多态分派。
+ */
 export function applyConstraint(
   action: ConstraintAction,
-  selected: readonly Entity[],
+  selection: ConstraintSelection,
 ): ActionResult {
   const meta = CONSTRAINT_ACTIONS.find((m) => m.id === action);
   if (!meta) return fail('未知的约束操作');
-  const resolution = meta.resolve(selected);
+  const resolution = meta.resolve(selection);
   if (!resolution.ok) return fail(resolution.reason);
 
   let added = 0;
@@ -253,9 +282,11 @@ export function dimForEntity(e: Entity, zoom: number): DimResult {
   if (existing) return { ok: true, con: existing, created: false, notices: [] };
 
   const target = entityDimTarget(e);
+  // 点图元没有独立尺寸：它只作为两点距离的一端（入口在 dimStep / finishPointDim）
+  if (!target) return { ok: false, reason: '该图元不能标注尺寸' };
   if (target.kind === 'radius') {
     const ent = getEntity(target.e);
-    if (!ent || ent.type === 'line') return { ok: false, reason: '该图元不能标注半径' };
+    if (!isCurveEntity(ent)) return { ok: false, reason: '该图元不能标注半径' };
     const con = addCon('radius', { e: ent.id, radius: ent.r });
     if (!isDimConstraint(con)) return { ok: false, reason: '尺寸创建失败' };
     return { ok: true, con, created: true, notices: solve(ITER_CONSTRAINT) };
@@ -416,14 +447,19 @@ function rectStep(pending: Pending | null, w: Vec, snap: Snap | null): ClickOutc
   return { pending: { type: 'rect', p0: { x: pos.x, y: pos.y } } };
 }
 
-/** 两点尺寸第二步：点回起点视为取消；第二点优先复用已有点 */
+/** 两点尺寸第二步：点回起点视为取消；第二点优先复用已有点/点图元 */
 function finishPointDim(aId: number, w: Vec, snap: Snap | null, view: CameraView): ClickOutcome {
   const a = getPoint(aId);
   if (!a) return { pending: null };
   const picked = pickPoint(w, view.z);
   if (picked && picked.id === a.id) return { pending: null };
-  const b = picked ?? acquirePoint(w, snap);
-  const created = picked === null && isFreshPoint(snap);
+  // 第二点可能是点图元：它的点在 pickPoint 里被按图元身份过滤掉了，这里显式取回
+  const pickedEntity = picked ? null : pickEntity(w, view.z);
+  const entityPoint = pickedEntity?.type === 'point' ? getPoint(pickedEntity.p) : undefined;
+  if (entityPoint && entityPoint.id === a.id) return { pending: null };
+  const b = picked ?? entityPoint ?? acquirePoint(w, snap);
+  // 只有「新建了模型点」才需要在尺寸创建失败时回滚；点图元/已有点都不能删
+  const created = !picked && !entityPoint && isFreshPoint(snap);
   const result = dimForPoints(a, b, w, created);
   if (!result.ok && created) removePoint(b);
   return { pending: null, dim: result };
@@ -444,8 +480,10 @@ function dimStep(
   const pt = pickPoint(w, view.z);
   if (pt) return { pending: { type: 'dim', a: pt.id } };
   const ent = pickEntity(w, view.z);
-  if (ent) return { pending: null, dim: dimForEntity(ent, view.z) };
-  return { pending: null };
+  if (!ent) return { pending: null };
+  // 点图元按「两点距离」走，与普通点一致：记下它引用的点 id 作为第一点
+  if (ent.type === 'point') return { pending: { type: 'dim', a: ent.p } };
+  return { pending: null, dim: dimForEntity(ent, view.z) };
 }
 
 /** 删除工具：点优先于图元，二者都走级联删除 */
@@ -472,6 +510,8 @@ export function toolClick(
   font: string,
 ): ClickOutcome {
   switch (tool) {
+    case 'point':
+      return { pending: null, action: createPoint(w, snap) };
     case 'line':
       return lineStep(pending, w, snap);
     case 'circle':

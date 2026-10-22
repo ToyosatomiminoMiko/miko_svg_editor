@@ -58,7 +58,19 @@ export interface ArcEntity extends EntityBase {
   a1: number;
 }
 
-export type Entity = LineEntity | CircleEntity | ArcEntity;
+/**
+ * 点图元：可独立绘制、选择、导出的点。
+ * 几何坐标仍由被引用的 Point 持有（点的 x/y/fixed 是求解自由度），
+ * 本类型只负责「这个点是一个图元」这件事：让点进入图元容器，
+ * 从而被包围盒/导出/删除级联/选择集按图元对待，并在 pruneOrphanPoints 时保留其 Point。
+ */
+export interface PointEntity extends EntityBase {
+  type: 'point';
+  /** 引用的点 id；一个点最多被一个点图元拥有（由点工具保证） */
+  p: number;
+}
+
+export type Entity = LineEntity | CircleEntity | ArcEntity | PointEntity;
 
 /** 图元种类 */
 export type EntityKind = Entity['type'];
@@ -118,7 +130,7 @@ export interface Constraint {
   offset?: number;
 }
 
-export type ToolId = 'select' | 'line' | 'circle' | 'arc' | 'rect' | 'dim' | 'erase';
+export type ToolId = 'select' | 'point' | 'line' | 'circle' | 'arc' | 'rect' | 'dim' | 'erase';
 
 /** 吸附候选；pri 越小优先级越高（0 已有点 … 5 网格） */
 export interface Snap {

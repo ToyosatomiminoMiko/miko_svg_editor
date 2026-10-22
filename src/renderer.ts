@@ -8,7 +8,7 @@ import { cam, gridSize, s2w, w2s } from './camera';
 import { TAU, sweepOf } from './config';
 import { dimLayout } from './dimensions';
 import { assertNever } from './entities';
-import { ends, getPoint, model } from './model';
+import { ends, getPoint, model, ownedPointIds } from './model';
 import { isCrossing, isEntitySelected, isPointSelected } from './selection';
 import { state } from './state';
 import type { Theme } from './theme';
@@ -51,9 +51,12 @@ export class Renderer {
     this.drawGrid();
 
     for (const e of model.ents.values()) {
-      this.drawEntity(e, isEntitySelected(e.id), state.hoverEnt === e);
+      this.drawEntity(e, this.isSelectedForRender(e), state.hoverEnt === e);
     }
+    // 点图元的点由 drawEntity 画成「外环 + 实心中心」，这里跳过，避免同一位置画两遍
+    const owned = ownedPointIds();
     for (const p of model.pts.values()) {
+      if (owned.has(p.id)) continue;
       this.drawPoint(p, state.hoverPt === p, isPointSelected(p));
     }
 
@@ -96,6 +99,18 @@ export class Renderer {
     ctx.moveTo(o.x + theme.pixelAlign, 0);
     ctx.lineTo(o.x + theme.pixelAlign, H);
     ctx.stroke();
+  }
+
+  /**
+   * 图元是否按选中态画。
+   * 点图元额外看它的点是否被隐含选中：选中一条直线时，它的端点在界面上是选中态；
+   * 若该端点同时被点图元拥有，点图元的高亮必须与点保持一致。
+   */
+  private isSelectedForRender(e: Entity): boolean {
+    if (isEntitySelected(e.id)) return true;
+    if (e.type !== 'point') return false;
+    const p = getPoint(e.p);
+    return p !== undefined && isPointSelected(p);
   }
 
   private drawEntity(e: Entity, selected: boolean, hovered: boolean): void {
@@ -144,6 +159,25 @@ export class Renderer {
         ctx.beginPath();
         ctx.arc(C.x, C.y, e.r * cam.z, e.a0, e.a0 + sweepOf(e.a0, e.a1));
         ctx.stroke();
+        break;
+      }
+      case 'point': {
+        const p = getPoint(e.p);
+        if (!p) break;
+        const S = w2s(p);
+        // 固定点与其他点一致始终显示为红色（选中/悬停也不改色，靠线宽与选择环区分）
+        if (p.fixed) ctx.strokeStyle = theme.pointFixed;
+        // 点图元画成「外环 + 实心中心」，与线段端点/圆心的小圆点区分；
+        // 构造点只留外环（虚线外环），表达「不参与导出实体」的构造语义
+        ctx.beginPath();
+        ctx.arc(S.x, S.y, theme.pointGraphicRingRadius, 0, TAU);
+        ctx.stroke();
+        if (!e.construction) {
+          ctx.beginPath();
+          ctx.arc(S.x, S.y, theme.pointRadius, 0, TAU);
+          ctx.fillStyle = ctx.strokeStyle;
+          ctx.fill();
+        }
         break;
       }
       default:

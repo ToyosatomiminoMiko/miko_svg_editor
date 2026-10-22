@@ -13,6 +13,12 @@ export const EXPORT_STROKE_MIN = 0.2;
 /** 线宽参考系数：线宽 = max(min, 包围盒最长边 / 该系数) */
 export const EXPORT_STROKE_REF = 500;
 
+/**
+ * 点图元的导出半径系数：r = 线宽 × 该系数。
+ * 点没有内部尺寸，跟着整张图的线宽标定，缩放到任何画幅都保持同样的相对大小。
+ */
+export const EXPORT_POINT_RADIUS_FACTOR = 1.6;
+
 /** SVG 数值小数位 */
 export const EXPORT_DECIMALS = 4;
 

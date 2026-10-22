@@ -62,7 +62,7 @@ export function buildToolbar(root: HTMLElement, handlers: ToolbarHandlers): Tool
   // 约束区：按钮表单一来源是 CONSTRAINT_ACTIONS，顺序与按钮文案都从它来
   const constraintRow = create_element({ tag: 'div' }, { class: 'app-button-row' });
   for (const c of CONSTRAINT_ACTIONS) {
-    const button = createButton({ text: c.label, title: '给选中图形加约束' });
+    const button = createButton({ text: c.label, title: '给选中图形/点加约束' });
     button.onClick(() => handlers.applyConstraint(c.id));
     constraintRow.appendChild(button.element);
   }

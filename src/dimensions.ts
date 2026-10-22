@@ -14,6 +14,7 @@ import {
   formatDimValue,
 } from './config';
 import { distToSeg } from './geometry';
+import { isCurveEntity } from './entities';
 import { getEntity, getPoint, model } from './model';
 import { vec } from './vec';
 import { w2s } from './camera';
@@ -112,7 +113,7 @@ export const DIM_META: Record<DimKind, DimMeta> = {
     },
     layout(c, view) {
       const e = getEntity(c.e);
-      if (!e || e.type === 'line') return null;
+      if (!isCurveEntity(e)) return null;
       const center = getPoint(e.c);
       if (!center) return null;
       const C = w2s(center, view);

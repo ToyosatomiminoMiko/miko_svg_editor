@@ -7,7 +7,8 @@
  * 残差方程仍在 `constraints.ts` 的 `RESID`（`Record<ConstraintKind, …>` 保证穷尽）。
  */
 
-import type { Constraint, ConstraintKind, Entity, EntityKind } from '../types';
+import { isCurveEntity, type CurveEntity } from '../entities';
+import type { Constraint, ConstraintKind, Entity, EntityKind, Point } from '../types';
 
 /** 一条约束引用：图元或点，以及图元引用可接受的种类 */
 export interface ConstraintRefMeta {
@@ -36,7 +37,7 @@ const CURVE: readonly EntityKind[] = ['circle', 'arc'];
 export const CONSTRAINT_META: Record<ConstraintKind, ConstraintKindMeta> = {
   coincident: {
     label: '重合',
-    ui: false, // 暂无入口
+    ui: true, // 由「重合」按钮按选中对象多态地生成（点-点 / 点-线 / 点-圆）
     unorderedRefs: true,
     refs: [
       { key: 'a', kind: 'point' },
@@ -74,7 +75,7 @@ export const CONSTRAINT_META: Record<ConstraintKind, ConstraintKindMeta> = {
   },
   pointOnLine: {
     label: '点在线上',
-    ui: false, // 暂无入口
+    ui: true, // 由「重合」按钮在「1 个点 + 1 条直线」时生成
     refs: [
       { key: 'e', kind: 'entity', accepts: LINE },
       { key: 'p', kind: 'point' },
@@ -82,7 +83,7 @@ export const CONSTRAINT_META: Record<ConstraintKind, ConstraintKindMeta> = {
   },
   pointOnCircle: {
     label: '点在圆上',
-    ui: false, // 暂无入口
+    ui: true, // 由「重合」按钮在「1 个点 + 1 个圆/弧」时生成
     refs: [
       { key: 'e', kind: 'entity', accepts: CURVE },
       { key: 'p', kind: 'point' },
@@ -172,8 +173,20 @@ export const CONSTRAINT_META: Record<ConstraintKind, ConstraintKindMeta> = {
   },
 };
 
-/** 约束动作（按钮）id；一个按钮可能按选中类型生成不同 kind（相切） */
+/**
+ * 约束动作的输入：选中的图元 + 显式选中的点。
+ * 大多数动作只看图元；「重合」以点为主，必须同时拿到点（独立点、直线端点、圆心），
+ * 所以约束动作统一接收这份结构，而不是只传 Entity[]。
+ * points 只含显式选中的点：选中图元时其端点/圆心属于「隐含选中」，不参与约束构造。
+ */
+export interface ConstraintSelection {
+  readonly entities: readonly Entity[];
+  readonly points: readonly Point[];
+}
+
+/** 约束动作（按钮）id；一个按钮可能按选中类型生成不同 kind（相切 / 重合） */
 export type ConstraintAction =
+  | 'coincident'
   | 'horizontal'
   | 'vertical'
   | 'parallel'
@@ -195,14 +208,17 @@ export type ConstraintResolution =
 export interface ConstraintActionMeta {
   id: ConstraintAction;
   label: string;
-  /** 从选中图元解析出要添加的约束；不适用时给出面向用户的理由 */
-  resolve(selected: readonly Entity[]): ConstraintResolution;
+  /** 从选中对象解析出要添加的约束；不适用时给出面向用户的理由 */
+  resolve(selection: ConstraintSelection): ConstraintResolution;
 }
 
 const fail = (reason: string): ConstraintResolution => ({ ok: false, reason });
 
 const entitiesOfKind = (selected: readonly Entity[], kind: EntityKind): Entity[] =>
   selected.filter((e) => e.type === kind);
+
+/** 圆/弧：相切、同心、等半径的目标；点图元不在其中（守卫由 ENTITY_CATEGORY 单点维护） */
+const curvesOf = (selected: readonly Entity[]): CurveEntity[] => selected.filter(isCurveEntity);
 
 /**
  * 取「长度已由调用方校验」的数组元素。
@@ -212,11 +228,99 @@ const entitiesOfKind = (selected: readonly Entity[], kind: EntityKind): Entity[]
 const first = <T>(items: readonly T[]): T => items[0]!;
 const second = <T>(items: readonly T[]): T => items[1]!;
 
+/**
+ * 重合族的多态表：按「目标对象」的种类分派到具体约束 kind 与引用字段。
+ * 与 dimensions.ts 的 DIM_META 同构——新增一种可重合目标（如椭圆）只需加一条记录并补
+ * targetOfEntity 的映射，构造逻辑不再写 if/else 链；去重与残差仍复用通用的
+ * constraintRefKey / RESID。
+ */
+type CoincidentTarget = 'point' | 'line' | 'curve';
+
+interface CoincidentTargetMeta {
+  kind: ConstraintKind;
+  /** 构造约束引用：pointId 是锚点，targetId 是另一个点或目标图元的 id */
+  props(pointId: number, targetId: number): Omit<Constraint, 'id' | 'type'>;
+}
+
+const COINCIDENT_TARGETS: Record<CoincidentTarget, CoincidentTargetMeta> = {
+  point: { kind: 'coincident', props: (a, b) => ({ a, b }) },
+  line: { kind: 'pointOnLine', props: (p, e) => ({ p, e }) },
+  curve: { kind: 'pointOnCircle', props: (p, e) => ({ p, e }) },
+};
+
+/** 目标图元 → 多态表键；点图元在调用前已被展开成点 id，这里返回 null */
+const targetOfEntity = (e: Entity): CoincidentTarget | null => {
+  switch (e.type) {
+    case 'line':
+      return 'line';
+    case 'circle':
+    case 'arc':
+      return 'curve';
+    case 'point':
+      return null;
+  }
+};
+
+/**
+ * 「重合」按钮的多态解析：从选中的点/图元里找出「锚点 + 目标」。
+ * 点的两个来源：
+ * - 显式选中的点（pt）：独立点的点被图元身份接管后不在这里，但线段端点/圆心可以；
+ * - 选中的点图元（ent）：展开成它引用的点 id。
+ * 目标可以是另一个点、一条直线、一个圆/弧——具体 kind 查 COINCIDENT_TARGETS。
+ */
+function resolveCoincident(selection: ConstraintSelection): ConstraintResolution {
+  const pointIds = selection.points.map((p) => p.id);
+  const entities: Entity[] = [];
+  for (const e of selection.entities) {
+    if (e.type === 'point') pointIds.push(e.p);
+    else entities.push(e);
+  }
+
+  if (pointIds.length + entities.length !== 2) {
+    return fail('重合一次只能选 2 个对象：2 个点，或 1 个点 + 1 条直线/圆/弧');
+  }
+  if (pointIds.length === 0) {
+    return fail('重合需要至少 1 个点（独立点、线段端点或圆心）');
+  }
+  if (pointIds.length === 2) {
+    if (first(pointIds) === second(pointIds)) return fail('同一个点不能和自己重合');
+    const meta = COINCIDENT_TARGETS.point;
+    return {
+      ok: true,
+      items: [{ kind: meta.kind, props: meta.props(first(pointIds), second(pointIds)) }],
+    };
+  }
+
+  const pointId = first(pointIds);
+  const target = first(entities);
+  // 点已经是目标图元的固有部分时重合没有意义：
+  // - 直线端点恒在线上（假约束）；
+  // - 圆心/弧心与自己的圆/弧重合只会把半径挤成 0（退化图元）。
+  if (target.type === 'line' && (target.a === pointId || target.b === pointId)) {
+    return fail('这个点已经是该直线的端点');
+  }
+  if (isCurveEntity(target) && target.c === pointId) {
+    return fail('这个点已经是该圆/弧的圆心');
+  }
+  const targetKind = targetOfEntity(target);
+  if (!targetKind) return fail('重合的目标只能是点、直线或圆/弧');
+  const meta = COINCIDENT_TARGETS[targetKind];
+  return { ok: true, items: [{ kind: meta.kind, props: meta.props(pointId, target.id) }] };
+}
+
 export const CONSTRAINT_ACTIONS: readonly ConstraintActionMeta[] = [
+  {
+    id: 'coincident',
+    label: '重合',
+    resolve(selection) {
+      return resolveCoincident(selection);
+    },
+  },
   {
     id: 'horizontal',
     label: '水平',
-    resolve(selected) {
+    resolve(selection) {
+      const selected = selection.entities;
       if (selected.length === 0) return fail('先选中直线');
       const lines = entitiesOfKind(selected, 'line');
       if (lines.length !== selected.length) return fail('水平约束只能用于直线');
@@ -226,7 +330,8 @@ export const CONSTRAINT_ACTIONS: readonly ConstraintActionMeta[] = [
   {
     id: 'vertical',
     label: '竖直',
-    resolve(selected) {
+    resolve(selection) {
+      const selected = selection.entities;
       if (selected.length === 0) return fail('先选中直线');
       const lines = entitiesOfKind(selected, 'line');
       if (lines.length !== selected.length) return fail('竖直约束只能用于直线');
@@ -236,7 +341,8 @@ export const CONSTRAINT_ACTIONS: readonly ConstraintActionMeta[] = [
   {
     id: 'parallel',
     label: '平行',
-    resolve(selected) {
+    resolve(selection) {
+      const selected = selection.entities;
       if (selected.length !== 2) return fail('平行约束需要选中 2 条直线');
       const lines = entitiesOfKind(selected, 'line');
       if (lines.length !== 2) return fail('平行约束只能用于直线');
@@ -249,7 +355,8 @@ export const CONSTRAINT_ACTIONS: readonly ConstraintActionMeta[] = [
   {
     id: 'perpendicular',
     label: '垂直',
-    resolve(selected) {
+    resolve(selection) {
+      const selected = selection.entities;
       if (selected.length !== 2) return fail('垂直约束需要选中 2 条直线');
       const lines = entitiesOfKind(selected, 'line');
       if (lines.length !== 2) return fail('垂直约束只能用于直线');
@@ -262,7 +369,8 @@ export const CONSTRAINT_ACTIONS: readonly ConstraintActionMeta[] = [
   {
     id: 'equalLength',
     label: '等长',
-    resolve(selected) {
+    resolve(selection) {
+      const selected = selection.entities;
       if (selected.length !== 2) return fail('等长约束需要选中 2 条直线');
       const lines = entitiesOfKind(selected, 'line');
       if (lines.length !== 2) return fail('等长约束只能用于直线');
@@ -275,10 +383,11 @@ export const CONSTRAINT_ACTIONS: readonly ConstraintActionMeta[] = [
   {
     id: 'tangent',
     label: '相切',
-    resolve(selected) {
+    resolve(selection) {
+      const selected = selection.entities;
       if (selected.length !== 2) return fail('相切约束需要选中 2 个图元');
       const lines = entitiesOfKind(selected, 'line');
-      const curves = selected.filter((e) => e.type !== 'line');
+      const curves = curvesOf(selected);
       if (lines.length === 1 && curves.length === 1) {
         return {
           ok: true,
@@ -301,9 +410,10 @@ export const CONSTRAINT_ACTIONS: readonly ConstraintActionMeta[] = [
   {
     id: 'concentric',
     label: '同心',
-    resolve(selected) {
+    resolve(selection) {
+      const selected = selection.entities;
       if (selected.length !== 2) return fail('同心约束需要选中 2 个圆/弧');
-      const curves = selected.filter((e) => e.type !== 'line');
+      const curves = curvesOf(selected);
       if (curves.length !== 2) return fail('同心约束只能用于圆/弧');
       return {
         ok: true,
@@ -314,9 +424,10 @@ export const CONSTRAINT_ACTIONS: readonly ConstraintActionMeta[] = [
   {
     id: 'equalRadius',
     label: '等半径',
-    resolve(selected) {
+    resolve(selection) {
+      const selected = selection.entities;
       if (selected.length !== 2) return fail('等半径约束需要选中 2 个圆/弧');
-      const curves = selected.filter((e) => e.type !== 'line');
+      const curves = curvesOf(selected);
       if (curves.length !== 2) return fail('等半径约束只能用于圆/弧');
       return {
         ok: true,

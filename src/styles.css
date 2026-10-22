@@ -46,6 +46,8 @@
   --point-selected-radius: 5.4;
   /* 选中点外圈相对点半径的额外距离 */
   --selected-ring-extra: 2;
+  /* 点图元外环半径：与线段端点/圆心的小圆点区分 */
+  --point-graphic-ring-radius: 4.5;
   --snap-arm: 6;
   --marquee-fill-alpha: 0.08;
   --dim-font: 12px var(--code-font-family);

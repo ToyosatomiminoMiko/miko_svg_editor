@@ -8,7 +8,13 @@ import { EXPORT_EMPTY_MESSAGE, ITER_FULL, type ConstraintAction } from '../confi
 import { buildSVG } from '../export-svg';
 import { clearModel, isEmpty } from '../model';
 import type { Renderer } from '../renderer';
-import { pruneSelection, selectedEntities, selectionEntries, selectionSummary } from '../selection';
+import {
+  pruneSelection,
+  selectedEntities,
+  selectedPoints,
+  selectionEntries,
+  selectionSummary,
+} from '../selection';
 import {
   applyConstraint as applyConstraintAction,
   deleteSelected,
@@ -103,7 +109,12 @@ export class EditorControls implements ToolbarHandlers {
 
   /** 约束按钮：选中图元交给 sketch-actions 查表校验（不适用/重复会有明确提示） */
   applyConstraint(action: ConstraintAction): void {
-    this.apply(applyConstraintAction(action, selectedEntities()));
+    this.apply(
+      applyConstraintAction(action, {
+        entities: selectedEntities(),
+        points: selectedPoints(),
+      }),
+    );
   }
 
   /**

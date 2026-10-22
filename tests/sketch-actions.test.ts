@@ -43,11 +43,17 @@ import {
   toolClick,
 } from '../src/sketch-actions';
 import { resetInteraction } from '../src/state';
-import type { MeasureText, Pending } from '../src/types';
+import type { Entity, MeasureText, Pending, Point } from '../src/types';
 
 const view: CameraView = { x: 0, y: 0, z: 1, viewportW: 800, viewportH: 600 };
 const measure: MeasureText = (text) => text.length * 10;
 const FONT = '12px sans-serif';
+
+/** 约束动作的输入是 {entities, points}：这些用例只看图元，点留空 */
+const sel = (
+  entities: readonly Entity[] = [],
+  points: readonly Point[] = [],
+): { entities: readonly Entity[]; points: readonly Point[] } => ({ entities, points });
 
 beforeEach(() => {
   clearModel();
@@ -141,31 +147,31 @@ describe('applyConstraint', () => {
     const l1 = plainLine().line;
     const l2 = addLine(addPt(0, 10), addPt(100, 10));
 
-    const first = applyConstraint('horizontal', [l1, l2]);
+    const first = applyConstraint('horizontal', sel([l1, l2]));
     expect(first.ok).toBe(true);
     if (!first.ok) return;
     expect(model.cons.size).toBe(2);
 
-    const again = applyConstraint('horizontal', [l1, l2]);
+    const again = applyConstraint('horizontal', sel([l1, l2]));
     expect(again.ok).toBe(false);
     if (!again.ok) expect(again.reason).toContain('已存在');
   });
 
   it('非法选择返回面向用户的理由，不写模型', () => {
     const circle = addCircle(addPt(0, 0), 10);
-    const result = applyConstraint('horizontal', [circle]);
+    const result = applyConstraint('horizontal', sel([circle]));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason.length).toBeGreaterThan(0);
     expect(model.cons.size).toBe(0);
 
-    const unknown = applyConstraint('parallel', []);
+    const unknown = applyConstraint('parallel', sel());
     expect(unknown.ok).toBe(false);
   });
 
   it('相切按选中类型生成对应 kind', () => {
     const l = plainLine().line;
     const circle = addCircle(addPt(50, 50), 10);
-    const result = applyConstraint('tangent', [l, circle]);
+    const result = applyConstraint('tangent', sel([l, circle]));
     expect(result.ok).toBe(true);
     expect([...model.cons.values()][0]?.type).toBe('tangentLineCircle');
   });
@@ -436,9 +442,9 @@ describe('applyConstraint 反序选择去重（BUG-3）', () => {
     const p4 = addPt(100, 30);
     const line2 = addLine(p3, p4);
 
-    const first = applyConstraint('parallel', [line1, line2]);
+    const first = applyConstraint('parallel', sel([line1, line2]));
     expect(first.ok).toBe(true);
-    const second = applyConstraint('parallel', [line2, line1]);
+    const second = applyConstraint('parallel', sel([line2, line1]));
     expect(second.ok).toBe(false);
     if (!second.ok) expect(second.reason).toContain('已存在');
     expect([...model.cons.values()].filter((x) => x.type === 'parallel')).toHaveLength(1);

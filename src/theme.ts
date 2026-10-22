@@ -38,6 +38,8 @@ export interface Theme {
   pointSelectedRadius: number;
   /** 选中点外圈相对点半径的额外距离 */
   selectedRingExtra: number;
+  /** 点图元外环半径：与线段端点/圆心的小圆点区分（点的可绘制身份） */
+  pointGraphicRingRadius: number;
 
   /* 虚线样式：屏幕像素下的 on/off 交替长度 */
   dashConstruction: number[];
@@ -81,6 +83,7 @@ const DEFAULT_POINT_RADIUS = 2.6;
 const DEFAULT_POINT_RADIUS_HOT = 4.5;
 const DEFAULT_POINT_SELECTED_RADIUS = 5.4;
 const DEFAULT_SELECTED_RING_EXTRA = 2;
+const DEFAULT_POINT_GRAPHIC_RING_RADIUS = 4.5;
 const DEFAULT_ARROW_SIZE = 8;
 const DEFAULT_ARROW_HALF_WIDTH = 3;
 const DEFAULT_SNAP_ARM = 6;
@@ -186,6 +189,7 @@ export function readTheme(style?: CSSStyleDeclaration): Theme {
     pointRadiusHot: num('--point-radius-hot', DEFAULT_POINT_RADIUS_HOT),
     pointSelectedRadius: num('--point-selected-radius', DEFAULT_POINT_SELECTED_RADIUS),
     selectedRingExtra: num('--selected-ring-extra', DEFAULT_SELECTED_RING_EXTRA),
+    pointGraphicRingRadius: num('--point-graphic-ring-radius', DEFAULT_POINT_GRAPHIC_RING_RADIUS),
 
     dashConstruction: dash('--dash-construction', DEFAULT_DASH_CONSTRUCTION),
     dashPreview: dash('--dash-preview', DEFAULT_DASH_PREVIEW),

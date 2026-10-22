@@ -1,13 +1,15 @@
 /**
- * SVG 导出：只导出图元（线/圆/圆弧），点与约束不输出。
+ * SVG 导出：导出图元（线/圆/圆弧/点），约束与尺寸不输出。
  * 纯函数：输入全局 model，输出 SVG 字符串，不碰 window/document（下载由 ui/download.ts 负责）。
  * 圆弧扫角语义统一走 config/angle.sweepOf：起终点同角（整圆）导出 <circle>，
  * 其余用 A 命令；否则起终点格式化后重合，按规范整段不渲染（BUG-1）。
+ * 点图元导出为小实心圆，构造点是空心虚线圆。
  */
 
 import {
   DEFAULT_EXPORT_STYLE,
   EXPORT_DECIMALS,
+  EXPORT_POINT_RADIUS_FACTOR,
   EXPORT_STROKE_MIN,
   EXPORT_STROKE_REF,
   formatNumber,
@@ -63,6 +65,18 @@ export function buildSVG(style: Partial<ExportStyle> = {}): string | null {
         const large = sweep > Math.PI ? 1 : 0;
         body.push(
           `<path d="M ${n(x0)} ${n(y0)} A ${n(e.r)} ${n(e.r)} 0 ${large} 1 ${n(x1)} ${n(y1)}"${dash(e)}/>`,
+        );
+        break;
+      }
+      case 'point': {
+        const p = getPoint(e.p);
+        if (!p) break;
+        const r = strokeWidth * EXPORT_POINT_RADIUS_FACTOR;
+        // 普通点：实心小圆（不吃描边）；构造点：空心虚线圈，与构造线语义一致
+        body.push(
+          e.construction
+            ? `<circle cx="${n(p.x)}" cy="${n(p.y)}" r="${n(r)}" fill="none"${dash(e)}/>`
+            : `<circle cx="${n(p.x)}" cy="${n(p.y)}" r="${n(r)}" fill="${merged.stroke}" stroke="none"/>`,
         );
         break;
       }

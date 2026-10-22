@@ -21,6 +21,12 @@ export const TOOLS: readonly ToolMeta[] = [
     key: 'v',
     hint: '点图元/点 · Shift 加选 · 空白拖框选（下→上交叉 / 上→下窗口） · Delete 删除',
   },
+  {
+    id: 'point',
+    label: '点',
+    key: 'p',
+    hint: '点击放独立点；吸附到已有点会把它提升为独立点 · 可被「重合」约束引用',
+  },
   { id: 'line', label: '直线', key: 'l', hint: '点两下画直线，可连续画 · 右键/Esc 结束' },
   { id: 'circle', label: '圆', key: 'c', hint: '先点圆心，再点半径' },
   { id: 'arc', label: '圆弧', key: 'a', hint: '圆心 → 起点 → 终点' },

@@ -10,18 +10,10 @@
  */
 
 import { CONSTRAINT_META, wrapPi } from './config';
+import type { CurveEntity } from './entities';
 import { ends, getEntity, getPoint } from './model';
 import { vec } from './vec';
-import type {
-  ArcEntity,
-  CircleEntity,
-  Constraint,
-  ConstraintKind,
-  LineEntity,
-  Point,
-} from './types';
-
-type CircleLike = CircleEntity | ArcEntity;
+import type { Constraint, ConstraintKind, LineEntity, Point } from './types';
 
 const finite = (v: number | undefined): boolean => typeof v === 'number' && Number.isFinite(v);
 
@@ -49,7 +41,7 @@ export function isConstraintRefsValid(c: Constraint): boolean {
 }
 
 const lineOf = (id: number | undefined): LineEntity => getEntity(id) as LineEntity;
-const curveOf = (id: number | undefined): CircleLike => getEntity(id) as CircleLike;
+const curveOf = (id: number | undefined): CurveEntity => getEntity(id) as CurveEntity;
 const pointOf = (id: number | undefined): Point => getPoint(id)!;
 
 export const RESID: Record<ConstraintKind, (c: Constraint) => number[]> = {

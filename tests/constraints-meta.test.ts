@@ -3,7 +3,9 @@
  * 三件事必须同时成立，否则「查表 + 校验 + 构造 + 去重」的单一来源会漏：
  * 1) 18 种 ConstraintKind 都有元数据与引用字段（Record 穷尽在运行时也要有测试兜底）；
  * 2) 每个 UI 动作的 resolve 在合法/非法选择上都给出明确结果（不抛异常、失败带理由）；
- * 3) constraintRefKey 只由 kind + refs 引用字段组成，保证同组约束去重。
+ * 3) constraintRefKey 只由 kind + refs 引用字段组成，保证同组约束去重；
+ * 4) 约束动作的输入是 ConstraintSelection（图元 + 显式选中的点），
+ *    「重合」按钮按「目标对象」多态分派到 coincident / pointOnLine / pointOnCircle。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -14,8 +16,20 @@ import {
   POINT_REF_KEYS,
   constraintRefKey,
 } from '../src/config/constraints-meta';
-import type { ConstraintAction, ConstraintActionMeta } from '../src/config/constraints-meta';
-import type { ArcEntity, CircleEntity, ConstraintKind, Entity, LineEntity } from '../src/types';
+import type {
+  ConstraintAction,
+  ConstraintActionMeta,
+  ConstraintSelection,
+} from '../src/config/constraints-meta';
+import type {
+  ArcEntity,
+  CircleEntity,
+  ConstraintKind,
+  Entity,
+  LineEntity,
+  Point,
+  PointEntity,
+} from '../src/types';
 
 /** 18 种约束种类，显式列出：元数据表增删时测试需要人跟着改，防止悄悄漂移 */
 const ALL_KINDS: readonly ConstraintKind[] = [
@@ -56,6 +70,20 @@ const arc = (id: number): ArcEntity => ({
   a0: 0,
   a1: Math.PI,
 });
+
+const pt = (id: number): Point => ({ id, x: 0, y: 0, fixed: false });
+const pointEntity = (id: number, p: number): PointEntity => ({
+  id,
+  type: 'point',
+  construction: false,
+  p,
+});
+
+/** 约束动作统一接收 {entities, points}；只看图元的动作把 points 留空 */
+const sel = (
+  entities: readonly Entity[] = [],
+  points: readonly Point[] = [],
+): ConstraintSelection => ({ entities, points });
 
 const action = (id: ConstraintAction): ConstraintActionMeta => {
   const found = CONSTRAINT_ACTIONS.find((item) => item.id === id);
@@ -140,7 +168,7 @@ describe('CONSTRAINT_ACTIONS', () => {
 
   it('horizontal / vertical：任意条直线逐条生成', () => {
     for (const id of ['horizontal', 'vertical'] as const) {
-      const result = action(id).resolve([line(11), line(12)]);
+      const result = action(id).resolve(sel([line(11), line(12)]));
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.items).toHaveLength(2);
@@ -151,7 +179,7 @@ describe('CONSTRAINT_ACTIONS', () => {
 
   it('parallel / perpendicular / equalLength：两条直线生成一条约束', () => {
     for (const id of ['parallel', 'perpendicular', 'equalLength'] as const) {
-      const result = action(id).resolve([line(21), line(22)]);
+      const result = action(id).resolve(sel([line(21), line(22)]));
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.items).toEqual([{ kind: id, props: { e1: 21, e2: 22 } }]);
@@ -159,14 +187,14 @@ describe('CONSTRAINT_ACTIONS', () => {
   });
 
   it('tangent：直线 + 圆/弧 → tangentLineCircle', () => {
-    const result = action('tangent').resolve([line(31), circle(32)]);
+    const result = action('tangent').resolve(sel([line(31), circle(32)]));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.items).toEqual([{ kind: 'tangentLineCircle', props: { line: 31, circ: 32 } }]);
   });
 
   it('tangent：两个曲线 → tangentCircleCircle', () => {
-    const result = action('tangent').resolve([circle(41), arc(42)]);
+    const result = action('tangent').resolve(sel([circle(41), arc(42)]));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.items).toEqual([{ kind: 'tangentCircleCircle', props: { e1: 41, e2: 42 } }]);
@@ -174,7 +202,7 @@ describe('CONSTRAINT_ACTIONS', () => {
 
   it('concentric / equalRadius：两个圆/弧 → 一条约束', () => {
     for (const id of ['concentric', 'equalRadius'] as const) {
-      const result = action(id).resolve([circle(51), arc(52)]);
+      const result = action(id).resolve(sel([circle(51), arc(52)]));
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.items).toEqual([{ kind: id, props: { e1: 51, e2: 52 } }]);
@@ -194,7 +222,7 @@ describe('CONSTRAINT_ACTIONS', () => {
       ['equalRadius', [arc(15), arc(16)]],
     ];
     for (const [id, selected] of legalCases) {
-      const result = action(id).resolve(selected);
+      const result = action(id).resolve(sel(selected));
       expect(result.ok, `${id}: ${JSON.stringify(selected)}`).toBe(true);
       if (!result.ok) continue;
       for (const item of result.items) {
@@ -220,10 +248,73 @@ describe('CONSTRAINT_ACTIONS', () => {
     ];
 
     for (const [id, selected, label] of illegalCases) {
-      const result = action(id).resolve(selected);
+      const result = action(id).resolve(sel(selected));
       expect(result.ok, `${id} / ${label}`).toBe(false);
       if (result.ok) continue;
       expect(result.reason.length, `${id} / ${label}`).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('coincident：按目标对象多态分派', () => {
+  it('2 个显式点 → coincident', () => {
+    const result = action('coincident').resolve(sel([], [pt(101), pt(102)]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.items).toEqual([{ kind: 'coincident', props: { a: 101, b: 102 } }]);
+  });
+
+  it('2 个点图元展开成引用点 → coincident', () => {
+    const result = action('coincident').resolve(
+      sel([pointEntity(201, 301), pointEntity(202, 302)]),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.items).toEqual([{ kind: 'coincident', props: { a: 301, b: 302 } }]);
+  });
+
+  it('点图元 + 显式点 → coincident', () => {
+    const result = action('coincident').resolve(sel([pointEntity(203, 303)], [pt(304)]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.items).toEqual([{ kind: 'coincident', props: { a: 304, b: 303 } }]);
+  });
+
+  it('1 点 + 1 直线/圆/弧 → pointOnLine / pointOnCircle', () => {
+    const cases: Array<[Entity, ConstraintKind]> = [
+      [line(11), 'pointOnLine'],
+      [circle(12), 'pointOnCircle'],
+      [arc(13), 'pointOnCircle'],
+    ];
+    for (const [target, kind] of cases) {
+      const result = action('coincident').resolve(sel([target], [pt(14)]));
+      expect(result.ok, kind).toBe(true);
+      if (!result.ok) continue;
+      expect(result.items).toEqual([{ kind, props: { p: 14, e: target.id } }]);
+      expect(Object.keys(CONSTRAINT_META)).toContain(kind);
+    }
+  });
+
+  it('点已是该直线端点 → 失败（避免永远满足的假约束）', () => {
+    for (const selection of [sel([line(21)], [pt(1)]), sel([line(22), pointEntity(23, 2)])]) {
+      const result = action('coincident').resolve(selection);
+      expect(result.ok).toBe(false);
+      if (result.ok) continue;
+      expect(result.reason).toContain('端点');
+    }
+  });
+
+  it('无点 / 2 图元 / 3 对象 / 空选择 → 失败且给出理由', () => {
+    const cases: Array<[ConstraintSelection, string]> = [
+      [sel(), '空选择'],
+      [sel([line(31), circle(32)]), '2 图元没有点'],
+      [sel([line(33)], [pt(34), pt(35)]), '3 个对象'],
+    ];
+    for (const [selection, label] of cases) {
+      const result = action('coincident').resolve(selection);
+      expect(result.ok, label).toBe(false);
+      if (result.ok) continue;
+      expect(result.reason.length, label).toBeGreaterThan(0);
     }
   });
 });

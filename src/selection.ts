@@ -21,7 +21,7 @@ import {
   pointInRect,
   rectOf,
 } from './geometry';
-import { getEntity, getPoint, model } from './model';
+import { getEntity, getPoint, model, ownedPointIds } from './model';
 import {
   addSelection,
   clearSelection,
@@ -68,6 +68,8 @@ const entityLabel = (e: Entity): string => {
       return '圆';
     case 'arc':
       return '圆弧';
+    case 'point':
+      return '点';
     default:
       return assertNever(e);
   }
@@ -99,6 +101,17 @@ export const selectedEntities = (selection: Selection = state.selection): Entity
   selectedEntityIds(selection)
     .map(getEntity)
     .filter((e): e is Entity => e !== undefined);
+
+/**
+ * 选择集里显式选中的点（保持选中顺序）。
+ * 「重合」约束以点为主，编辑器把它和 selectedEntities 一起交给约束动作；
+ * 注意不含选中图元的端点/圆心——那些是隐含选中，只在渲染上高亮。
+ */
+export const selectedPoints = (selection: Selection = state.selection): Point[] =>
+  selection.items
+    .filter((item) => item.kind === 'pt')
+    .map((item) => getPoint(item.id))
+    .filter((p): p is Point => p !== undefined);
 
 /**
  * 一次拖拽要移动的全部点：所有选中图元的端点/圆心 + 显式选中的点，按 id 去重。
@@ -174,7 +187,10 @@ export function applyMarquee(marquee: Marquee): void {
     if (crossing ? entityCrossesRect(e, rect) : entityInsideRect(e, rect))
       items.push({ kind: 'ent', id: e.id });
   }
+  // 点图元的点已经以 ent 身份入选项，这里跳过，避免同一个点出现两行
+  const owned = ownedPointIds();
   for (const p of model.pts.values()) {
+    if (owned.has(p.id)) continue;
     if (pointInRect(p, rect)) items.push({ kind: 'pt', id: p.id });
   }
 

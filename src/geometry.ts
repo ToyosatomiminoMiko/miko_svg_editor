@@ -24,9 +24,9 @@ import {
 } from './config';
 import { gridSize } from './camera';
 import { assertNever } from './entities';
-import { ends, getPoint, model } from './model';
+import { ends, getPoint, model, ownedPointIds } from './model';
 import { vec } from './vec';
-import type { Entity, Point, Rect, Snap, Vec } from './types';
+import type { Entity, Point, PointEntity, Rect, Snap, Vec } from './types';
 
 /** 所有图元的世界坐标包围盒（含留白）；没有图元时返回 null */
 interface Bounds {
@@ -59,9 +59,12 @@ function angInArc(ang: number, a0: number, a1: number): boolean {
 
 export function pickPoint(w: Vec, zoom: number): Point | null {
   const tol = worldTol(PICK_POINT_PX, zoom);
+  // 点图元的点按图元拾取（pickEntity），否则同一个点会有 pt / ent 两种选择身份
+  const owned = ownedPointIds();
   let best: Point | null = null;
   let bestD = tol;
   for (const p of model.pts.values()) {
+    if (owned.has(p.id)) continue;
     const d = vec.dist(p, w);
     if (d < bestD) {
       bestD = d;
@@ -71,13 +74,42 @@ export function pickPoint(w: Vec, zoom: number): Point | null {
   return best;
 }
 
+/**
+ * 点图元拾取：与 pickPoint 使用同一容差，并在选择时优先于线/圆/弧。
+ * 点图元可能与它所在的线/端点重合，若按距离一起比较，Map 顺序会决定谁被选中；
+ * 这里先单独取最近的点图元，保证「点优先于图元」对点图元也成立。
+ */
+export function pickPointEntity(w: Vec, zoom: number): PointEntity | null {
+  const tol = worldTol(PICK_POINT_PX, zoom);
+  let best: PointEntity | null = null;
+  let bestD = tol;
+  for (const e of model.ents.values()) {
+    if (e.type !== 'point') continue;
+    const p = getPoint(e.p);
+    if (!p) continue;
+    const d = vec.dist(w, p);
+    if (d < bestD) {
+      bestD = d;
+      best = e;
+    }
+  }
+  return best;
+}
+
 export function pickEntity(w: Vec, zoom: number): Entity | null {
+  // 点优先：与选择语义一致（pickPoint 的容差也更大），避免点图元被它所在的线/圆抢走
+  const pointEntity = pickPointEntity(w, zoom);
+  if (pointEntity) return pointEntity;
+
   const tol = worldTol(PICK_ENTITY_PX, zoom);
   let best: Entity | null = null;
   let bestD = tol;
   for (const e of model.ents.values()) {
     let d = Infinity;
     switch (e.type) {
+      case 'point':
+        // 已在上方 pickPointEntity 处理
+        break;
       case 'line': {
         const [a, b] = ends(e);
         d = distToSeg(w, a, b);
@@ -120,6 +152,9 @@ export function computeSnap(w: Vec, zoom: number): Snap | null {
   // 中点 / 圆上点 / 线上点
   for (const e of model.ents.values()) {
     switch (e.type) {
+      case 'point':
+        // 点图元的点已经作为「已有点」进入上面的候选（优先级最高），这里无需重复
+        break;
       case 'line': {
         const [a, b] = ends(e);
         const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -232,12 +267,16 @@ function entitySamples(e: Entity): Vec[] {
       const c = getPoint(e.c);
       return c ? circleSamples(c, e.r, e.a0, sweepOf(e.a0, e.a1)) : [];
     }
+    case 'point': {
+      const p = getPoint(e.p);
+      return p ? [p] : [];
+    }
     default:
       return assertNever(e);
   }
 }
 
-/** 图元的紧包围盒：圆弧只算弧段范围，整圆才按圆包围盒；引用悬空时返回 null */
+/** 图元的紧包围盒：圆弧只算弧段范围，整圆才按圆包围盒；点图元退化为零尺寸矩形 */
 function entityBounds(e: Entity): Rect | null {
   switch (e.type) {
     case 'line': {
@@ -278,6 +317,10 @@ function entityBounds(e: Entity): Rect | null {
         }
       }
       return { minx, miny, maxx, maxy };
+    }
+    case 'point': {
+      const p = getPoint(e.p);
+      return p ? rectOf(p, p) : null;
     }
     default:
       return assertNever(e);

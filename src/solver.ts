@@ -70,6 +70,8 @@ function buildParams(excludedPointIds?: ReadonlySet<number>): Param[] {
   for (const e of model.ents.values()) {
     switch (e.type) {
       case 'line':
+      case 'point':
+        // 直线/点图元没有独立参数：坐标都在 model.pts 里，已经作为自由度加入
         break;
       case 'circle':
       case 'arc':
