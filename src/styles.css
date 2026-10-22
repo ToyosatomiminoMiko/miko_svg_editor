@@ -1,0 +1,140 @@
+/*
+ * 全站样式常量。样式仍是暂定稿，所以颜色/尺寸只在这里定义一份，
+ * canvas 的绘制常量也由 src/theme.ts 读取同一批 CSS 变量。
+ */
+
+:root {
+  /* 画布 */
+  --canvas-bg: #1b1d21;
+  --canvas-grid: #262a30;
+  --canvas-axis: #303740;
+
+  /* 图元 */
+  --geom: #9fd1ff;
+  --geom-construction: #5a7fb5;
+  --geom-hot: #ffcc55;
+  --selection: #ff7ab6;
+  --point: #e6e6e6;
+  --point-fixed: #ff8a8a;
+  --dim: #d3a94a;
+  --preview: #5aa9ff;
+  --snap: #4ade80;
+  --marquee-window: #6aa8ff;
+  --marquee-cross: #4ade80;
+
+  /* 画布线宽/尺寸（canvas 侧读取） */
+  --stroke-width: 1.5;
+  --stroke-width-hot: 2.4;
+  --selection-width: 2.6;
+  --point-radius: 2.6;
+  --point-radius-hot: 4.5;
+  --point-selected-radius: 5.4;
+  --snap-arm: 6;
+  --marquee-fill-alpha: 0.08;
+  --dim-font: 12px system-ui, sans-serif;
+
+  /* UI 基础 */
+  --ui-font: 13px/1.4 system-ui, sans-serif;
+  --fg: #ddd;
+  --panel-bg: #23262b;
+  --panel-border: #34383f;
+  --panel-radius: 8px;
+  --panel-shadow: 0 4px 16px #0006;
+  --panel-offset: 12px;
+  --panel-gap: 4px;
+
+  /* 控件 */
+  --control-bg: #2d3138;
+  --control-fg: #cfd3da;
+  --control-border: #3b4048;
+  --control-radius: 5px;
+  --control-padding: 4px 9px;
+  --control-hover-bg: #3a3f48;
+  --accent: #3f6fd8;
+  --accent-fg: #fff;
+
+  /* 提示文字 */
+  --hint-opacity: 0.5;
+  --hint-font-size: 12px;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  font: var(--ui-font);
+  background: var(--canvas-bg);
+  color: var(--fg);
+}
+
+#canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  touch-action: none;
+  cursor: default;
+}
+
+#canvas.is-drawing {
+  cursor: crosshair;
+}
+
+#toolbar {
+  position: fixed;
+  left: var(--panel-offset);
+  top: var(--panel-offset);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--panel-gap);
+  padding: 6px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--panel-shadow);
+  max-width: calc(100vw - 40px);
+  z-index: 10;
+}
+
+#toolbar button {
+  background: var(--control-bg);
+  color: var(--control-fg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--control-radius);
+  padding: var(--control-padding);
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+
+#toolbar button:hover {
+  background: var(--control-hover-bg);
+}
+
+#toolbar button.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+/* 开关型按钮（吸附）用描边区分，避免和“当前工具”的实心高亮混淆 */
+#toolbar button.is-toggle.is-active {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#toolbar .sep {
+  width: 1px;
+  background: var(--control-border);
+  margin: 2px 4px;
+}
+
+#hint {
+  position: fixed;
+  left: var(--panel-offset);
+  bottom: var(--panel-offset);
+  opacity: var(--hint-opacity);
+  font-size: var(--hint-font-size);
+  pointer-events: none;
+}
