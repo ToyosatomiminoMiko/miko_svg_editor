@@ -7,6 +7,7 @@ export * from './angle';
 export * from './constraints-meta';
 export * from './export';
 export * from './format';
+export * from './layout';
 export * from './limits';
 export * from './solver';
 export * from './tolerances';

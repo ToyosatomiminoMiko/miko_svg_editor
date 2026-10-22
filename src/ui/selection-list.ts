@@ -1,5 +1,6 @@
 /**
- * 「已选择」列表面板：把有序选择集渲染成可逐项移除的行列表。
+ * 「已选择」列表区块：把有序选择集渲染成可逐项移除的行列表，
+ * 填充左侧状态栏（status-panel.ts）的上半区。
  *
  * 职责边界：本文件只做 DOM 装配与内容签名去重，不查模型、不改选择集；
  * 移除动作通过构造时注入的 SelectionListHost 交给宿主（Editor）执行，
@@ -8,11 +9,11 @@
  * 为什么按内容签名跳过重建：拖动已选图形时宿主每帧都会 update，一次 update
  * 重建整份行列表会反复销毁/创建按钮、丢失悬停与焦点并放大布局抖动。
  * 签名由 kind:id 拼成，顺序也参与签名（选择集的顺序就是用户选中顺序，
- * 顺序变化必须重排）。面板空时保持可见，只把空态与列表按 is-hidden 互斥切换。
+ * 顺序变化必须重排）。区块空时保持可见，只把空态与列表按 is-hidden 互斥切换。
  *
- * 全部 DOM 用 miko_ui 公开原语装配（createPanel / create_element / createButton /
- * createBadge / createObjectRow / createRowActions），外观只靠 .app-* 类名交给
- * 应用样式表；本文件不写内联样式、不 import CSS。
+ * 全部 DOM 用 miko_ui 公开原语装配（create_element / createButton / createBadge /
+ * createObjectRow / createRowActions），外观只靠 .app-* 类名交给应用样式表；
+ * 本文件不写内联样式、不 import CSS。
  */
 
 import {
@@ -20,7 +21,6 @@ import {
   createBadge,
   createButton,
   createObjectRow,
-  createPanel,
   createRowActions,
 } from 'miko_ui';
 import type { SelectionEntry, SelectionKind } from '../types';
@@ -42,22 +42,23 @@ export class SelectionListView {
   private lastSignature: string | null = null;
 
   /**
-   * @param root 面板宿主（`.app-selection` 空 div）；面板由本类自己建并 append 进去
+   * @param root 左侧状态栏上半区的选择区块宿主（`.app-status-selection`）
    * @param host 移除动作的宿主回调，由 Editor 提供
    */
   constructor(root: HTMLElement, host: SelectionListHost) {
     this.host = host;
 
-    const panel = createPanel({ title: '已选择', class: 'app-selection-panel' });
-    root.append(panel.element);
-
-    // 计数放标题栏末尾：标题占满剩余宽度，计数作为固定宽度的第二项贴右
+    // 区块标题 + 计数：左侧「已选择」，右侧贴边的「已选 N 项」
+    const head = create_element({ tag: 'div' }, { class: 'app-selection-head' });
     this.count = create_element({ tag: 'span' }, { class: 'app-selection-count' });
-    panel.header.append(this.count);
+    head.append(
+      create_element({ tag: 'span' }, { class: 'app-selection-title' }, '已选择'),
+      this.count,
+    );
 
     this.list = create_element({ tag: 'div' }, { class: 'app-selection-list', role: 'list' });
     this.empty = create_element({ tag: 'p' }, { class: 'app-selection-empty' }, '未选择对象');
-    panel.body.append(this.list, this.empty);
+    root.append(head, this.list, this.empty);
 
     // 先收敛到空态：宿主可能一直不调 update，面板初始也要是完整形态
     this.update([]);

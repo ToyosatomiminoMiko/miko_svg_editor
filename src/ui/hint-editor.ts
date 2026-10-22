@@ -1,8 +1,9 @@
 /**
- * 状态栏与尺寸数值输入：状态文案 + 尺寸输入框的 DOM 生命周期、输入解析与非法态。
+ * 状态文案与尺寸数值输入：状态行 + 输入框的 DOM 生命周期、输入解析与非法态。
  * 只负责输入框本身，不碰模型：提交后的赋值与求解由宿主回调（Editor）完成。
+ * 左侧栏外壳（标题、已选择列表与两个插槽）在 status-panel.ts；本类只往下半区插槽里装配。
  *
- * 结构全部用 miko_ui 的公开件装配（createPanel / create_element / createNumberField /
+ * 结构全部用 miko_ui 的公开件装配（create_element / createNumberField /
  * createNumberRow / createValueDisplay）：状态行是 `<output>` 读数，由 signal 驱动；
  * info 级提示闪示时临时改写同一个 signal，到时恢复基础文案。
  * 外观只靠类名（app-status-* / app-dim-*）交给应用样式表，本文件不写内联样式、不 import CSS。
@@ -19,11 +20,9 @@ import {
   create_element,
   createNumberField,
   createNumberRow,
-  createPanel,
   createValueDisplay,
   signal,
   type NumberFieldHandle,
-  type PanelHandle,
   type Signal,
 } from 'miko_ui';
 import { TOAST_DURATION_MS } from '../config';
@@ -71,18 +70,14 @@ export class HintEditor {
   private session: DimSession | null = null;
 
   /**
-   * @param root 状态栏宿主（`.app-status` 空 div）；面板由本类自己建并 append 进去
+   * @param root 左侧状态栏的下半区插槽（`.app-status-body`）；栏体外壳见 status-panel.ts
    * @param host 模型回滚/提交回调，由 Editor 提供
    */
   constructor(root: HTMLElement, host: HintEditorHost) {
     this.host = host;
 
-    // 标题与作用域类固定；面板正文由本类继续装配（见下方结构）
-    const panel: PanelHandle = createPanel({ title: '状态', class: 'app-status-panel' });
-    root.append(panel.element);
-
     this.content = create_element({ tag: 'div' }, { class: 'app-status-content' });
-    panel.body.append(this.content);
+    root.append(this.content);
 
     this.statusSignal = signal('');
     const statusLine = createValueDisplay<string>({

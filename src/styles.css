@@ -2,7 +2,9 @@
  * 应用级样式。分工与 miko_ui 的边界：
  * - 控件外观（token / 按钮 / 面板 / 分段 / 开关 / 消息区 / 数值框）全部来自
  *   miko_ui/styles.css，本文件不写第二份；
- * - 本文件只写三件事：页面与宿主的定位布局、miko_ui 组件的消费者变体类
+ * - 顶部 dock 的底色、下沿分隔线与横向排布也来自库的 `.dock`，本文件只把它的
+ *   定位与高度交还给网格（见 `.app-dock.dock`）；
+ * - 本文件只写三件事：页面网格与宿主定位、miko_ui 组件的消费者变体类
  *   （app-* / is-invalid 等）、以及 canvas 画布自己的主题 token。
  *
  * 所有 app-* 类名都是 miko_ui 组件的**外层**或**追加类名**，不是给只含库类名的
@@ -64,6 +66,17 @@
 
   /* 1px 描边像素对齐量：0.5 使线落在像素中心 */
   --pixel-align: 0.5;
+
+  /* ---------------- 页面布局 ----------------
+   * 左侧状态栏的宽度只有这一条变量：拖动分隔条时 ui/sidebar-resizer.ts 把它写成
+   * #app 的行内变量覆盖这里；记住的上次宽度也回写到同一个变量。上下限与画布最小
+   * 宽度同时被 CSS（视口变窄时的 clamp）与 JS（拖拽 clamp）消费，所以只写在这里。
+   */
+  --status-sidebar-width: 340px;
+  --status-sidebar-width-min: 240px;
+  --status-sidebar-width-max: 560px;
+  --status-resizer-width: 6px;
+  --status-canvas-min-width: 420px;
 }
 
 * {
@@ -79,24 +92,43 @@ body {
   color: var(--color-text);
 }
 
-/* 应用根：画布与三块 UI 宿主都绝对定位在它里面 */
+/* 应用根 = 页面网格：
+ *   第 1 行 auto（dock 换行时会变高），第 2 行吃满剩余高度给画布；
+ *   第 1 列状态栏（通高，clamp 只兜「视口变窄」），第 2 列拖拽条（通高），
+ *   第 3 列是 dock 与画布的公共右区。
+ * 宽度用 clamp：拖动值超出「画布最小宽度」时由 CSS 先收住，JS 拖拽里还有同一
+ * 条上限（见 sidebar-resizer.ts），两条路径给出同一个结果。 */
 #app {
   position: relative;
+  display: grid;
+  grid-template-columns:
+    clamp(
+      var(--status-sidebar-width-min),
+      var(--status-sidebar-width),
+      calc(100vw - var(--status-resizer-width) - var(--status-canvas-min-width))
+    )
+    var(--status-resizer-width)
+    minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   width: 100vw;
   height: 100vh;
   overflow: hidden;
 }
 
-/* ------------------------------------------------ 画布（应用背景层） */
+/* ------------------------------------------------ 画布（右侧网格） */
 
 .app-canvas {
-  position: absolute;
-  inset: 0;
+  grid-column: 3;
+  grid-row: 2;
   display: block;
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
   touch-action: none;
   cursor: default;
+  /* 自绘之前的第一帧底色；绘制仍由 Renderer 负责 */
+  background: var(--canvas-bg);
 }
 
 /* 非选择工具时用十字光标（Editor 负责切换这个类） */
@@ -104,40 +136,66 @@ body {
   cursor: crosshair;
 }
 
-/* ------------------------------------------------ 工具栏宿主 */
+/* ------------------------------------------------ 顶部 dock（草图工具） */
 
-.app-toolbar {
-  position: absolute;
-  left: 12px;
-  top: 12px;
-  z-index: 10;
-  max-width: calc(100vw - 24px);
+/* 库的 `.dock` 是「贴桌面上沿的通栏」：绝对定位、定高 var(--dock-reserve)。
+ * 这里它落在网格第 1 行第 3 列，所以只把定位与高度交还给网格；底色、下沿分隔线、
+ * 内边距与横向排布继续由 miko_ui 的 `.dock` 决定（不写第二份 dock 外观）。
+ * 工具在窄视口下换行，dock 变高、画布让位，不出现横向滚动。 */
+.app-dock.dock {
+  grid-column: 3;
+  grid-row: 1;
+  position: relative;
+  inset: auto;
+  height: auto;
+  min-height: var(--dock-reserve);
+  flex-wrap: wrap;
+  align-content: center;
+  row-gap: 6px;
+  padding: 6px 12px;
 }
 
-/* 面板内边距走库开放的变量，不重写 .ui-panel* 的布局规则 */
-.app-toolbar-panel {
-  --panel-header-padding: 6px 12px;
-  --panel-body-padding: 10px 12px;
+/* 窗口按钮组 / 动作区两个分区：miko 的 dock 词汇。工具与约束在左分区，
+ * 视图与文件在右分区（库的 .dock-actions 自带 margin-left:auto + 左分隔线）。 */
+.app-dock .dock-group {
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
 }
 
-/* 面板正文自带 10px 下边距，工具栏里不需要 */
-.app-toolbar-panel .ui-panel-body {
-  margin-bottom: 0;
+.app-dock .dock-actions {
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
-.app-toolbar-content {
-  display: flex;
-  flex-direction: column;
+/* 三个 control-group 在 dock 里变成横向小节：标题在左、控件在右，
+ * 小节之间一条竖分隔线（与库 dock 的窗口组/动作区同一种分节办法）。 */
+.app-dock .control-group {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-}
-
-/* 第一个小节紧贴标题栏下方，不要额外的分隔线与上内边距 */
-.app-toolbar-content > .control-group:first-child {
   border-top: 0;
   padding-top: 0;
+  border-left: 1px solid var(--color-border-divider);
+  padding-left: 12px;
 }
 
-/* 按钮行：允许换行，窄视口下约束多按钮不会把面板撑出屏幕 */
+/* 每个分区的第一个小节紧贴分区起点，不要多一条竖线 */
+.app-dock .dock-group > .control-group:first-child,
+.app-dock .dock-actions > .control-group:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.app-dock .control-title {
+  flex: 0 0 auto;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+/* 按钮行：允许换行，窄视口下约束多按钮不会把 dock 撑出屏幕 */
 .app-button-row {
   display: flex;
   flex-wrap: wrap;
@@ -145,36 +203,114 @@ body {
   gap: 6px;
 }
 
-/* 当前操作按钮（约束 / 固定 / 构造）激活态：具体命令与参数进度显示在底部状态栏 */
+/* dock 里按钮更紧凑：行内间距收一点，仍沿用库的 .ui-button 外观 */
+.app-dock .app-button-row {
+  gap: 4px;
+}
+
+/* 当前操作按钮（约束 / 固定 / 构造）激活态：具体命令与参数进度显示在左侧状态栏 */
 .app-button-row .ui-button.is-active {
   border-color: var(--color-accent);
   color: var(--color-accent);
 }
 
-/* ------------------------------------------------ 状态栏宿主 */
+/* ------------------------------------------------ 左侧状态栏（通高） */
 
 .app-status {
-  position: absolute;
-  left: 12px;
-  bottom: 12px;
-  z-index: 10;
-  max-width: min(760px, calc(100vw - 24px));
+  grid-column: 1;
+  grid-row: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.app-status-panel {
-  --panel-header-padding: 6px 12px;
+/* 面板填满整列、与视口边缘齐平：去掉库面板的圆角与外框，右沿的分隔线由拖拽条
+ * 的右边框提供（两者同色同宽，视觉上就是侧栏的一条边）。 */
+.app-status-panel.ui-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  --panel-header-padding: 8px 12px;
   --panel-body-padding: 8px 12px;
 }
 
+.app-status-panel .ui-panel-header {
+  border-radius: 0;
+}
+
+/* 面板正文两段竖排：上半「已选择」吃满剩余高度并在内部滚动，下半状态/尺寸固定 */
 .app-status-panel .ui-panel-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   margin-bottom: 0;
+}
+
+/* 上半：已选择区块（selection-list.ts 填充） */
+.app-status-selection {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  gap: 6px;
+  min-height: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border-divider);
+}
+
+/* 区块标题与计数同一行：左「已选择」、右贴边的「已选 N 项」 */
+.app-selection-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.app-selection-title {
+  color: var(--color-text);
+}
+
+/* 列表占满上半区剩余高度：条目多时在栏内滚动，不再有独立的最大高度 */
+.app-selection-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app-selection-count {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.app-selection-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-hint);
+}
+
+/* 下半：状态文案与尺寸输入（hint-editor.ts 填充）；固定高度，不被上半区挤压 */
+.app-status-body {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  min-height: 0;
+  padding-top: 8px;
 }
 
 .app-status-content {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: min(420px, calc(100vw - 48px));
+  min-width: 0;
 }
 
 /* 尺寸编辑期间隐藏状态文案，只留输入行（与原提示栏一致） */
@@ -224,6 +360,49 @@ body {
 .app-dim-keys {
   font-size: 11px;
   color: var(--color-text-hint);
+}
+
+/* ------------------------------------------------ 侧栏宽度拖拽条 */
+
+/* 通高的一列：底色与侧栏同色，右边框就是侧栏与右侧内容之间的那条分隔线。
+   悬停 / 拖动 / 键盘聚焦时中间亮起一条 2px 竖线（拖动状态类由 sidebar-resizer.ts 加）。 */
+.app-sidebar-resizer {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  position: relative;
+  background: var(--color-bg-panel);
+  border-right: 1px solid var(--color-border-panel);
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+
+.app-sidebar-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: transparent;
+}
+
+.app-sidebar-resizer:hover::before,
+.app-sidebar-resizer.is-dragging::before,
+.app-sidebar-resizer:focus-visible::before {
+  background: var(--color-accent);
+}
+
+/* 拖动期间整页保持列宽光标并禁止选中文本（类由 sidebar-resizer.ts 加在 body 上），
+   否则指针一移出分隔条，光标与选区就断手感 */
+body.is-resizing-sidebar,
+body.is-resizing-sidebar * {
+  cursor: col-resize !important;
+}
+
+body.is-resizing-sidebar {
+  user-select: none;
 }
 
 /* ------------------------------------------------ 通知区宿主 */
@@ -292,54 +471,7 @@ body {
   filter: brightness(1.08);
 }
 
-/* ------------------------------------------------ 已选择列表 */
-
-/* 宿主只负责摆位；面板框体与行内控件外观都来自 miko_ui */
-.app-selection {
-  position: absolute;
-  right: 12px;
-  top: 12px;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  width: min(248px, calc(100vw - 24px));
-  max-height: calc(100vh - 24px);
-}
-
-/* 面板内边距与工具栏同口径；min-height 让宿主的 max-height 能真正压住正文 */
-.app-selection-panel {
-  --panel-header-padding: 6px 12px;
-  --panel-body-padding: 10px 12px;
-  min-height: 0;
-}
-
-/* 面板正文自带 10px 下边距；行列表要吃掉剩余高度并在内部滚动 */
-.app-selection-panel .ui-panel-body {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  margin-bottom: 0;
-}
-
-.app-selection-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.app-selection-count {
-  flex: 0 0 auto;
-  font-size: 12px;
-  color: var(--color-text-muted);
-}
-
-.app-selection-empty {
-  margin: 0;
-  font-size: 12px;
-  color: var(--color-text-hint);
-}
+/* ------------------------------------------------ 已选择行 */
 
 /* 行外壳的紧凑变体：库默认 7px 8px + 顶端对齐，这里压扁并居中 */
 .app-selection-row {
@@ -363,6 +495,6 @@ body {
 }
 
 /* 空态与列表互斥显示 */
-.app-selection .is-hidden {
+.app-status-selection .is-hidden {
   display: none;
 }

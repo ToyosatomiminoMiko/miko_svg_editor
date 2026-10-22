@@ -19,6 +19,7 @@ import type { ToolbarHandle, ToolbarHandlers } from './toolbar';
 import type { MeasureText, Point, Vec } from './types';
 import { EditorControls, createToolbarHandlers } from './ui/editor-controls';
 import { HintEditor } from './ui/hint-editor';
+import { StatusPanel } from './ui/status-panel';
 import { applyPan, beginPan, wheelZoom, type PanAnchor } from './viewport';
 import type { ClickInput } from './operations';
 
@@ -36,14 +37,14 @@ export class Editor {
   private gesture: Gesture | null = null;
 
   /**
-   * @param canvas 画布节点（应用背景层）
-   * @param statusRoot 状态栏宿主；HintEditor 自己往里建 miko_ui 面板
-   * @param selectionRoot 「已选择」列表宿主；EditorControls 自己往里建面板
+   * @param canvas 画布节点（右侧网格里的画布格）
+   * @param sidebarRoot 左侧状态栏宿主；已选择列表与状态/尺寸输入合并在这一栏里
+   * @param theme 画布主题（线宽/颜色 token）
+   * @param measureText 文本测量适配器（尺寸标注布局用）
    */
   constructor(
     canvas: HTMLCanvasElement,
-    statusRoot: HTMLElement,
-    selectionRoot: HTMLElement,
+    sidebarRoot: HTMLElement,
     theme: Theme,
     measureText: MeasureText,
   ) {
@@ -51,7 +52,8 @@ export class Editor {
     this.measureText = measureText;
     this.dimFont = theme.dimFont;
     const renderer = new Renderer(canvas, theme);
-    this.hintEditor = new HintEditor(statusRoot, {
+    const statusPanel = new StatusPanel(sidebarRoot);
+    this.hintEditor = new HintEditor(statusPanel.statusSlot, {
       onCommit: (con, value) => this.controls.commitDimValue(con, value),
       onCancel: (session) => {
         if (session.created) {
@@ -65,12 +67,15 @@ export class Editor {
       canvas,
       hintEditor: this.hintEditor,
       renderer,
-      selectionRoot,
+      selectionSlot: statusPanel.selectionSlot,
       getToolbar: () => this.toolbar,
     });
     this.handlers = createToolbarHandlers(this.controls);
     this.attachEvents();
-    window.addEventListener('resize', () => renderer.resize());
+    // 画布尺寸跟着布局格走：窗口缩放、侧栏拖拽、dock 换行都会改变它的 CSS 盒。
+    // 这些变化里只有窗口缩放会派发 window.resize，ResizeObserver 才能全都收到。
+    const resizeObserver = new ResizeObserver(() => renderer.resize());
+    resizeObserver.observe(canvas);
     renderer.resize();
   }
 

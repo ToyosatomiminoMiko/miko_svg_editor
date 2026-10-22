@@ -57,8 +57,8 @@ export interface EditorControlsDeps {
   readonly canvas: HTMLCanvasElement;
   readonly hintEditor: HintEditor;
   readonly renderer: Renderer;
-  /** 「已选择」列表面板的宿主节点 */
-  readonly selectionRoot: HTMLElement;
+  /** 左侧状态栏里「已选择」区块的宿主节点（status-panel.ts 的上半区插槽） */
+  readonly selectionSlot: HTMLElement;
   /** 读取当前工具栏引用：bindToolbar 在构造之后才发生 */
   getToolbar(): ToolbarHandle | null;
 }
@@ -71,7 +71,7 @@ export class EditorControls implements ToolbarHandlers {
   private readonly selectionList: SelectionListView;
 
   constructor(private readonly deps: EditorControlsDeps) {
-    this.selectionList = new SelectionListView(deps.selectionRoot, {
+    this.selectionList = new SelectionListView(deps.selectionSlot, {
       remove: (kind, id) => this.removeSelection(kind, id),
     });
   }
