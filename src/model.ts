@@ -189,6 +189,15 @@ export function removeConstraint(c: Constraint): void {
   model.cons.delete(c.id);
 }
 
+/**
+ * 丢弃一个「还没并入任何图元/约束」的临时点：只从点容器删除，不级联、不 prune。
+ * 命令会话回退/取消时用——此时点一定没有任何引用，走 removePoint 的 pruneOrphanPoints
+ * 会把同一次会话里其它尚未使用的临时点也误删（例如 Backspace 只想退掉第二个点）。
+ */
+export function discardPoint(p: Point): void {
+  model.pts.delete(p.id);
+}
+
 /** 删除点并递归级联：引用它的图元（及其约束）与直接引用它的约束一起删掉 */
 export function removePoint(p: Point): void {
   for (const e of [...model.ents.values()]) {

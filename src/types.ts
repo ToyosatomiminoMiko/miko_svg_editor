@@ -78,7 +78,7 @@ export type EntityKind = Entity['type'];
 /**
  * 约束种类。
  * distancePointPoint / distancePointLine / radius 同时是「尺寸」；
- * 哪些种类有 UI 入口见 config/constraints-meta.ts 的 CONSTRAINT_META / CONSTRAINT_ACTIONS。
+ * 哪些种类有 UI 入口见 operations.ts 的约束操作与 config/constraints-meta.ts 的 CONSTRAINT_META。
  */
 export type ConstraintKind =
   | 'coincident'
@@ -143,18 +143,6 @@ export interface Snap {
   pri: number;
 }
 
-/**
- * 未完成的绘制操作。
- * newPt：这次点击顺手创建的点的 id；取消时要把这个孤立点删掉，
- * 已经并入图元的点不会再标在这里。
- */
-export type Pending =
-  | { type: 'line'; start: Vec; startPt: Point; newPt?: number }
-  | { type: 'circle'; center: number; newPt?: number }
-  | { type: 'arc'; c: number; stage: 1 | 2; r?: number; a0?: number; newPt?: number }
-  | { type: 'rect'; p0: Vec }
-  | { type: 'dim'; a: number };
-
 /** 选择项种类：图元或点（id 分属两个容器，必须带种类才能解释） */
 export type SelectionKind = 'ent' | 'pt';
 
@@ -195,21 +183,6 @@ export interface Marquee {
   active: boolean;
   /** 是否累加到已有选择（Shift 框选） */
   add: boolean;
-}
-
-export interface EditorState {
-  tool: ToolId;
-  /** 指针的世界坐标 */
-  cursorWorld: Vec;
-  snap: Snap | null;
-  /** 吸附总开关：关闭后不吸附到点/中点/曲线/网格 */
-  snapEnabled: boolean;
-  hoverPt: Point | null;
-  hoverEnt: Entity | null;
-  pending: Pending | null;
-  selection: Selection;
-  /** 框选状态；不在框选中时为 null */
-  marquee: Marquee | null;
 }
 
 /**

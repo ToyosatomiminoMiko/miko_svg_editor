@@ -48,9 +48,16 @@ import {
   selectionDragPoints,
   selectionEntries,
 } from '../src/selection';
-import { createPoint, dimForEntity, toolClick } from '../src/sketch-actions';
+import {
+  cancelCommand,
+  clickCommand,
+  createSession,
+  executeCommand,
+  type ClickInput,
+} from '../src/operations';
+import { dimForEntity } from '../src/sketch-actions';
 import { resetInteraction, selectOnly, state } from '../src/state';
-import type { Marquee, MeasureText, Point, SelectionItem, Snap } from '../src/types';
+import type { Marquee, MeasureText, Point, SelectionItem, Snap, Vec } from '../src/types';
 
 const view: CameraView = { x: 0, y: 0, z: 1, viewportW: 800, viewportH: 600 };
 const measure: MeasureText = (text) => text.length * 10;
@@ -68,6 +75,16 @@ const gridSnap = (x: number, y: number): Snap => ({
   pos: { x, y },
   d: 1,
   pri: SNAP_PRIORITY.grid,
+});
+
+/** operations 命令引擎的点击上下文（node 里不需要真实画布） */
+const click = (w: Vec, snap: Snap | null = null): ClickInput => ({
+  w,
+  zoom: 1,
+  view,
+  snap,
+  measureText: measure,
+  font: FONT,
 });
 
 const entIds = (): number[] =>
@@ -187,10 +204,12 @@ describe('点图元生命周期', () => {
   it('删除工具点中点图元：按图元身份级联删除点本身', () => {
     const p = addPt(0, 0);
     const e = addPointEntity(p);
+    const session = createSession('erase');
 
-    const outcome = toolClick('erase', null, { x: 0, y: 0 }, null, view, measure, FONT);
-
-    expect(outcome.action?.ok).toBe(true);
+    expect(clickCommand(session, click({ x: 0, y: 0 })).filled).toBe(true);
+    const outcome = executeCommand(session, 1);
+    expect(outcome.kind).toBe('action');
+    if (outcome.kind === 'action') expect(outcome.result.ok).toBe(true);
     expect(getEntity(e.id)).toBeUndefined();
     expect(getPoint(p.id)).toBeUndefined();
   });
@@ -374,13 +393,16 @@ describe('点图元的选择语义', () => {
   });
 });
 
-describe("点工具 createPoint / toolClick('point')", () => {
-  it('无吸附时在指针位置新建点与点图元', () => {
-    const result = createPoint({ x: 3, y: 4 }, null);
-
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.notices).toEqual([]);
+describe('点工具（统一命令引擎）', () => {
+  it('空白点击建点，执行后成为点图元', () => {
+    const session = createSession('point');
+    expect(clickCommand(session, click({ x: 3, y: 4 })).filled).toBe(true);
     expect(model.pts.size).toBe(1);
+    expect(model.ents.size).toBe(0);
+
+    const outcome = executeCommand(session, 1);
+    expect(outcome.kind).toBe('action');
+    if (outcome.kind === 'action') expect(outcome.result.ok).toBe(true);
     expect(model.ents.size).toBe(1);
     const e = [...model.ents.values()][0];
     expect(e?.type).toBe('point');
@@ -390,87 +412,77 @@ describe("点工具 createPoint / toolClick('point')", () => {
     }
   });
 
-  it('吸附到已有点时把该点提升为点图元，不新建点', () => {
+  it('吸附到已有点时复用该点并把它提升为点图元，不新建点', () => {
     const a = addPt(0, 0);
     addLine(a, addPt(100, 0));
+    const session = createSession('point');
 
-    const result = createPoint({ x: 0, y: 0 }, snapAt(a));
+    clickCommand(session, click({ x: 0, y: 0 }, snapAt(a)));
+    expect(model.pts.size).toBe(2); // 没有新建点
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.notices[0]?.kind).toBe('info');
-      expect(result.notices[0]?.message).toContain('提升');
+    const outcome = executeCommand(session, 1);
+    expect(outcome.kind).toBe('action');
+    if (outcome.kind === 'action' && outcome.result.ok) {
+      expect(outcome.result.notices[0]?.kind).toBe('info');
+      expect(outcome.result.notices[0]?.message).toContain('提升');
     }
-    expect(model.pts.size).toBe(2);
-    expect(model.ents.size).toBe(2);
-    const e = pointEntityOf(a.id);
-    expect(e).toBeDefined();
-    expect(e?.p).toBe(a.id);
+    expect(pointEntityOf(a.id)).toBeDefined();
   });
 
   it('已有点图元再次创建：返回 info 提示且不重复创建', () => {
     const a = addPt(0, 0);
     const original = addPointEntity(a);
-    const before = model.ents.size;
+    const session = createSession('point');
 
-    const result = createPoint({ x: 0, y: 0 }, snapAt(a));
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.notices[0]?.message).toContain('已经有一个点');
+    clickCommand(session, click({ x: 0, y: 0 }, snapAt(a)));
+    const outcome = executeCommand(session, 1);
+    expect(outcome.kind).toBe('action');
+    if (outcome.kind === 'action' && outcome.result.ok) {
+      expect(outcome.result.notices[0]?.message).toContain('已经有一个点');
     }
-    expect(model.ents.size).toBe(before);
+    expect(model.ents.size).toBe(1);
     expect(pointEntityOf(a.id)).toBe(original);
   });
 
   it('吸附位置（snap.pos）优先于原始指针位置', () => {
-    const result = createPoint({ x: 999, y: 999 }, gridSnap(10, 20));
+    const session = createSession('point');
+    clickCommand(session, click({ x: 999, y: 999 }, gridSnap(10, 20)));
+    const outcome = executeCommand(session, 1);
+    expect(outcome.kind).toBe('action');
 
-    expect(result.ok).toBe(true);
     const e = [...model.ents.values()][0];
     expect(e?.type).toBe('point');
     if (e?.type === 'point') expect(getPoint(e.p)).toMatchObject({ x: 10, y: 20 });
   });
 
-  it("toolClick('point') 直接返回建点 action 且不进入 pending", () => {
-    const outcome = toolClick('point', null, { x: 7, y: 8 }, null, view, measure, FONT);
-
-    expect(outcome.pending).toBeNull();
-    expect(outcome.action?.ok).toBe(true);
-    expect(model.ents.size).toBe(1);
-    const e = [...model.ents.values()][0];
-    expect(e?.type).toBe('point');
-    if (e?.type === 'point') expect(getPoint(e.p)).toMatchObject({ x: 7, y: 8 });
-  });
-
-  it("toolClick('point') 吸附到已有点时提升该点", () => {
-    const a = addPt(0, 0);
-    addLine(a, addPt(100, 0));
-
-    const outcome = toolClick('point', null, { x: 0, y: 0 }, snapAt(a), view, measure, FONT);
-
-    expect(outcome.action?.ok).toBe(true);
-    expect(pointEntityOf(a.id)).toBeDefined();
+  it('取消命令（Esc）会删掉还没并入图元的点', () => {
+    const session = createSession('point');
+    clickCommand(session, click({ x: 5, y: 5 }));
+    expect(model.pts.size).toBe(1);
+    // 与 EditorControls.cancelCommand 等价的清理入口
+    cancelCommand(session);
+    expect(model.pts.size).toBe(0);
+    expect(model.ents.size).toBe(0);
   });
 });
 
 describe('点图元的尺寸行为', () => {
-  it('尺寸工具点中两个点图元可建 distancePointPoint，且不新建点', () => {
+  it('两个点图元可建 distancePointPoint，且不新建点', () => {
     const p1 = addPt(0, 0);
     addPointEntity(p1);
     const p2 = addPt(100, 0);
     addPointEntity(p2);
 
-    const first = toolClick('dim', null, { x: 0, y: 0 }, null, view, measure, FONT);
-    expect(first.pending).toEqual({ type: 'dim', a: p1.id });
+    const session = createSession('dim');
+    expect(clickCommand(session, click({ x: 0, y: 0 })).filled).toBe(true);
+    expect(clickCommand(session, click({ x: 100, y: 0 })).filled).toBe(true);
 
-    const second = toolClick('dim', first.pending, { x: 100, y: 0 }, null, view, measure, FONT);
-    expect(second.pending).toBeNull();
-    expect(second.dim?.ok).toBe(true);
-    if (!second.dim?.ok) return;
-    expect(second.dim.created).toBe(true);
-    expect(second.dim.con.type).toBe('distancePointPoint');
-    expect(dimValue(second.dim.con)).toBe(100);
+    const outcome = executeCommand(session, 1);
+    expect(outcome.kind).toBe('dim');
+    if (outcome.kind !== 'dim' || !outcome.result.ok) throw new Error('尺寸创建失败');
+    expect(outcome.result.created).toBe(true);
+    expect(outcome.result.con.type).toBe('distancePointPoint');
+    expect(dimValue(outcome.result.con)).toBe(100);
     expect(model.pts.size).toBe(2);
     expect(model.cons.size).toBe(1);
   });
@@ -481,16 +493,20 @@ describe('点图元的尺寸行为', () => {
     const p2 = addPt(100, 0);
     addPointEntity(p2);
 
-    const first = toolClick('dim', null, { x: 0, y: 0 }, null, view, measure, FONT);
-    const created = toolClick('dim', first.pending, { x: 100, y: 0 }, null, view, measure, FONT);
-    if (!created.dim?.ok) throw new Error('尺寸创建失败');
+    const create = (): ReturnType<typeof executeCommand> => {
+      const session = createSession('dim');
+      clickCommand(session, click({ x: 0, y: 0 }));
+      clickCommand(session, click({ x: 100, y: 0 }));
+      return executeCommand(session, 1);
+    };
 
-    const again = toolClick('dim', null, { x: 0, y: 0 }, null, view, measure, FONT);
-    const existing = toolClick('dim', again.pending, { x: 100, y: 0 }, null, view, measure, FONT);
-    expect(existing.dim?.ok).toBe(true);
-    if (!existing.dim?.ok) return;
-    expect(existing.dim.created).toBe(false);
-    expect(existing.dim.con.id).toBe(created.dim.con.id);
+    const first = create();
+    if (first.kind !== 'dim' || !first.result.ok) throw new Error('尺寸创建失败');
+    const second = create();
+    expect(second.kind).toBe('dim');
+    if (second.kind !== 'dim' || !second.result.ok) throw new Error('应返回编辑会话');
+    expect(second.result.created).toBe(false);
+    expect(second.result.con.id).toBe(first.result.con.id);
     expect(model.cons.size).toBe(1);
   });
 

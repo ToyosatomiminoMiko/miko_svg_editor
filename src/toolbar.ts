@@ -1,9 +1,10 @@
 /**
- * 工具栏 DOM 构建。按钮表来自 tools.ts 的 TOOLS 与 config/constraints-meta 的 CONSTRAINT_ACTIONS，
- * 动作由调用方（Editor）注入。
+ * 工具栏 DOM 构建。按钮表来自 tools.ts 的 TOOLS 与 operations.ts 的 CONSTRAINT_OPERATIONS /
+ * EDIT_OPERATIONS，动作由调用方（Editor）注入。
  *
- * DOM 与交互全部由 miko_ui 的公开原语搭建（面板 / 分段按钮组 / 按钮 / 开关 / 分组行），
- * 本文件只保留应用自己的类名（.app-*）与业务接线；不使用桌面窗口系统，线上 npm 包即可编译。
+ * 与命令模型的关系：工具与约束/固定/构造按钮都只是「启动一个操作」——操作把参数槽位填满后
+ * 立即执行（见 operations.ts 与 ui/editor-controls.ts）。工具栏不保存任何参数，只负责把点击转成
+ * armOperation(id)，并同步「当前工具」与「当前操作按钮」的高亮态。
  */
 
 import {
@@ -14,24 +15,27 @@ import {
   createPanel,
   createSegmented,
   createSwitch,
+  type ButtonHandle,
 } from 'miko_ui';
-import { CONSTRAINT_ACTIONS } from './config';
-import { TOOLS, type ConstraintAction } from './tools';
+import { CONSTRAINT_OPERATIONS, EDIT_OPERATIONS, type OperationId } from './operations';
+import { TOOLS } from './tools';
 import type { ToolId } from './types';
 
 export interface ToolbarHandlers {
   setTool(id: ToolId): void;
-  applyConstraint(kind: ConstraintAction): void;
+  /** 约束 / 固定 / 构造按钮：启动一个参数槽位化操作 */
+  armOperation(id: OperationId): void;
   toggleSnap(): void;
-  toggleFixed(): void;
-  toggleConstruction(): void;
   fitView(): void;
   exportSVG(): void;
   clearAll(): void;
 }
 
 export interface ToolbarHandle {
-  setActive(id: ToolId): void;
+  /** 程序化选中工具分段（不触发 onChange） */
+  setActiveTool(id: ToolId): void;
+  /** 约束/编辑按钮的高亮态：传入当前操作 id，null 清除 */
+  setActiveOperation(id: OperationId | null): void;
   setSnap(on: boolean): void;
 }
 
@@ -59,16 +63,20 @@ export function buildToolbar(root: HTMLElement, handlers: ToolbarHandlers): Tool
   segmented.onChange((id) => handlers.setTool(id));
   content.appendChild(createControlGroup('工具', segmented.element));
 
-  // 约束区：按钮表单一来源是 CONSTRAINT_ACTIONS，顺序与按钮文案都从它来
+  // 约束区：按钮表单一来源是 operations 的约束操作，顺序与按钮文案都从它来
   const constraintRow = create_element({ tag: 'div' }, { class: 'app-button-row' });
-  for (const c of CONSTRAINT_ACTIONS) {
-    const button = createButton({ text: c.label, title: '给选中图形/点加约束' });
-    button.onClick(() => handlers.applyConstraint(c.id));
+  const actionButtons = new Map<OperationId, ButtonHandle>();
+  const addActionButton = (id: OperationId, text: string, title: string): void => {
+    const button = createButton({ text, title });
+    button.onClick(() => handlers.armOperation(id));
+    actionButtons.set(id, button);
     constraintRow.appendChild(button.element);
-  }
+  };
+  for (const op of CONSTRAINT_OPERATIONS)
+    addActionButton(op.id, op.label, '参数可在画布上补齐，填满立即执行');
   content.appendChild(createControlGroup('约束', constraintRow));
 
-  // 视图与文件区：吸附开关 + 五个动作按钮；按钮文案与提示沿用原工具栏
+  // 视图与文件区：吸附开关 + 固定/构造（也是操作）+ 三个即时命令
   const viewFileRow = create_element({ tag: 'div' }, { class: 'app-button-row' });
 
   // 开关自带可见标签（createInlineToggle 的 <label for> 已命名控件），故不再传 ariaLabel，
@@ -79,13 +87,11 @@ export function buildToolbar(root: HTMLElement, handlers: ToolbarHandlers): Tool
   snapSwitch.onChange(() => handlers.toggleSnap());
   viewFileRow.appendChild(createInlineToggle('吸附', snapSwitch));
 
+  for (const op of EDIT_OPERATIONS) {
+    addActionButton(op.id, op.label, '参数可在画布上补齐，填满立即执行');
+  }
+
   const viewFileButtons: readonly ViewFileButton[] = [
-    { text: '固定', title: '固定/解锁选中图形的点', run: () => handlers.toggleFixed() },
-    {
-      text: '构造',
-      title: '切换选中图元的构造线虚显/导出虚线',
-      run: () => handlers.toggleConstruction(),
-    },
     { text: '适应', title: '缩放显示整张草图', run: () => handlers.fitView() },
     { text: '导出SVG', title: '下载当前草图', run: () => handlers.exportSVG() },
     { text: '清空', title: '删除所有图元', run: () => handlers.clearAll() },
@@ -99,8 +105,16 @@ export function buildToolbar(root: HTMLElement, handlers: ToolbarHandlers): Tool
 
   return {
     // 程序化选中：控件 set() 不触发 onChange，避免同步路径反写成「用户切工具」
-    setActive(id: ToolId): void {
+    setActiveTool(id: ToolId): void {
       segmented.set(id);
+    },
+    setActiveOperation(id: OperationId | null): void {
+      for (const [opId, button] of actionButtons) {
+        const active = opId === id;
+        button.element.classList.toggle('is-active', active);
+        if (active) button.element.setAttribute('aria-pressed', 'true');
+        else button.element.removeAttribute('aria-pressed');
+      }
     },
     // 同理，勾选态由 state 驱动，set() 只改控件本身
     setSnap(on: boolean): void {

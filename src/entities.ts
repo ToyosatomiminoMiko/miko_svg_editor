@@ -51,6 +51,22 @@ export type CurveEntity = Extract<Entity, { type: KindOfCategory<'curve'> }>;
 export const isCurveEntity = (e: Entity | undefined): e is CurveEntity =>
   e !== undefined && ENTITY_CATEGORY[e.type] === 'curve';
 
+/** 图元种类中文名：已选择列表与命令状态栏共用，新增种类时 switch 会编译报错 */
+export function entityLabel(e: Entity): string {
+  switch (e.type) {
+    case 'line':
+      return '直线';
+    case 'circle':
+      return '圆';
+    case 'arc':
+      return '圆弧';
+    case 'point':
+      return '点';
+    default:
+      return assertNever(e);
+  }
+}
+
 /**
  * 尺寸工具点中图元后要创建的目标尺寸：
  * 直线取两端点距离（线长），圆/弧取半径。

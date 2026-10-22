@@ -9,10 +9,16 @@ import { TAU, sweepOf } from './config';
 import { dimLayout } from './dimensions';
 import { assertNever } from './entities';
 import { ends, getPoint, model, ownedPointIds } from './model';
-import { isCrossing, isEntitySelected, isPointSelected } from './selection';
+import { commandPreview } from './operations';
+import {
+  isCommandEntity,
+  isCommandPoint,
+  isCrossing,
+  isEntitySelected,
+  isPointSelected,
+} from './selection';
 import { state } from './state';
 import type { Theme } from './theme';
-import { vec } from './vec';
 import type { Constraint, Entity, Point, Vec } from './types';
 
 export class Renderer {
@@ -57,7 +63,7 @@ export class Renderer {
     const owned = ownedPointIds();
     for (const p of model.pts.values()) {
       if (owned.has(p.id)) continue;
-      this.drawPoint(p, state.hoverPt === p, isPointSelected(p));
+      this.drawPoint(p, state.hoverPt === p, isPointSelected(p) || isCommandPoint(p));
     }
 
     for (const c of model.cons.values()) this.drawDim(c);
@@ -107,10 +113,10 @@ export class Renderer {
    * 若该端点同时被点图元拥有，点图元的高亮必须与点保持一致。
    */
   private isSelectedForRender(e: Entity): boolean {
-    if (isEntitySelected(e.id)) return true;
+    if (isEntitySelected(e.id) || isCommandEntity(e)) return true;
     if (e.type !== 'point') return false;
     const p = getPoint(e.p);
-    return p !== undefined && isPointSelected(p);
+    return p !== undefined && (isPointSelected(p) || isCommandPoint(p));
   }
 
   private drawEntity(e: Entity, selected: boolean, hovered: boolean): void {
@@ -282,10 +288,13 @@ export class Renderer {
     ctx.fillText(text, pos.x, pos.y);
   }
 
+  /** 命令预览：操作表给出世界坐标形状，这里只按画布主题画（不再按 pending 类型分叉） */
   private drawPreview(): void {
-    const p = state.pending;
-    if (!p) return;
+    const command = state.command;
+    if (!command) return;
     const cur = state.snap ? state.snap.pos : state.cursorWorld;
+    const shapes = commandPreview(command, cur);
+    if (shapes.length === 0) return;
     const { ctx, theme } = this;
 
     ctx.save();
@@ -293,51 +302,33 @@ export class Renderer {
     ctx.lineWidth = theme.strokeWidth;
     ctx.setLineDash(theme.dashPreview);
 
-    switch (p.type) {
-      case 'line':
-        this.lineWorld(p.start, cur);
-        break;
-      case 'circle': {
-        const c = getPoint(p.center);
-        if (c) {
-          const s = w2s(c);
+    for (const shape of shapes) {
+      switch (shape.kind) {
+        case 'line':
+          this.lineWorld(shape.a, shape.b);
+          break;
+        case 'circle': {
+          const c = w2s(shape.c);
           ctx.beginPath();
-          ctx.arc(s.x, s.y, vec.dist(c, cur) * cam.z, 0, TAU);
+          ctx.arc(c.x, c.y, shape.r * cam.z, 0, TAU);
           ctx.stroke();
+          break;
         }
-        break;
-      }
-      case 'rect': {
-        const A = w2s(p.p0);
-        const B = w2s(cur);
-        ctx.strokeRect(A.x, A.y, B.x - A.x, B.y - A.y);
-        break;
-      }
-      case 'arc': {
-        const c = getPoint(p.c);
-        if (!c) break;
-        const s = w2s(c);
-        if (p.stage === 1) {
+        case 'arc': {
+          const c = w2s(shape.c);
           ctx.beginPath();
-          ctx.arc(s.x, s.y, vec.dist(c, cur) * cam.z, 0, TAU);
+          // 扫角统一走 sweepOf：同角时预览也画整圆（BUG-10）
+          ctx.arc(c.x, c.y, shape.r * cam.z, shape.a0, shape.a0 + sweepOf(shape.a0, shape.a1));
           ctx.stroke();
-        } else if (p.r !== undefined && p.a0 !== undefined) {
-          const a1 = Math.atan2(cur.y - c.y, cur.x - c.x);
-          // BUG-10：预览与创建统一用 sweepOf，同角时预览也画整圆
-          const sweep = sweepOf(p.a0, a1);
-          ctx.beginPath();
-          ctx.arc(s.x, s.y, p.r * cam.z, p.a0, p.a0 + sweep);
-          ctx.stroke();
+          break;
         }
-        break;
+        case 'rect': {
+          const A = w2s(shape.a);
+          const B = w2s(shape.b);
+          ctx.strokeRect(A.x, A.y, B.x - A.x, B.y - A.y);
+          break;
+        }
       }
-      case 'dim': {
-        const a = getPoint(p.a);
-        if (a) this.lineWorld(a, cur);
-        break;
-      }
-      default:
-        assertNever(p);
     }
     ctx.setLineDash([]);
     ctx.restore();

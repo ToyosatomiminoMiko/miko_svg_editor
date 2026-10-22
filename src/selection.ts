@@ -10,8 +10,9 @@
  */
 
 import { s2w } from './camera';
+import type { CameraView } from './camera';
 import { DRAG_THRESHOLD_PX } from './config';
-import { assertNever, entityPointIds } from './entities';
+import { entityLabel, entityPointIds } from './entities';
 import {
   computeSnap,
   entityCrossesRect,
@@ -32,9 +33,11 @@ import {
   state,
   toggleSelected,
 } from './state';
+import { commandHover } from './operations';
 import type {
   Entity,
   Marquee,
+  MeasureText,
   Point,
   Selection,
   SelectionEntry,
@@ -58,22 +61,6 @@ const pointsOf = (e: Entity): Point[] =>
   entityPointIds(e)
     .map(getPoint)
     .filter((p): p is Point => p !== undefined);
-
-/** 已选择列表里图元种类的中文名；新增图元种类时 switch 会编译报错 */
-const entityLabel = (e: Entity): string => {
-  switch (e.type) {
-    case 'line':
-      return '直线';
-    case 'circle':
-      return '圆';
-    case 'arc':
-      return '圆弧';
-    case 'point':
-      return '点';
-    default:
-      return assertNever(e);
-  }
-};
 
 /** 某项是否被显式选中（图元端点属于「隐含选中」，见 isPointSelected） */
 export const isEntitySelected = (id: number): boolean => hasSelected('ent', id);
@@ -228,11 +215,50 @@ export function selectionEntries(): SelectionEntry[] {
   return entries;
 }
 
-/** 指针移动时的悬停/吸附刷新；拖拽/平移期间不调用（标记由 clearHover 提前清掉，BUG-11） */
-export function updateHover(w: Vec, zoom: number): void {
+/** 命令会话悬停所需的视图数据（尺寸命中要视图/字体，几何拾取只要 zoom） */
+export interface HoverPickContext {
+  readonly view: CameraView;
+  readonly measureText: MeasureText;
+  readonly font: string;
+}
+
+/**
+ * 指针移动时的悬停/吸附刷新；拖拽/平移期间不调用（标记由 clearHover 提前清掉，BUG-11）。
+ * 有命令会话时只高亮「点下去真的会填进空槽位」的对象（operations.commandHover），
+ * 这样收集参数阶段的反馈与实际点击消费的口径完全一致。
+ */
+export function updateHover(w: Vec, zoom: number, command?: HoverPickContext): void {
   state.snap = state.snapEnabled ? computeSnap(w, zoom) : null;
+  if (state.command) {
+    if (!command) {
+      state.hoverPt = null;
+      state.hoverEnt = null;
+      return;
+    }
+    const hover = commandHover(state.command, {
+      w,
+      zoom,
+      view: command.view,
+      snap: state.snap,
+      measureText: command.measureText,
+      font: command.font,
+    });
+    state.hoverPt = hover.pt ?? null;
+    state.hoverEnt = hover.ent ?? null;
+    return;
+  }
   state.hoverPt = pickPoint(w, zoom);
   state.hoverEnt = state.hoverPt ? null : pickEntity(w, zoom);
+}
+
+/** 该点是否是当前命令已填的参数（渲染选中态用） */
+export function isCommandPoint(p: Point): boolean {
+  return state.command?.values.some((v) => v?.kind === 'point' && v.point.id === p.id) ?? false;
+}
+
+/** 该图元是否是当前命令已填的参数（渲染选中态用） */
+export function isCommandEntity(e: Entity): boolean {
+  return state.command?.values.some((v) => v?.kind === 'entity' && v.entity.id === e.id) ?? false;
 }
 
 /** 手势开始时清空悬停/吸附标记，避免旧位置的高亮残留 */

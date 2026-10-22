@@ -1,18 +1,12 @@
 /**
- * sketch-actions.ts 的领域操作与点击状态机（node 环境，无 DOM）。
- * 这些函数只依赖 model/solver/geometry/dimensions：点击状态机把「下一个 pending」作为结果返回，
- * 由 Editor 写回 state；因此这里直接传 pending 与 CameraView 快照即可完整测试。
+ * sketch-actions.ts 的原子领域操作（node 环境，无 DOM）。
+ * 这些函数只依赖 model/solver/geometry/dimensions：参数槽位与点击状态机已统一到
+ * operations.ts，本文件只测「一次操作真正写模型」的部分：
+ * 创建图元的退化阈值、删除级联、固定/构造、尺寸创建与回滚、拖拽求解、求解提示翻译。
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  AUTO_AXIS_RATIO,
-  DIM_DEFAULT_OFFSET_PX,
-  ITER_FULL,
-  MIN_RADIUS,
-  MIN_RECT_EDGE,
-} from '../src/config';
-import type { CameraView } from '../src/camera';
+import { AUTO_AXIS_RATIO, DIM_DEFAULT_OFFSET_PX } from '../src/config';
 import { isDimConstraint, dimValue } from '../src/dimensions';
 import {
   addCircle,
@@ -25,8 +19,6 @@ import {
   model,
 } from '../src/model';
 import {
-  applyConstraint,
-  cancelPending,
   commitDim,
   createArc,
   createCircle,
@@ -40,20 +32,8 @@ import {
   solve,
   toggleConstruction,
   toggleFixed,
-  toolClick,
 } from '../src/sketch-actions';
 import { resetInteraction } from '../src/state';
-import type { Entity, MeasureText, Pending, Point } from '../src/types';
-
-const view: CameraView = { x: 0, y: 0, z: 1, viewportW: 800, viewportH: 600 };
-const measure: MeasureText = (text) => text.length * 10;
-const FONT = '12px sans-serif';
-
-/** 约束动作的输入是 {entities, points}：这些用例只看图元，点留空 */
-const sel = (
-  entities: readonly Entity[] = [],
-  points: readonly Point[] = [],
-): { entities: readonly Entity[]; points: readonly Point[] } => ({ entities, points });
 
 beforeEach(() => {
   clearModel();
@@ -109,8 +89,8 @@ describe('createLine', () => {
 describe('createCircle / createArc', () => {
   it('半径太小拒绝创建', () => {
     const c = addPt(0, 0);
-    expect(createCircle(c, MIN_RADIUS / 2).ok).toBe(false);
-    expect(createArc(c, MIN_RADIUS / 2, 0, 1).ok).toBe(false);
+    expect(createCircle(c, 1e-5).ok).toBe(false);
+    expect(createArc(c, 1e-5, 0, 1).ok).toBe(false);
     expect(model.ents.size).toBe(0);
   });
 
@@ -124,8 +104,8 @@ describe('createCircle / createArc', () => {
 
 describe('createRect', () => {
   it('过小的矩形拒绝创建', () => {
-    expect(createRect({ x: 0, y: 0 }, { x: MIN_RECT_EDGE / 2, y: 10 }).ok).toBe(false);
-    expect(createRect({ x: 0, y: 0 }, { x: 10, y: MIN_RECT_EDGE / 2 }).ok).toBe(false);
+    expect(createRect({ x: 0, y: 0 }, { x: 1e-5, y: 10 }).ok).toBe(false);
+    expect(createRect({ x: 0, y: 0 }, { x: 10, y: 1e-5 }).ok).toBe(false);
     expect(model.ents.size).toBe(0);
   });
 
@@ -139,41 +119,6 @@ describe('createRect', () => {
     const types = [...model.cons.values()].map((c) => c.type);
     expect(types.filter((t) => t === 'horizontal')).toHaveLength(2);
     expect(types.filter((t) => t === 'vertical')).toHaveLength(2);
-  });
-});
-
-describe('applyConstraint', () => {
-  it('合法选择添加约束；重复添加被跳过并报错', () => {
-    const l1 = plainLine().line;
-    const l2 = addLine(addPt(0, 10), addPt(100, 10));
-
-    const first = applyConstraint('horizontal', sel([l1, l2]));
-    expect(first.ok).toBe(true);
-    if (!first.ok) return;
-    expect(model.cons.size).toBe(2);
-
-    const again = applyConstraint('horizontal', sel([l1, l2]));
-    expect(again.ok).toBe(false);
-    if (!again.ok) expect(again.reason).toContain('已存在');
-  });
-
-  it('非法选择返回面向用户的理由，不写模型', () => {
-    const circle = addCircle(addPt(0, 0), 10);
-    const result = applyConstraint('horizontal', sel([circle]));
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason.length).toBeGreaterThan(0);
-    expect(model.cons.size).toBe(0);
-
-    const unknown = applyConstraint('parallel', sel());
-    expect(unknown.ok).toBe(false);
-  });
-
-  it('相切按选中类型生成对应 kind', () => {
-    const l = plainLine().line;
-    const circle = addCircle(addPt(50, 50), 10);
-    const result = applyConstraint('tangent', sel([l, circle]));
-    expect(result.ok).toBe(true);
-    expect([...model.cons.values()][0]?.type).toBe('tangentLineCircle');
   });
 });
 
@@ -261,6 +206,14 @@ describe('dimForEntity', () => {
     expect(circle.r).toBeCloseTo(5, 6);
     expect(dimValue(result.con)).toBe(5);
   });
+
+  it('点图元没有独立尺寸目标', () => {
+    const e = { id: 999, type: 'point' as const, construction: false, p: 1 };
+    const result = dimForEntity(e, 1);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain('不能标注尺寸');
+    expect(model.cons.size).toBe(0);
+  });
 });
 
 describe('dimForPoints / rollbackDim', () => {
@@ -293,107 +246,6 @@ describe('dimForPoints / rollbackDim', () => {
   });
 });
 
-describe('cancelPending', () => {
-  it('删除本次点击新建但还没并入图元的点', () => {
-    const p = addPt(0, 0);
-    const pending: Pending = { type: 'circle', center: 999, newPt: p.id };
-    cancelPending(pending);
-    expect(getPoint(p.id)).toBeUndefined();
-  });
-
-  it('没有 newPt 时什么都不做', () => {
-    const ptsBefore = model.pts.size;
-    cancelPending({ type: 'rect', p0: { x: 0, y: 0 } });
-    expect(model.pts.size).toBe(ptsBefore);
-  });
-});
-
-describe('toolClick 状态机', () => {
-  it('select 工具原样返回 pending', () => {
-    const pending: Pending = { type: 'rect', p0: { x: 0, y: 0 } };
-    const outcome = toolClick('select', pending, { x: 0, y: 0 }, null, view, measure, FONT);
-    expect(outcome.pending).toBe(pending);
-  });
-
-  it('直线：两次点击成线，第二击成为下一段起点', () => {
-    const first = toolClick('line', null, { x: 0, y: 0 }, null, view, measure, FONT);
-    expect(first.pending?.type).toBe('line');
-    expect(first.action).toBeUndefined();
-    expect(model.pts.size).toBe(1);
-
-    const second = toolClick('line', first.pending, { x: 100, y: 0 }, null, view, measure, FONT);
-    expect(second.pending?.type).toBe('line');
-    expect(second.action?.ok).toBe(true);
-    expect(model.ents.size).toBe(1);
-  });
-
-  it('圆：圆心 + 半径点', () => {
-    const center = toolClick('circle', null, { x: 0, y: 0 }, null, view, measure, FONT);
-    expect(center.pending?.type).toBe('circle');
-    const done = toolClick('circle', center.pending, { x: 10, y: 0 }, null, view, measure, FONT);
-    expect(done.pending).toBeNull();
-    expect(done.action?.ok).toBe(true);
-    expect(model.ents.size).toBe(1);
-  });
-
-  it('弧：圆心 → 起点 → 终点', () => {
-    const c = toolClick('arc', null, { x: 0, y: 0 }, null, view, measure, FONT);
-    const stage2 = toolClick('arc', c.pending, { x: 10, y: 0 }, null, view, measure, FONT);
-    const p = stage2.pending;
-    expect(p?.type).toBe('arc');
-    if (p?.type !== 'arc') throw new Error('应为 arc pending');
-    expect(p.stage).toBe(2);
-    const done = toolClick('arc', p, { x: 0, y: 10 }, null, view, measure, FONT);
-    expect(done.action?.ok).toBe(true);
-    const arc = [...model.ents.values()][0];
-    expect(arc?.type).toBe('arc');
-    if (arc?.type === 'arc') {
-      expect(arc.r).toBeCloseTo(10, 6);
-      expect(arc.a0).toBeCloseTo(0, 12);
-      expect(arc.a1).toBeCloseTo(Math.PI / 2, 12);
-    }
-  });
-
-  it('矩形：两个对角点创建 4 条边', () => {
-    const first = toolClick('rect', null, { x: 0, y: 0 }, null, view, measure, FONT);
-    expect(first.pending?.type).toBe('rect');
-    const done = toolClick('rect', first.pending, { x: 10, y: 5 }, null, view, measure, FONT);
-    expect(done.pending).toBeNull();
-    expect(done.action?.ok).toBe(true);
-    expect(model.ents.size).toBe(4);
-  });
-
-  it('尺寸：点中图元创建距离尺寸', () => {
-    plainLine();
-    const outcome = toolClick('dim', null, { x: 50, y: 0 }, null, view, measure, FONT);
-    expect(outcome.dim?.ok).toBe(true);
-    if (outcome.dim?.ok) {
-      expect(outcome.dim.created).toBe(true);
-      expect(outcome.dim.con.type).toBe('distancePointPoint');
-    }
-  });
-
-  it('尺寸：点中已有点进入两点尺寸流程', () => {
-    const { a } = plainLine();
-    const outcome = toolClick('dim', null, { x: a.x, y: a.y }, null, view, measure, FONT);
-    expect(outcome.pending).toEqual({ type: 'dim', a: a.id });
-  });
-
-  it('删除：点优先，其次图元；都级联删除', () => {
-    const p = addPt(0, 0);
-    addLine(p, addPt(100, 0));
-    const erasePoint = toolClick('erase', null, { x: 0, y: 0 }, null, view, measure, FONT);
-    expect(erasePoint.action?.ok).toBe(true);
-    expect(model.ents.size).toBe(0);
-
-    clearModel();
-    addLine(addPt(0, 0), addPt(100, 0));
-    const eraseLine = toolClick('erase', null, { x: 50, y: 0 }, null, view, measure, FONT);
-    expect(eraseLine.action?.ok).toBe(true);
-    expect(model.ents.size).toBe(0);
-  });
-});
-
 describe('moveDrag', () => {
   it('按光标位移平移被拖点并静默求解', () => {
     const { a } = plainLine();
@@ -411,13 +263,13 @@ describe('moveDrag', () => {
 describe('solve 提示翻译', () => {
   it('silent 模式不产生提示', () => {
     plainLine();
-    expect(solve(ITER_FULL, { silent: true })).toEqual([]);
+    expect(solve(80, { silent: true })).toEqual([]);
   });
 
   it('无效约束提示错误，冲突约束提示未满足', () => {
     const circle = addCircle(addPt(0, 0), 10);
     addCon('horizontal', { e: circle.id }); // 种类不符 → invalid
-    const notices = solve(ITER_FULL);
+    const notices = solve(80);
     expect(
       notices.some((n) => n.kind === 'error' && n.message.includes('引用了不存在的对象')),
     ).toBe(true);
@@ -427,26 +279,8 @@ describe('solve 提示翻译', () => {
     const b = addPt(10, 5, true);
     const line = addLine(a, b);
     addCon('horizontal', { e: line.id });
-    const conflict = solve(ITER_FULL);
+    const conflict = solve(80);
     expect(conflict.some((n) => n.message.includes('约束未完全满足'))).toBe(true);
     expect(isDimConstraint(addCon('horizontal', { e: line.id }))).toBe(false);
-  });
-});
-
-describe('applyConstraint 反序选择去重（BUG-3）', () => {
-  it('先选 A 再选 B 与先选 B 再选 A 只保留一条平行约束', () => {
-    const p1 = addPt(0, 0);
-    const p2 = addPt(100, 0);
-    const line1 = addLine(p1, p2);
-    const p3 = addPt(0, 30);
-    const p4 = addPt(100, 30);
-    const line2 = addLine(p3, p4);
-
-    const first = applyConstraint('parallel', sel([line1, line2]));
-    expect(first.ok).toBe(true);
-    const second = applyConstraint('parallel', sel([line2, line1]));
-    expect(second.ok).toBe(false);
-    if (!second.ok) expect(second.reason).toContain('已存在');
-    expect([...model.cons.values()].filter((x) => x.type === 'parallel')).toHaveLength(1);
   });
 });

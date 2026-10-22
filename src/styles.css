@@ -145,6 +145,12 @@ body {
   gap: 6px;
 }
 
+/* 当前操作按钮（约束 / 固定 / 构造）激活态：具体命令与参数进度显示在底部状态栏 */
+.app-button-row .ui-button.is-active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
 /* ------------------------------------------------ 状态栏宿主 */
 
 .app-status {

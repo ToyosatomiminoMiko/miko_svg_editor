@@ -1,27 +1,47 @@
 /**
- * 「重合」约束的多态分派与求解收敛（经 sketch-actions.applyConstraint 的公开入口）。
+ * 「重合」约束的多态分派与求解收敛（经 operations.ts 的统一命令引擎）。
  * 「重合」不是单一 kind：同一个按钮按「锚点 + 目标对象」分派到三种残差——
  * 2 个点 → coincident、点 + 直线 → pointOnLine、点 + 圆/弧 → pointOnCircle。
  * 本文件从两层钉住它，避免「按钮能点但写错 kind / 残差永远不收敛」：
- * 1) 分派与拒绝规则：点图元展开成它引用的点；点已是该直线端点时拒绝（否则是恒成立的假约束）；
- *    对象数/类型不对、重复添加都要给出理由且不写模型；反序选择必须落到同一条约束；
- * 2) 求解：applyConstraint 写入后立即求解（ITER_CONSTRAINT），用残差≈0 证明
+ * 1) 槽位填充与上下文排除：点图元按点身份参与；点已是目标直线端点/圆心的组合在
+ *    填槽位阶段就被挡住（假约束 / 半径被挤成 0），对象数/类型不对时保持收集态且不写模型；
+ * 2) 求解：execute 写入后立即求解（ITER_CONSTRAINT），用残差≈0 证明
  *    constraints.ts 的 coincident / pointOnLine / pointOnCircle 方程确实收敛。
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { ConstraintSelection } from '../src/config';
 import { addArc, addCircle, addLine, addPointEntity, addPt, clearModel, model } from '../src/model';
-import { applyConstraint } from '../src/sketch-actions';
+import {
+  createSession,
+  executeCommand,
+  fillFromOperands,
+  operandsFromSelection,
+} from '../src/operations';
 import { resetInteraction } from '../src/state';
-import type { Entity, Point } from '../src/types';
+import type { Entity, Point, Selection } from '../src/types';
 import { vec } from '../src/vec';
 
-/** 约束动作统一接收 {entities, points}；重合的点既可以是显式点也可以是点图元 */
-const sel = (
-  entities: readonly Entity[] = [],
-  points: readonly Point[] = [],
-): ConstraintSelection => ({ entities, points });
+const sel = (entities: readonly Entity[] = [], points: readonly Point[] = []): Selection => ({
+  items: [
+    ...entities.map((e) => ({ kind: 'ent' as const, id: e.id })),
+    ...points.map((p) => ({ kind: 'pt' as const, id: p.id })),
+  ],
+});
+
+/** 选择集预填「重合」槽位 */
+const arm = (selection: Selection) => {
+  const session = createSession('coincident');
+  const fill = fillFromOperands(session, operandsFromSelection(selection));
+  return { session, ...fill };
+};
+
+/** 选择集预填 → 执行；返回普通动作结果 */
+const run = (selection: Selection) => {
+  const { session } = arm(selection);
+  const outcome = executeCommand(session, 1);
+  if (outcome.kind !== 'action') throw new Error('重合应返回普通动作');
+  return outcome.result;
+};
 
 /** 当前模型里的约束（按插入顺序） */
 const cons = () => [...model.cons.values()];
@@ -36,11 +56,12 @@ describe('重合：多态分派', () => {
     const p1 = addPt(0, 0);
     const p2 = addPt(10, 5);
 
-    const result = applyConstraint('coincident', sel([], [p1, p2]));
+    const result = run(sel([], [p1, p2]));
 
     expect(result.ok).toBe(true);
     expect(cons()).toHaveLength(1);
-    expect(cons()[0]).toMatchObject({ type: 'coincident', a: p1.id, b: p2.id });
+    expect(cons()[0]).toMatchObject({ type: 'coincident' });
+    expect(new Set([cons()[0]?.a, cons()[0]?.b])).toEqual(new Set([p1.id, p2.id]));
   });
 
   it('2 个点图元 → coincident（展开成它们引用的点）', () => {
@@ -49,10 +70,11 @@ describe('重合：多态分派', () => {
     const e1 = addPointEntity(p1);
     const e2 = addPointEntity(p2);
 
-    const result = applyConstraint('coincident', sel([e1, e2]));
+    const result = run(sel([e1, e2]));
 
     expect(result.ok).toBe(true);
-    expect(cons()[0]).toMatchObject({ type: 'coincident', a: p1.id, b: p2.id });
+    expect(cons()[0]).toMatchObject({ type: 'coincident' });
+    expect(new Set([cons()[0]?.a, cons()[0]?.b])).toEqual(new Set([p1.id, p2.id]));
   });
 
   it('点图元 + 显式点 → coincident（两种点的来源都算数）', () => {
@@ -60,7 +82,7 @@ describe('重合：多态分派', () => {
     const e1 = addPointEntity(p1);
     const p2 = addPt(10, 5);
 
-    const result = applyConstraint('coincident', sel([e1], [p2]));
+    const result = run(sel([e1], [p2]));
 
     expect(result.ok).toBe(true);
     const con = cons()[0];
@@ -73,7 +95,7 @@ describe('重合：多态分派', () => {
     const line = addLine(addPt(0, 0), addPt(100, 0));
     const p = addPt(50, 20);
 
-    const result = applyConstraint('coincident', sel([line], [p]));
+    const result = run(sel([line], [p]));
 
     expect(result.ok).toBe(true);
     expect(cons()[0]).toMatchObject({ type: 'pointOnLine', p: p.id, e: line.id });
@@ -84,7 +106,7 @@ describe('重合：多态分派', () => {
     const p = addPt(50, 20);
     const e = addPointEntity(p);
 
-    const result = applyConstraint('coincident', sel([line, e]));
+    const result = run(sel([line, e]));
 
     expect(result.ok).toBe(true);
     expect(cons()[0]).toMatchObject({ type: 'pointOnLine', p: p.id, e: line.id });
@@ -94,7 +116,7 @@ describe('重合：多态分派', () => {
     const circle = addCircle(addPt(0, 0, true), 10);
     const p = addPt(20, 0);
 
-    const result = applyConstraint('coincident', sel([circle], [p]));
+    const result = run(sel([circle], [p]));
 
     expect(result.ok).toBe(true);
     expect(cons()[0]).toMatchObject({ type: 'pointOnCircle', p: p.id, e: circle.id });
@@ -104,26 +126,31 @@ describe('重合：多态分派', () => {
     const arc = addArc(addPt(0, 0, true), 10, 0, Math.PI);
     const p = addPt(20, 0);
 
-    const result = applyConstraint('coincident', sel([arc], [p]));
+    const result = run(sel([arc], [p]));
 
     expect(result.ok).toBe(true);
     expect(cons()[0]).toMatchObject({ type: 'pointOnCircle', p: p.id, e: arc.id });
   });
 
-  it('点已是该直线端点 → 拒绝（点-线重合会恒成立）', () => {
+  it('点已是该直线端点 → 填槽位阶段拒绝（点-线重合会恒成立）', () => {
     const a = addPt(0, 0);
     const line = addLine(a, addPt(100, 0));
     const e = addPointEntity(a);
 
-    const result = applyConstraint('coincident', sel([line, e]));
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.reason).toContain('端点');
+    const { session, reasons } = arm(sel([line, e]));
+    expect(reasons.some((r) => r.includes('端点'))).toBe(true);
+    // 目标槽位被上下文排除、锚点槽位被点填上：会话不完整，不能执行
+    expect(session.values.filter((v) => v !== undefined)).toHaveLength(1);
+    // 直线先占住目标槽位，已作为端点的点被锚点槽位的上下文排除挡住
+    expect(session.values[0]).toBeUndefined();
+    expect(session.values[1]).toBeDefined();
+    const outcome = executeCommand(session, 1);
+    expect(outcome.kind).toBe('action');
+    if (outcome.kind === 'action') expect(outcome.result.ok).toBe(false);
     expect(cons()).toHaveLength(0);
   });
 
-  it('点已是圆/弧的圆心 → 拒绝（否则会把半径挤成 0）', () => {
+  it('点已是圆/弧的圆心 → 填槽位阶段拒绝（否则会把半径挤成 0）', () => {
     const center = addPt(0, 0, true);
     const circle = addCircle(center, 10);
     const arcCenter = addPt(50, 50, true);
@@ -133,9 +160,11 @@ describe('重合：多态分派', () => {
       [circle, center],
       [arc, arcCenter],
     ] as const) {
-      const result = applyConstraint('coincident', sel([entity], [point]));
-      expect(result.ok, `${entity.type} 的圆心`).toBe(false);
-      if (!result.ok) expect(result.reason).toContain('圆心');
+      const { reasons } = arm(sel([entity], [point]));
+      expect(
+        reasons.some((r) => r.includes('圆心')),
+        `${entity.type} 的圆心`,
+      ).toBe(true);
     }
     expect(cons()).toHaveLength(0);
     // 守卫保证圆不会被求解器压成零半径
@@ -147,34 +176,43 @@ describe('重合：多态分派', () => {
     const p = addPt(0, 0);
     const e = addPointEntity(p);
 
-    const result = applyConstraint('coincident', sel([e], [p]));
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.reason).toContain('自己');
+    const { session, reasons } = arm(sel([e], [p]));
+    expect(reasons.some((r) => r.includes('自己'))).toBe(true);
+    expect(session.values.filter((v) => v !== undefined)).toHaveLength(1);
     expect(cons()).toHaveLength(0);
   });
 });
 
-describe('重合：非法选择不写模型', () => {
-  it('空选择 / 2 图元没有点 / 3 个对象 / 点 + 2 图元 → 失败且给出理由', () => {
+describe('重合：非法/多余选择不写模型', () => {
+  it('空选择 / 2 图元没有点 → 槽位不齐，执行失败且不写模型', () => {
     const line = addLine(addPt(0, 0), addPt(100, 0));
     const circle = addCircle(addPt(200, 0), 10);
-    const cases: Array<[ConstraintSelection, string]> = [
+    const cases: Array<[Selection, string]> = [
       [sel(), '空选择'],
       [sel([line, circle]), '2 图元没有点'],
-      [sel([line], [addPt(0, 50), addPt(50, 50)]), '3 个对象'],
-      [sel([line, circle], [addPt(0, 50)]), '点 + 2 图元'],
     ];
 
     for (const [selection, label] of cases) {
-      const before = model.cons.size;
-      const result = applyConstraint('coincident', selection);
+      const result = run(selection);
       expect(result.ok, label).toBe(false);
       if (result.ok) continue;
       expect(result.reason.length, label).toBeGreaterThan(0);
-      expect(model.cons.size, label).toBe(before);
+      expect(model.cons.size, label).toBe(0);
     }
+  });
+
+  it('多出来的不适用对象被忽略（选择集比槽位多时不报错）', () => {
+    const line = addLine(addPt(0, 0), addPt(100, 0));
+    const extra = addLine(addPt(0, 50), addPt(100, 50));
+    const p = addPt(50, 20);
+
+    const { session, used } = arm(sel([line, extra], [p]));
+    expect(used).toBe(2); // 点 + 一条直线；另一条直线无处可填
+    expect(model.cons.size).toBe(0);
+    const outcome = executeCommand(session, 1);
+    expect(outcome.kind).toBe('action');
+    if (outcome.kind === 'action') expect(outcome.result.ok).toBe(true);
+    expect(cons().filter((c) => c.type === 'pointOnLine')).toHaveLength(1);
   });
 });
 
@@ -182,9 +220,9 @@ describe('重合：去重', () => {
   it('两个点反序选择只保留一条 coincident', () => {
     const p1 = addPt(0, 0);
     const p2 = addPt(10, 5);
-    expect(applyConstraint('coincident', sel([], [p1, p2])).ok).toBe(true);
+    expect(run(sel([], [p1, p2])).ok).toBe(true);
 
-    const again = applyConstraint('coincident', sel([], [p2, p1]));
+    const again = run(sel([], [p2, p1]));
 
     expect(again.ok).toBe(false);
     if (again.ok) return;
@@ -195,9 +233,9 @@ describe('重合：去重', () => {
   it('两个点图元反序选择只保留一条 coincident', () => {
     const e1 = addPointEntity(addPt(0, 0));
     const e2 = addPointEntity(addPt(10, 5));
-    expect(applyConstraint('coincident', sel([e1, e2])).ok).toBe(true);
+    expect(run(sel([e1, e2])).ok).toBe(true);
 
-    const again = applyConstraint('coincident', sel([e2, e1]));
+    const again = run(sel([e2, e1]));
 
     expect(again.ok).toBe(false);
     if (again.ok) return;
@@ -208,9 +246,9 @@ describe('重合：去重', () => {
   it('点 + 直线重复添加被跳过', () => {
     const line = addLine(addPt(0, 0), addPt(100, 0));
     const p = addPt(50, 20);
-    expect(applyConstraint('coincident', sel([line], [p])).ok).toBe(true);
+    expect(run(sel([line], [p])).ok).toBe(true);
 
-    const again = applyConstraint('coincident', sel([line], [p]));
+    const again = run(sel([line], [p]));
 
     expect(again.ok).toBe(false);
     if (again.ok) return;
@@ -224,7 +262,7 @@ describe('重合：求解收敛', () => {
     const p1 = addPt(0, 0);
     const p2 = addPt(10, 5);
 
-    const result = applyConstraint('coincident', sel([], [p1, p2]));
+    const result = run(sel([], [p1, p2]));
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -238,7 +276,7 @@ describe('重合：求解收敛', () => {
     const e1 = addPointEntity(p1);
     const e2 = addPointEntity(p2);
 
-    const result = applyConstraint('coincident', sel([e1, e2]));
+    const result = run(sel([e1, e2]));
 
     expect(result.ok).toBe(true);
     expect(vec.dist(p1, p2)).toBeLessThan(1e-6);
@@ -251,7 +289,7 @@ describe('重合：求解收敛', () => {
     const line = addLine(a, b);
     const p = addPt(50, 20);
 
-    const result = applyConstraint('coincident', sel([line], [p]));
+    const result = run(sel([line], [p]));
 
     expect(result.ok).toBe(true);
     expect(Math.abs(p.y)).toBeLessThan(1e-6);
@@ -262,7 +300,7 @@ describe('重合：求解收敛', () => {
     const circle = addCircle(center, 10);
     const p = addPt(20, 0);
 
-    const result = applyConstraint('coincident', sel([circle], [p]));
+    const result = run(sel([circle], [p]));
 
     expect(result.ok).toBe(true);
     expect(Math.abs(vec.dist(center, p) - circle.r)).toBeLessThan(1e-6);

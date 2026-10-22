@@ -4,6 +4,8 @@
 
 - 8 个绘图/编辑工具：选择、点、直线、圆、圆弧、矩形、尺寸、删除
 - 9 个约束按钮：重合、水平、竖直、平行、垂直、等长、相切、同心、等半径
+- 统一命令模型：每个操作 = 若干**参数槽位** + 一个执行函数。先选对象再点操作，缺的参数在画布上
+  点选补齐，**填满立即执行**（状态栏显示当前命令与每个参数的进度）
 - 尺寸标注：两点距离、直线长度、圆/弧半径；输入框全精度回填、显示两位小数
 - 已选择列表：右上角按选中顺序列出图元与点，可逐项移除；按住任一已选图元/点即可整体拖动全部已选
 - 视图与文件：吸附开关、固定、构造、适应视图、导出 SVG、清空
@@ -50,16 +52,16 @@ npm run ui:status    # 打印当前解析的是本地库还是 npm 版、版本�
 
 UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 
-| UI 区块           | miko_ui 组件                                                                                                                                                                       | 应用侧只保留                             |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| 工具栏            | `createPanel`（外框）+ `createSegmented`（8 个工具，单选）+ `createButton`（9 个约束 + 5 个动作）+ `createSwitch` / `createInlineToggle`（吸附开关）+ `createControlGroup`（三组） | `.app-toolbar*` 定位与分组布局类         |
-| 状态栏 / 状态文案 | `createPanel` + `createValueDisplay<string>`（`<output>` 由 signal 驱动）                                                                                                          | `.app-status*` 定位；`.is-editing` 态    |
-| 已选择列表        | `createPanel` + `createObjectRow` / `createRowActions`（行外壳与行末动作）+ `createBadge`（图元/点）+ `createButton`（逐项移除）                                                   | `.app-selection*` 定位与紧凑行样式       |
-| 尺寸输入框        | `createNumberField` + `createNumberRow`（文字 + `<input type="number">`）                                                                                                          | `.app-dim-field`（宽度 / 非法红框）      |
-| 错误提示          | `createMessageArea` + `MessageList`（`aria-live` 容器、条目外观、自动消失）                                                                                                        | `.app-notices` / `.app-notice-list` 定位 |
-| info 提示         | 复用状态栏的 `ValueDisplay`（`flashInfo` 闪示，不占额外位置）                                                                                                                      | 无                                       |
-| 清空确认框        | `createPanel`（`role="dialog"`）+ `createButton`（取消 / 确定主按钮变体）                                                                                                          | `.app-confirm-*` 遮罩与按钮变体          |
-| 页面外壳          | `create_element`（canvas / 四个 UI 宿主）                                                                                                                                          | `#app` 与画布铺满                        |
+| UI 区块           | miko_ui 组件                                                                                                                                                                                        | 应用侧只保留                             |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| 工具栏            | `createPanel`（外框）+ `createSegmented`（8 个工具，单选）+ `createButton`（9 个约束/编辑操作按钮 + 3 个即时命令）+ `createSwitch` / `createInlineToggle`（吸附开关）+ `createControlGroup`（三组） | `.app-toolbar*` 定位与分组布局类         |
+| 状态栏 / 状态文案 | `createPanel` + `createValueDisplay<string>`（`<output>` 由 signal 驱动）                                                                                                                           | `.app-status*` 定位；`.is-editing` 态    |
+| 已选择列表        | `createPanel` + `createObjectRow` / `createRowActions`（行外壳与行末动作）+ `createBadge`（图元/点）+ `createButton`（逐项移除）                                                                    | `.app-selection*` 定位与紧凑行样式       |
+| 尺寸输入框        | `createNumberField` + `createNumberRow`（文字 + `<input type="number">`）                                                                                                                           | `.app-dim-field`（宽度 / 非法红框）      |
+| 错误提示          | `createMessageArea` + `MessageList`（`aria-live` 容器、条目外观、自动消失）                                                                                                                         | `.app-notices` / `.app-notice-list` 定位 |
+| info 提示         | 复用状态栏的 `ValueDisplay`（`flashInfo` 闪示，不占额外位置）                                                                                                                                       | 无                                       |
+| 清空确认框        | `createPanel`（`role="dialog"`）+ `createButton`（取消 / 确定主按钮变体）                                                                                                                           | `.app-confirm-*` 遮罩与按钮变体          |
+| 页面外壳          | `create_element`（canvas / 四个 UI 宿主）                                                                                                                                                           | `#app` 与画布铺满                        |
 
 样式加载顺序固定为 `miko_ui/styles.css`（token + 字体 + 控件 + 反馈）→ `src/styles.css`（只写页面布局、
 `.app-*` 消费者类与 canvas 绘制 token）。画布不是控件，仍由 `Renderer` 用 canvas 2D 绘制；
@@ -71,18 +73,40 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 
 ### 工具与快捷键
 
-| 工具 | 快捷键 | 操作                                                                               |
-| ---- | ------ | ---------------------------------------------------------------------------------- |
-| 选择 | `V`    | 点图元/点选中；`Shift` 点击加减选；按住任一已选对象整体拖动；空白拖拽框选          |
-| 点   | `P`    | 点击创建独立点；吸附到已有点时复用该点并把它提升为点图元                           |
-| 直线 | `L`    | 两次点击成线；之后继续点击可连续画（上一段终点作为下一段起点）                     |
-| 圆   | `C`    | 先点圆心，再点半径                                                                 |
-| 圆弧 | `A`    | 圆心 → 起点 → 终点；第三击与起点同角（含浮点误差）按整圆处理                       |
-| 矩形 | `R`    | 两个对角点；四角优先复用已有点，并自动加水平/竖直约束                              |
-| 尺寸 | `D`    | 点两点标距离、点直线标长度、点圆/弧标半径、点已有尺寸改值                          |
-| 删除 | `E`    | 点选要删的点或图元；删点会级联删除引用它的图元，删点图元会删除其点与引用该点的约束 |
+| 工具 | 快捷键 | 操作                                                                                                     |
+| ---- | ------ | -------------------------------------------------------------------------------------------------------- |
+| 选择 | `V`    | 点图元/点选中；`Shift` 点击加减选；按住任一已选对象整体拖动；空白拖拽框选（不启动命令）                  |
+| 点   | `P`    | 点一个位置立即放独立点；吸附到已有点时复用该点并把它提升为点图元                                         |
+| 直线 | `L`    | 点起点、终点立即画线；连续画自动以上一段终点作为下一段起点，`Esc`/右键结束                               |
+| 圆   | `C`    | 点圆心、半径位置立即创建                                                                                 |
+| 圆弧 | `A`    | 圆心 → 起点 → 终点立即创建；第三击与起点同角（含浮点误差）按整圆处理                                     |
+| 矩形 | `R`    | 点两个对角点立即创建；四角优先复用已有点，并自动加水平/竖直约束                                          |
+| 尺寸 | `D`    | 点目标立即标注：两点标距离、点直线标长度、点圆/弧标半径、点已有尺寸改值                                  |
+| 删除 | `E`    | 点对象立即删除，可继续点，`Esc`/右键结束；删点会级联删除引用它的图元，删点图元会删除其点与引用该点的约束 |
 
-`S` 开关吸附。其他单键（`V/P/L/C/A/R/D/E`）切换工具，带 `Ctrl`/`Meta`/`Alt` 时忽略。
+单键（`V/P/L/C/A/R/D/E`）切换工具/启动对应操作，`S` 开关吸附，带 `Ctrl`/`Meta`/`Alt` 时忽略。
+
+### 统一命令：参数槽位 + 填满即执行
+
+所有需要参数的操作（绘图、约束、尺寸、删除、固定、构造）都走同一条命令管线
+（`src/operations.ts`），不再有按工具分叉的 `pending` 状态机：
+
+- **操作定义** = 槽位列表 + 一个 `execute` 函数。槽位声明自己接受什么（点 / 位置 / 直线 / 圆或弧 /
+  任意图元 / 已有尺寸），适用性判断因此只有一份来源；
+- 点击工具或约束按钮时，先把**当前选择集**按槽位类型装进去。例：先选一个点再点「重合」，锚点槽位
+  立即填好，只差目标槽位；先选直线再点「重合」，则目标槽位先填好、锚点槽位等画布点击补；
+- 槽位没填满时进入**收集态**：画布点击只消费「能填进空槽位」的候选，悬停也只高亮这些对象；
+  点不到/不适用会给原因，不会先写模型再报错；
+- 状态栏在底部显示当前命令：`命令 重合 ▸ 点：点 #5 ▸ 目标：待选（点另一个点、直线或圆/弧） ·
+点击画布补参数 · Backspace 回退 · Esc 取消`；
+- 槽位填满后**立即执行**（不需要按 `Enter`）；**`Backspace`** 回退最后一个参数（这次点击新建、
+  还没并入图元的点会一起删掉）；**`Esc`** 放弃整个命令。点击触发的执行失败会退回最后一击，
+  直接再点一次即可重试；`Enter` 只作为兜底（参数已齐时重试执行）；
+- 选择顺序不敏感：同类型槽位按选择顺序填，不同类型槽位按类型匹配；多余/不适用的选中对象会被忽略
+  并在状态栏提示；
+- 执行成功后，工具类操作自动续接同一操作（直线以终点为下一段起点，圆/圆弧/矩形/点/尺寸可连续
+  操作）；repeat 操作（删除/固定/构造/水平/竖直）每点一个对象立即生效、命令保持可继续点，
+  `Esc`/右键结束；其余约束/编辑操作回到选择工具。
 
 ### 鼠标与视图
 
@@ -91,10 +115,13 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 - 中键或右键拖拽：平移视图。
 - 右键单击（没拖动）：取消当前操作（等价于 `Esc`）。
 - 滚轮：以指针为锚缩放；缩放范围 0.02–80（`config/limits.ts`）。
-- `Delete` / `Backspace`：删除选中对象。删除图元时级联删除「仅被它使用」的端点/圆心及相关约束，
-  共享端点与引用共享端点的尺寸保留；删除点会递归删除引用它的图元；删除点图元会删除它引用的点与
-  引用该点的约束（该点同时被其它图元使用时保留点本身）。
-- `Esc` 的优先级阶梯（从高到低）：**尺寸输入框 → 进行中的框选 → 未完成的工具操作 → 当前工具回选择工具 → 清空选择**。
+- `Enter`：兜底执行当前命令（参数填满后已自动执行，正常不需要按）。
+- `Backspace`：有命令时回退最后一个参数；没有命令时删除选中对象。
+- `Delete`：有命令时先取消命令；没有命令时删除选中对象。删除图元时级联删除「仅被它使用」的
+  端点/圆心及相关约束，共享端点与引用共享端点的尺寸保留；删除点会递归删除引用它的图元；删除点图元
+  会删除它引用的点与引用该点的约束（该点同时被其它图元使用时保留点本身）。
+- `Esc` 的优先级阶梯（从高到低）：**尺寸输入框 → 进行中的框选 → 当前命令 → 清空选择**。
+  取消命令会同时回到选择工具并删掉还没并入图元的临时点。
 
 画布世界坐标 y 向下（与 SVG 一致）；网格间距从 10 起按 2 的幂缩放，使屏幕间距保持在 20–60px。
 
@@ -124,23 +151,35 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 
 ### 约束按钮
 
-重合、水平、竖直、平行、垂直、等长、相切、同心、等半径。规则：
+重合、水平、竖直、平行、垂直、等长、相切、同心、等半径。按钮只负责**启动一个操作**，参数由
+选择集预填 + 画布点选补齐，填满立即执行。槽位表在 `src/operations.ts`：
 
-- 「重合」按选中对象多态分派：2 个点 → `coincident`（两点重合）；1 个点 + 1 条直线 → `pointOnLine`；
-  1 个点 + 1 个圆/弧 → `pointOnCircle`。点图元与线段端点/圆心都算点，一次必须恰好选 2 个对象；
-  点已经是目标直线的端点、或目标圆/弧的圆心时拒绝（前者是恒成立的假约束，后者会把半径挤成 0）。
-  分派表是 `config/constraints-meta.ts` 的 `COINCIDENT_TARGETS`（与 `dimensions.ts` 的 `DIM_META` 同构）。
-- 适用性由 `config/constraints-meta.ts` 的元数据决定（例：水平只能用于直线，相切需要「1 直线 + 1 圆/弧」
-  或「2 圆/弧」）；
-- 不适用时不改模型，用消息区给出原因；
-- 按「种类 + 引用字段」去重：同一组引用重复添加会跳过，并在状态栏提示「已跳过 N 个重复约束」；
-  重合这类无序约束会先按引用排序，反序选择也落到同一个去重键上；
+| 按钮      | 槽位                         | 执行结果                                                   |
+| --------- | ---------------------------- | ---------------------------------------------------------- |
+| 重合      | 点 +（点 \| 直线 \| 圆/弧）  | 按目标多态：`coincident` / `pointOnLine` / `pointOnCircle` |
+| 水平/竖直 | 直线（repeat，逐条立即生效） | 每条直线一条 `horizontal` / `vertical`                     |
+| 平行      | 直线 + 直线                  | `parallel`                                                 |
+| 垂直      | 直线 + 直线                  | `perpendicular`                                            |
+| 等长      | 直线 + 直线                  | `equalLength`                                              |
+| 相切      | 直线或圆/弧 +（直线或圆/弧） | `tangentLineCircle` 或 `tangentCircleCircle`               |
+| 同心      | 圆/弧 + 圆/弧                | `concentric`                                               |
+| 等半径    | 圆/弧 + 圆/弧                | `equalRadius`                                              |
+
+- 点图元、线段端点、圆心都按「点」参与；点图元的图元身份只在固定/构造这类槽位里使用。
+- 「重合」的上下文排除在**填槽位阶段**完成：同一个点不能和自己重合；点已经是目标直线端点（假约束）
+  或目标圆/弧圆心（会把半径挤成 0）时，该对象点不进去并给出原因。
+- 「相切」用动态槽位：第一条是直线时，第二条只接受圆/弧，「两条直线相切」从拾取阶段就不可能。
+- 不适用/多选的对象不会被静默写模型：装不进槽位的对象被忽略并在状态栏提示；参数不齐时点击/执行
+  会说明缺哪个槽位。
+- 按「种类 + 引用字段」去重：同一组引用重复添加会跳过并提示「已跳过 N 个重复约束」；重合这类无序
+  约束会先按引用排序，反序选择也落到同一个去重键上。
 - 求解后若有约束无法满足或引用了已删除对象，会用消息区提示（不静默失败）。
 
 ### 尺寸标注
 
-- 用尺寸工具点两个点标距离（点图元按它引用的点参与，可作两点距离的任一端），点直线标长度
-  （同一条线的两个端点），点圆/弧标半径。
+- 按 `D` 启动尺寸操作，点目标（点 / 直线 / 圆或弧 / 已有尺寸）立即标注。点目标是点时会再要一个点
+  （两点距离），第二点可以在空白处取点；点直线标长度，点圆/弧标半径，点已有尺寸进入改值。
+- 也可以先选好目标（直线/两个点/圆或弧）再按 `D`，目标槽位会从选择集预填并立即执行，直接打开输入框。
 - 创建后底部出现输入框：`Enter` 提交、`Esc` 撤销这次新建、点输入框以外按提交处理；
   非法输入保持编辑态（红框 + 悬停/读屏原因）。
 - 输入框现在是 miko_ui 的 `<input type="number">`：小数与指数（如 `1.5e3`）仍可输入；
@@ -152,11 +191,13 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 
 ### 固定 / 构造 / 适应 / 导出 / 清空
 
-- **固定**：固定选中点与选中图元的端点/圆心（点图元即它引用的点；部分锁定 → 全锁，全锁 → 解锁）；
-  固定点不参与求解。
-- **构造**：选中的图元（含点图元）在「普通 ↔ 构造」间切换。构造线/构造点在画布与导出里都用虚线，
+- **固定**：启动操作时从选择集预填点/图元（点图元即它引用的点），也可先点按钮再在画布上点对象，
+  点一个立即生效、可继续点，`Esc`/右键结束。部分锁定 → 全锁，全锁 → 解锁；固定点不参与求解。
+- **构造**：同上，选中图元（含点图元）在「普通 ↔ 构造」间切换，点一个立即切换、可继续点，
+  `Esc`/右键结束。构造线/构造点在画布与导出里都用虚线，
   但单位不同：canvas 虚线是屏幕像素（`styles.css` 的 `--dash-construction: 5 5`），SVG 导出是用户单位
   （`config/export.ts` 的 `EXPORT_DASH: '5 5'`）。构造点在画布上只画虚线外环、不填实心中心。
+- **适应 / 导出SVG / 清空**是即时命令（没有参数槽位，点击即执行），不需要 `Enter`。
 - **适应**：按草图包围盒（含留白，点图元也参与）缩放到视口 90%，空草图回到默认缩放与原点。
 - **导出SVG**（工具栏按钮名）：导出图元（直线/圆/圆弧/点），约束与尺寸标注不导出；普通点导出为实心小圆
   （半径 = 线宽 × `EXPORT_POINT_RADIUS_FACTOR`），构造点导出为空心虚线圈；整圆弧导出为 `<circle>`，
@@ -212,12 +253,14 @@ CI（`.github/workflows/ci.yml`）：Node 24，`npm ci`（registry 上的 miko_u
 index.html                   仅一个 #app 挂载点；画布与全部 UI 由 main.ts 用 miko_ui 装配
 src/
   main.ts                    入口：用 miko_ui 建外壳（canvas + 四个 UI 宿主）、引样式、组装 Editor 与工具栏
-  editor.ts                  控制器：指针/键盘事件接线 + 手势状态机（拖拽/平移/框选）+ Esc 阶梯
-  renderer.ts                canvas 渲染：网格、图元（含点图元）、点、尺寸、预览、框选、吸附标记
+  editor.ts                  控制器：指针/键盘事件接线 + 手势状态机（拖拽/平移/框选）+ Enter/Backspace/Esc 路由
+  renderer.ts                canvas 渲染：网格、图元（含点图元）、点、尺寸、命令预览、框选、吸附标记
   theme.ts                   从应用样式 src/styles.css :root 读一次 Theme（带默认值兜底），注入 Renderer
   styles.css                 应用样式：页面布局 + .app-* 消费者类 + canvas 绘制 token；控件外观来自 miko_ui
-  types.ts                   数据模型静态类型（Entity/Constraint/Pending/SelectionItem/Selection/EditorState 等）
-  state.ts                   交互状态单例（工具/光标/吸附/悬停/pending/选择/框选）+ 有序选择集操作
+  types.ts                   数据模型静态类型（Entity/Constraint/ToolId/SelectionItem/Selection/Marquee 等）
+  state.ts                   交互状态单例（工具/光标/吸附/悬停/命令会话/选择/框选）+ 有序选择集操作
+  operations.ts              统一命令引擎：Operand/SlotSpec/OperationMeta、选择集预填、点击补槽位、
+                             上下文排除、命令状态栏文案、预览形状（全部操作的单一来源）
   model.ts                   点/图元/约束容器与增删查、级联清理、点图元归属/孤立点回收（包围盒在 geometry.sketchBounds）
   entities.ts                图元类型分派（引用点 id、尺寸目标、种类→大类守卫）；assertNever 穷尽兜底
   geometry.ts                拾取/吸附/包围盒/框选相交判定（含点图元；不读全局相机，zoom 作参数）
@@ -228,10 +271,11 @@ src/
   camera.ts                  世界 ↔ 屏幕换算、缩放范围、网格间距（纯函数）
   viewport.ts                视图交互写入口：适应视图、滚轮缩放、平移
   vec.ts                     二维向量纯函数（含 safeLen / unitPerp 的零向量约定）
-  tools.ts                   8 个工具元数据（顺序/快捷键/提示文案）
-  toolbar.ts                 工具栏：miko_ui 的面板 / 分段按钮组 / 按钮 / 开关 / 控制组
-  selection.ts               选择语义：单击/Shift/框选方向与结果；多选整体拖动的拖拽点集与已选列表数据（点图元按 ent）
-  sketch-actions.ts          草图领域操作 + 点击状态机（画图/约束/删除/固定/构造/尺寸）
+  tools.ts                   8 个工具元数据（顺序/快捷键/提示文案）；操作表在 operations.ts
+  toolbar.ts                 工具栏：miko_ui 的面板 / 分段按钮组 / 按钮 / 开关 / 控制组 + 操作按钮高亮
+  selection.ts               选择语义：单击/Shift/框选方向与结果；拖拽点集、已选列表数据、
+                             命令收集态的悬停候选（点图元按 ent）
+  sketch-actions.ts          原子领域操作与求解（画图/批量加约束/删除/固定/构造/尺寸/拖拽），不读交互状态
   ui/
     editor-controls.ts       工具栏命令实现与唯一同步入口 sync()（render + 已选列表 + 状态栏）
     selection-list.ts        「已选择」列表面板：miko_ui Panel / ObjectRow / Badge / Button
@@ -243,7 +287,7 @@ src/
   config/
     index.ts                 汇总出口，业务统一从 './config' 引入
     angle.ts                 TAU / sweepOf / normalizeAngle / wrapPi / 弧段数
-    constraints-meta.ts      18 种约束元数据、9 个按钮动作 resolve、重合多态表、去重键、引用字段推导
+    constraints-meta.ts      18 种约束元数据、去重键、引用字段推导（操作槽位/执行在 operations.ts）
     export.ts                导出标定：颜色/线宽/精度/文件名/虚线/点半径/空图文案
     format.ts                formatNumber / formatDimValue（显示格式，与回填全精度分开）
     limits.ts                缩放/网格/留白/退化阈值/初始 id 序列/尺寸默认偏移
@@ -264,7 +308,8 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
 ## 依赖方向与配置分层
 
 - **纯逻辑层不依赖 UI/视图**：model、geometry、constraints、solver、dimensions、entities、vec、camera、config
-  （以及 state / selection / sketch-actions / export-svg / viewport）都不 import renderer/editor/toolbar/main/theme/ui，
+  （以及 state / selection / sketch-actions / operations / export-svg / viewport）都不 import
+  renderer/editor/toolbar/main/theme/ui，
   可在 node 直接测；其中前一组由 ESLint 的 `no-restricted-imports` 强制（根目录纯模块与 `config/`
   分别按相对路径深度配置），后一组靠约定与 code review。
 - **视图数据靠参数注入**：几何拾取/吸附接收 `zoom`；尺寸布局接收 `CameraView` 快照；
@@ -283,8 +328,8 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
   - 视图/模型上下限 → `config/limits.ts`。
   - 数值算法（角度、LM 超参、迭代预算、收敛阈值）→ `config/angle.ts`、`config/solver.ts`。
   - 导出标定（颜色/线宽/精度/文件名/虚线/点半径）→ `config/export.ts`，导出不读 canvas 主题。
-  - 元数据表 → `config/constraints-meta.ts`（约束与重合多态表 `COINCIDENT_TARGETS`）与
-    `dimensions.ts` 的 `DIM_META`（尺寸）。
+  - 元数据表 → `config/constraints-meta.ts`（约束引用字段/去重键）与 `dimensions.ts` 的 `DIM_META`（尺寸）；
+    操作的槽位/执行/预览 → `operations.ts`。
 - **单一来源**：常量与文案只写一处，`config/index.ts` 统一出口；业务代码不深引 config 内部文件。
 
 ## 约定与扩展点
@@ -312,47 +357,65 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
    `pt` / `ent` 两种选择身份；
 5. `renderer.ts`：`drawEntity` 的 switch；若该图元包装的是普通点，渲染循环里要跳过它的点（`ownedPointIds`）；
 6. `export-svg.ts`：`buildSVG` 的 switch（不导出就显式跳过）；
-7. `tools.ts` / `sketch-actions.ts`：工具入口与创建/点击状态机（点图元即 `createPoint` + `toolClick('point')`）；
+7. `sketch-actions.ts`：`addXxx` 的原子创建入口与退化阈值；`operations.ts`：对应操作的槽位（`accepts`）与
+   `execute`（点图元是 `point` 槽位 + `placePointEntity`）；
 8. `selection.ts`：框选/拾取遍历 `model.pts` 时跳过 `ownedPointIds()`，避免同一个点在已选列表出现两行；
-9. `tests/`：补创建、拾取、包围盒、导出用例。
+9. `tests/`：补创建、拾取、包围盒、导出、槽位匹配用例。
 
 ### 新增约束种类
 
 1. `types.ts`：`ConstraintKind` 联合 + `Constraint` 的引用字段；
 2. `config/constraints-meta.ts`：`CONSTRAINT_META` 加记录（label/ui/refs，refs 决定去重键与 model 的
-   `ENTITY_REF_KEYS`/`POINT_REF_KEYS` 推导）；有按钮入口再往 `CONSTRAINT_ACTIONS` 加 `resolve`，
-   它接收 `ConstraintSelection { entities, points }`（点图元会被展开成它引用的点 id）。一个按钮要按
-   选中类型生成不同 kind 时（相切、重合都是），照 `COINCIDENT_TARGETS` 写一张多态表，不要散写 if/else；
+   `ENTITY_REF_KEYS`/`POINT_REF_KEYS` 推导）；
 3. `constraints.ts`：`RESID` 是 `Record<ConstraintKind, …>`，漏写会编译失败；
-4. `solver.ts` 无需改（自由度与残差表解耦）；`sketch-actions.ts` 的 `applyConstraint` 查表即用；
-5. `tests/constraints-meta.test.ts` / `solver.test.ts` 补合法/非法/收敛用例。
+4. `solver.ts` 无需改（自由度与残差表解耦）；有按钮入口时在 `operations.ts` 加一条约束操作：
+   `slots(...)` 声明每个参数的接受类型（可带 `reject` 做上下文排除），`execute(values)` 用
+   `addConstraints([{ kind, props }])` 写入——不再需要单独的 resolve/适用性判断；
+   一个按钮按参数类型生成不同 kind 时（重合、相切都是），把多态写在 `execute` 里，槽位负责把
+   不合法的组合提前挡掉（相切用动态槽位，重合用 `reject`）；
+5. `tests/operations.test.ts` / `coincident.test.ts` / `solver.test.ts` 补槽位、拒绝与收敛用例。
+
+### 新增操作（工具 / 按钮 / 命令）
+
+1. `operations.ts`：往 `OPERATIONS` 加一条 `OperationMeta`：
+   - `id` 加进 `OperationId` 联合；`label` 是状态栏与按钮文案；
+   - `group` 决定按钮区（`draw` 走工具分段、`constraint`/`edit` 走按钮行），`tool` 非空时绑定工具 id；
+   - `slots(values)` 返回槽位表：`accepts` 声明接受的操作数，`place: 'point' | 'position'` 允许空白点击
+     落参（新建/复用点或纯位置），`repeat` 允许可变参数，`reject` 做上下文排除；
+   - `execute(values, ctx)` 返回普通动作（`actionOut(...)`）或尺寸输入会话（`dimOut(...)`）；
+     成功后可给 `continueWith` 让同一操作自动接续（直线连续画就是这么做的）。
+2. `options` 里的槽位表就是适用性单一来源：工具/按钮只是 `setTool` / `armOperation` 的入口，
+   不要在 UI 层再写数量/类型判断；
+3. 有几何预览就在 `commandPreview` 的 switch 里补分支；渲染器只画 `PreviewShape`，不认操作 id；
+4. `tests/operations.test.ts` 补「选择集预填 / 点击补槽位 / 上下文排除 / 执行」用例。
 
 ### 新增尺寸种类
 
 1. `dimensions.ts`：`DimKind` 联合 + `DIM_META` 一条记录（label/value/setValue/layout/matchesEntity/
    `matchesPoints?`）；`DimKind` 的 `Record` 会强制穷尽；
 2. 在 `sketch-actions.ts` 里接上创建入口（如 `dimForEntity`/`dimForPoints`）与命中查找；点图元没有
-   独立尺寸目标（`entityDimTarget` 返回 null），它只作为两点距离的一端，入口在点击状态机的
-   `dimStep` / `finishPointDim` 里把 `e.p` 展开成点 id；
+   独立尺寸目标（`entityDimTarget` 返回 null），它只作为两点距离的一端，入口在 `operations.ts` 的
+   尺寸操作 `execute` 的 `point` 分支里把点操作数交给 `dimForPoints`；
 3. `tests/dimensions.test.ts` 补布局/命中/编辑用例。
 
 ### 约束现状与构造线
 
-- **9 个约束按钮**：重合、水平、竖直、平行、垂直、等长、相切、同心、等半径。「相切」按选中类型映射到
-  `tangentLineCircle` 或 `tangentCircleCircle`；「重合」按选中对象多态分派到 `coincident` / `pointOnLine` /
-  `pointOnCircle`（多态表见 `config/constraints-meta.ts` 的 `COINCIDENT_TARGETS`）。另有
-  `distancePointPoint`（距离）与 `radius`（半径）两种尺寸类约束，入口在尺寸工具，不在约束按钮区。
+- **9 个约束按钮**：重合、水平、竖直、平行、垂直、等长、相切、同心、等半径，定义在
+  `operations.ts` 的 `CONSTRAINT_OPERATIONS`。「相切」按槽位类型映射到 `tangentLineCircle` 或
+  `tangentCircleCircle`；「重合」按目标操作数多态分派到 `coincident` / `pointOnLine` / `pointOnCircle`。
+  另有 `distancePointPoint`（距离）与 `radius`（半径）两种尺寸类约束，入口在尺寸操作，不在约束按钮区。
 - **暂无 UI 入口但有残差/求解支持的 4 种**：`distancePointLine`（点到线距离）、`angle`（角度）、
   `midpoint`（中点）、`symmetric`（对称）。它们可经 `model.addCon()` 在代码/测试里使用，接 UI 时在
-  `CONSTRAINT_ACTIONS` 加动作即可。
+  `operations.ts` 加一条约束操作即可。
 - 构造线是图元属性而不是约束：由工具栏「构造」切换，只影响虚线与导出样式，不参与求解；点图元同样有
   构造属性，构造点在画布上只画虚线外环、导出为空心的虚线小圆。
 
 ### 测试约定
 
 - node 环境、无 DOM；测试显式 `import { describe, it, expect } from 'vitest'`（不开 globals）；
-- 直接测纯逻辑模块（model/geometry/dimensions/solver/export-svg/selection/sketch-actions/parse-dim-input 等），
-  用 `model.clearModel()` 隔离单例 fixture；
+- 直接测纯逻辑模块（model/geometry/dimensions/solver/export-svg/selection/sketch-actions/operations/
+  parse-dim-input 等），用 `model.clearModel()` 隔离单例 fixture；命令引擎的用例直接构造
+  `ClickInput`（假 CameraView / MeasureText / Snap）驱动 `clickCommand`，不需要真实画布；
 - 需要视图数据时传假 `CameraView` / 假 `MeasureText`，不 mock 全局 camera 的渲染；
 - 测试文件与用例数不在这里写死：见 `npm run test`，当前全部通过。
 

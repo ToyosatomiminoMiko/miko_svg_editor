@@ -2,10 +2,41 @@
  * 编辑器的交互状态。只有一份，由 editor.ts / editor-controls.ts / selection.ts 修改、renderer.ts 读取。
  * 选择集是有序的 SelectionItem 列表：顺序即用户选中顺序，已选择列表的展示顺序与
  * 「拖动任一已选图元移动全部已选」的点集都直接消费这一份顺序。
+ *
+ * `command` 是「参数槽位化」的操作会话：工具/约束按钮不再各带一套 pending 状态机，
+ * 而是统一存在这里（槽位与执行逻辑见 operations.ts）。它和 `selection` 是两份状态：
+ * 选择集仍负责拖拽/框选/删除，命令会话只负责正在填的参数。
  * 框选只存屏幕坐标；手势瞬态（拖拽/平移）放在 Editor 的 gesture 字段，不写进模型。
  */
 
-import type { EditorState, SelectionItem, SelectionKind } from './types';
+import type { CommandSession } from './operations';
+import type {
+  Entity,
+  Marquee,
+  Point,
+  Selection,
+  SelectionItem,
+  SelectionKind,
+  Snap,
+  ToolId,
+  Vec,
+} from './types';
+
+export interface EditorState {
+  tool: ToolId;
+  /** 指针的世界坐标 */
+  cursorWorld: Vec;
+  snap: Snap | null;
+  /** 吸附总开关：关闭后不吸附到点/中点/曲线/网格 */
+  snapEnabled: boolean;
+  hoverPt: Point | null;
+  hoverEnt: Entity | null;
+  /** 正在填参数的统一命令会话；null = 没有进行中的操作 */
+  command: CommandSession | null;
+  selection: Selection;
+  /** 框选状态；不在框选中时为 null */
+  marquee: Marquee | null;
+}
 
 export const state: EditorState = {
   tool: 'select',
@@ -14,7 +45,7 @@ export const state: EditorState = {
   snapEnabled: true,
   hoverPt: null,
   hoverEnt: null,
-  pending: null,
+  command: null,
   selection: { items: [] },
   marquee: null,
 };
@@ -28,12 +59,15 @@ export const clearSelection = (): void => {
   state.selection = { items: [] };
 };
 
-/** 清空所有交互状态（不碰模型） */
+/**
+ * 清空所有交互状态（不碰模型）。
+ * 调用方负责在此之前结束命令会话（operations.cancelCommand 会清理会话新建的点）。
+ */
 export const resetInteraction = (): void => {
   state.snap = null;
   state.hoverPt = null;
   state.hoverEnt = null;
-  state.pending = null;
+  state.command = null;
   state.marquee = null;
   clearSelection();
 };
