@@ -1060,8 +1060,20 @@ export function continuationOf(session: CommandSession): CommandSession | null {
 
 /* ======================= 状态栏 / 预览 ======================= */
 
-/** 状态栏的命令行文案：显示当前操作、每个参数的值/待选，以及可用按键 */
-export function commandStatus(session: CommandSession): string {
+/**
+ * 状态栏的命令文案：当前操作与它的提示分成两段，由 UI 分开显示（不能拼成一行）。
+ * - `operation`：命令名 + 每个参数槽位的值/待选，回答「现在在做什么」；
+ * - `hint`：下一步能做什么与可用按键，回答「接下来能怎么操作」。
+ */
+export interface CommandStatusText {
+  /** 当前操作本身：命令名与参数槽位进度 */
+  readonly operation: string;
+  /** 操作提示：下一步动作与可用按键 */
+  readonly hint: string;
+}
+
+/** 状态栏的命令文案：显示当前操作、每个参数的值/待选，以及可用按键 */
+export function commandStatus(session: CommandSession): CommandStatusText {
   const op = operationById(session.opId);
   const slots = sessionSlots(session);
   const segments: string[] = [`命令 ${op.label}`];
@@ -1088,7 +1100,7 @@ export function commandStatus(session: CommandSession): string {
   const actions: string[] = [isComplete(session) ? '参数已齐' : '点击画布补参数'];
   if (filledValues(session).length > 0) actions.push('Backspace 回退');
   actions.push('Esc 取消');
-  return `${segments.join(' ▸ ')} · ${actions.join(' · ')}`;
+  return { operation: segments.join(' ▸ '), hint: actions.join(' · ') };
 }
 
 /** 画布预览形状（世界坐标）：操作自己描述预览，renderer 只负责画 */

@@ -170,11 +170,27 @@ export interface Selection {
   items: SelectionItem[];
 }
 
-/** 已选列表的一行：label 由 selection.ts 生成，UI 层不查模型 */
+/**
+ * 已选列表行内的一颗约束胶囊：id 用于删除动作定位，text 只用于展示。
+ * 必须带 id：文案会随尺寸值变化，也不能保证同一对象上两条约束的文案不同
+ * （相切、半径等种类可重复），删除只能按模型 id 找目标。
+ */
+export interface SelectionConstraint {
+  id: number;
+  /** 展示文案（尺寸类带显示值，如「距离 20.00」） */
+  text: string;
+}
+
+/** 已选列表的一行：label 与 constraints 由 selection.ts 生成，UI 层不查模型 */
 export interface SelectionEntry {
   kind: SelectionKind;
   id: number;
   label: string;
+  /**
+   * 该对象已有的约束（尺寸类带显示值，如「距离 20.00」），id 用于行内「×」删除。
+   * 只用于「已选择」行内展示，按模型插入顺序排列；没有约束时为空数组。
+   */
+  constraints: readonly SelectionConstraint[];
 }
 
 /**

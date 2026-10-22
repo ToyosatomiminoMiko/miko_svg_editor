@@ -1,11 +1,13 @@
 /**
- * 状态文案与尺寸数值输入：状态行 + 输入框的 DOM 生命周期、输入解析与非法态。
+ * 状态区（当前操作 / 操作提示两行）与尺寸数值输入：DOM 生命周期、输入解析与非法态。
  * 只负责输入框本身，不碰模型：提交后的赋值与求解由宿主回调（Editor）完成。
  * 左侧栏外壳（标题、已选择列表与两个插槽）在 status-panel.ts；本类只往下半区插槽里装配。
  *
  * 结构全部用 miko_ui 的公开件装配（create_element / createNumberField /
- * createNumberRow / createValueDisplay）：状态行是 `<output>` 读数，由 signal 驱动；
- * info 级提示闪示时临时改写同一个 signal，到时恢复基础文案。
+ * createNumberRow / createValueDisplay）：状态区是两个 `<output>` 读数，各由一条 signal
+ * 驱动 —— 上行是当前操作（命令进度或所选工具），下行是其他提示（按键说明、已选数、吸附），
+ * 两者分处不同的 `<output>`，不拼进同一行。
+ * info 级提示闪示时临时改写上行（操作）的 signal，到时恢复基础文案；下行提示不参与闪示。
  * 外观只靠类名（app-status-* / app-dim-*）交给应用样式表，本文件不写内联样式、不 import CSS。
  *
  * 回填必须用全精度 String(dimValue(con))。formatDimValue 是「画布标注显示」的格式，
@@ -52,8 +54,10 @@ export interface HintEditorHost {
 
 export class HintEditor {
   private readonly host: HintEditorHost;
-  /** 状态行读数：唯一文案出口，基础文案与 info 闪示都写它 */
-  private readonly statusSignal: Signal<string>;
+  /** 状态区第一行「当前操作」读数：命令进度或所选工具；info 闪示临时改写它 */
+  private readonly operationSignal: Signal<string>;
+  /** 状态区第二行「操作提示」读数：按键说明、已选数、吸附状态；不受 info 闪示影响 */
+  private readonly hintSignal: Signal<string>;
   /** 面板正文根 `.app-status-content`；尺寸编辑期间带 is-editing */
   private readonly content: HTMLElement;
   /** 尺寸编辑行容器 `.app-dim-editor`；默认带 is-hidden，open 时移除 */
@@ -61,9 +65,9 @@ export class HintEditor {
   /** 尺寸字段的可见标签（createNumberRow 产出）；打开时改成 DIM_META 的文案 */
   private readonly dimLabelEl: HTMLLabelElement;
   private readonly field: NumberFieldHandle;
-  /** 当前基础状态文案：info 闪示结束后恢复到这一份（期间 updateStatus 会更新它） */
-  private baseStatus = '';
-  /** 最近一次写入状态行的基础文案，用于「文案没变不重复写」 */
+  /** 当前基础操作文案：info 闪示结束后恢复到这一份（期间 updateStatus 会更新它） */
+  private baseOperation = '';
+  /** 最近一次写入状态区的两行文案，用于「文案没变不重复写」 */
   private lastStatus = '';
   /** info 闪示的定时器；null = 当前不在闪示 */
   private flashTimer: number | null = null;
@@ -79,12 +83,21 @@ export class HintEditor {
     this.content = create_element({ tag: 'div' }, { class: 'app-status-content' });
     root.append(this.content);
 
-    this.statusSignal = signal('');
-    const statusLine = createValueDisplay<string>({
-      value: this.statusSignal,
-      class: 'app-status-line',
-    });
-    this.content.append(statusLine.element);
+    // 状态区分两行：上行「当前操作」、下行「其他提示」，各是一个独立读数
+    const statusText = create_element({ tag: 'div' }, { class: 'app-status-text' });
+    this.operationSignal = signal('');
+    this.hintSignal = signal('');
+    statusText.append(
+      createValueDisplay<string>({
+        value: this.operationSignal,
+        class: 'app-status-line app-status-operation',
+      }).element,
+      createValueDisplay<string>({
+        value: this.hintSignal,
+        class: 'app-status-line app-status-hints',
+      }).element,
+    );
+    this.content.append(statusText);
 
     // 尺寸编辑行：默认隐藏；数字框与「文字 + 控件」行复用库件，只补暴露给样式的类名
     this.dimEditor = create_element({ tag: 'div' }, { class: 'app-dim-editor is-hidden' });
@@ -109,31 +122,29 @@ export class HintEditor {
   }
 
   /**
-   * 更新基础状态文案（工具说明 + 选中数 + 吸附）；文案没变就不写 DOM。
-   * info 闪示期间只记下新文案、不抢显示，闪示结束后自然恢复到这份新文案。
+   * 更新状态区两行文案（操作 / 提示），文案没变就不写 DOM。
+   * info 闪示期间操作行让给消息、只记下新文案，闪示结束后自然恢复到这份新文案；
+   * 提示行不参与闪示，随时更新（一条消息不该把按键提示一起盖掉）。
    */
-  updateStatus(toolHint: string | undefined, summary: string, snapEnabled: boolean): void {
-    const parts: string[] = [];
-    if (toolHint) parts.push(toolHint);
-    if (summary) parts.push(summary);
-    if (!snapEnabled) parts.push('吸附已关');
-    const text = parts.join(' · ');
+  updateStatus(operation: string, hint: string): void {
+    const text = `${operation}\n${hint}`;
     if (text === this.lastStatus) return;
     this.lastStatus = text;
-    this.baseStatus = text;
-    if (this.flashTimer === null) this.statusSignal.value = text;
+    this.baseOperation = operation;
+    this.hintSignal.value = hint;
+    if (this.flashTimer === null) this.operationSignal.value = operation;
   }
 
   /**
-   * info 级提示闪示：在状态行显示消息，TOAST_DURATION_MS 后恢复基础文案。
+   * info 级提示闪示：临时占用「当前操作」那一行，TOAST_DURATION_MS 后恢复基础文案。
    * 连续闪示时重置计时器（只保留最新一条），避免前一条的计时器提前把新消息抹掉。
    */
   flashInfo(message: string): void {
     if (this.flashTimer !== null) window.clearTimeout(this.flashTimer);
-    this.statusSignal.value = message;
+    this.operationSignal.value = message;
     this.flashTimer = window.setTimeout(() => {
       this.flashTimer = null;
-      this.statusSignal.value = this.baseStatus;
+      this.operationSignal.value = this.baseOperation;
     }, TOAST_DURATION_MS);
   }
 

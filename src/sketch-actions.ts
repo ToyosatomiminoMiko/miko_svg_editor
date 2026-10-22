@@ -39,6 +39,7 @@ import {
   curveRadius,
   discardPoint,
   findConstraint,
+  getConstraint,
   getEntity,
   getPoint,
   pointAt,
@@ -196,6 +197,23 @@ export function createRect(a: Vec, b: Vec): ActionResult {
     const line = addLine(q[i]!, q[(i + 1) % 4]!);
     addCon(i % 2 === 0 ? 'horizontal' : 'vertical', { e: line.id });
   }
+  return actionOk(solve(ITER_INCREMENTAL));
+}
+
+/* ======================= 约束 ======================= */
+
+/**
+ * 删除一条已有约束（「已选择」列表行内约束胶囊的「×」）：只按 id 定位，
+ * 找不到就当作已删（幂等）——列表与模型之间不该因为一次竞态点击就报错。
+ *
+ * 只删约束本身，不做任何级联：约束是附加在既有几何上的关系，删掉它不会让
+ * 点/图元失去几何定义（与 removePoint/removeEntity 的级联是两回事）；
+ * 删完重新求解一次，让仍然存在的约束把几何重新收敛到满足态。
+ */
+export function deleteConstraint(id: number): ActionResult {
+  const con = getConstraint(id);
+  if (!con) return actionOk();
+  removeConstraint(con);
   return actionOk(solve(ITER_INCREMENTAL));
 }
 

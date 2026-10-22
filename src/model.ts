@@ -48,6 +48,10 @@ export const getPoint = (id: number | undefined): Point | undefined =>
 export const getEntity = (id: number | undefined): Entity | undefined =>
   id === undefined ? undefined : model.ents.get(id);
 
+/** 按 id 取约束：「已选择」行内的约束删除只拿得到 id，不持有对象 */
+export const getConstraint = (id: number | undefined): Constraint | undefined =>
+  id === undefined ? undefined : model.cons.get(id);
+
 /** 直线两端点；引用完整性由 model 的级联删除保证 */
 export const ends = (e: LineEntity): [Point, Point] => [getPoint(e.a)!, getPoint(e.b)!];
 

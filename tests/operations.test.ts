@@ -638,22 +638,24 @@ describe('执行、回退、取消', () => {
 /* ======================= 状态栏与预览 ======================= */
 
 describe('状态栏与预览', () => {
-  it('状态栏显示当前命令、每个参数的值/待选与按键提示', () => {
+  it('状态栏把当前操作与操作提示分成两段，由 UI 分行显示', () => {
     const session = createSession('line');
-    let text = commandStatus(session);
-    expect(text).toContain('命令 直线');
-    expect(text).toContain('起点：待选');
-    expect(text).toContain('点击画布补参数');
-    expect(text).toContain('Esc 取消');
+    let status = commandStatus(session);
+    expect(status.operation).toContain('命令 直线');
+    expect(status.operation).toContain('起点：待选');
+    // 提示不混进操作行：UI 才能把「当前操作」和「其他提示」放在不同行
+    expect(status.operation).not.toContain('点击画布补参数');
+    expect(status.hint).toContain('点击画布补参数');
+    expect(status.hint).toContain('Esc 取消');
 
     clickCommand(session, input({ x: 0, y: 0 }));
-    text = commandStatus(session);
-    expect(text).toContain('起点：点');
-    expect(text).toContain('终点：待选');
-    expect(text).toContain('Backspace 回退');
+    status = commandStatus(session);
+    expect(status.operation).toContain('起点：点');
+    expect(status.operation).toContain('终点：待选');
+    expect(status.hint).toContain('Backspace 回退');
 
     clickCommand(session, input({ x: 100, y: 0 }));
-    expect(commandStatus(session)).toContain('参数已齐');
+    expect(commandStatus(session).hint).toContain('参数已齐');
   });
 
   it('直线预览：只有一个参数时连到光标，参数齐全时画最终线', () => {

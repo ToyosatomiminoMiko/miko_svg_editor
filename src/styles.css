@@ -313,8 +313,18 @@ body {
   min-width: 0;
 }
 
+/* 状态区分两行：上行是当前操作（命令进度 / 所选工具），下行是其他提示（键位说明、
+   已选数量、吸附状态）。两者是各自的 <output>，不拼成同一行；行间距比区块间距小，
+   让它们仍读成一个整体。 */
+.app-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 /* 尺寸编辑期间隐藏状态文案，只留输入行（与原提示栏一致） */
-.app-status-content.is-editing .app-status-line {
+.app-status-content.is-editing .app-status-text {
   display: none;
 }
 
@@ -325,6 +335,16 @@ body {
   font-size: 12px;
   line-height: 1.6;
   color: var(--color-text-muted);
+}
+
+/* 上行「当前操作」用正文色，比提示行亮一档：扫一眼就知道现在在做什么 */
+.app-status-operation {
+  color: var(--color-text);
+}
+
+/* 没有提示可显示时（空读数）不留空行占高度 */
+.app-status-line:empty {
+  display: none;
 }
 
 /* 尺寸编辑器：默认隐藏，打开尺寸编辑时移除 is-hidden */
@@ -486,6 +506,77 @@ body.is-resizing-sidebar {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 行内两层：上行是种类徽章 + 名称，下行是该对象已有的约束。
+   两层再竖排是因为库的 .row-main 是横向 flex-wrap：直接把徽章、名称、约束并列，
+   约束只会按宽度换行，不会稳定地成为「名称下面的一行」。 */
+.app-selection-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* 上行：徽章不收缩，名称占满剩余宽度并在行末省略 */
+.app-selection-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 下行：只有已选对象已有约束时才渲染（无约束时 DOM 里没有这一层，不留空行） */
+.app-selection-constraints {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* 「约束」前缀用提示色，比胶囊更弱，不抢名称那一行的注意力 */
+.app-selection-constraints-label {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--color-text-hint);
+}
+
+/* 约束胶囊：盖住库徽章的定宽下限与中性底色，做成轻量的描边小字。
+   胶囊内容是「文案 + 行内 × 按钮」，所以自身也是 flex 容器（徽章基线默认是文本行内块）。 */
+.app-selection-constraint {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 1px 2px 1px 5px;
+  border: 1px solid var(--color-border-faint);
+  font-size: 10px;
+  color: var(--color-text-muted);
+  background: transparent;
+}
+
+/* 胶囊文案不换行：窄面板下由胶囊整体换行，而不是把「距离」和数值拆开 */
+.app-selection-constraint-text {
+  white-space: nowrap;
+}
+
+/* 胶囊内的删除按钮：盖掉库按钮基线的描边/底色/内边距，只留一个 ×。
+   悬停时提亮文字色，用它提示「这一颗可点」；点击范围仍覆盖整颗按钮。 */
+.app-selection-constraint-remove {
+  min-width: 0;
+  padding: 0 2px;
+  border: 0;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--color-text-hint);
+  background: transparent;
+}
+
+.app-selection-constraint-remove:hover:not(:disabled) {
+  border: 0;
+  color: var(--color-text);
 }
 
 /* 移除按钮比库基线更小：不重写控件外观，只收字号与内边距 */

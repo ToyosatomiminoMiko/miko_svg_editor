@@ -27,6 +27,7 @@ import {
   createCircle,
   createLine,
   createRect,
+  deleteConstraint,
   deleteSelected,
   dimForEntity,
   dimForPoints,
@@ -221,6 +222,40 @@ describe('deleteSelected 级联', () => {
       }).ok,
     ).toBe(true);
     expect(model.ents.size).toBe(before);
+  });
+});
+
+describe('deleteConstraint（已选择行内的约束 ×）', () => {
+  it('只删指定约束：其余约束与几何保留，求解不改动已满足的点', () => {
+    const { a, b, line } = plainLine();
+    const horizontal = addCon('horizontal', { e: line.id });
+    const dim = addCon('distancePointPoint', { a: a.id, b: b.id, distance: 100 });
+
+    const result = deleteConstraint(horizontal.id);
+    expect(result.ok).toBe(true);
+    expect(model.cons.has(horizontal.id)).toBe(false);
+    expect(model.cons.has(dim.id)).toBe(true);
+    expect([...model.ents.keys()]).toEqual([line.id]);
+    expect(a.x).toBeCloseTo(0, 12);
+    expect(b.x).toBeCloseTo(100, 12);
+  });
+
+  it('删除尺寸约束不级联删除点/图元（约束只是附加关系）', () => {
+    const center = addPt(0, 0);
+    const circle = addCircle(center, 10);
+    const radius = addCon('radius', { e: circle.id, radius: 10 });
+    const pointCount = model.pts.size;
+
+    expect(deleteConstraint(radius.id).ok).toBe(true);
+    expect(model.cons.size).toBe(0);
+    expect(model.pts.size).toBe(pointCount);
+    expect(model.pts.has(center.id)).toBe(true);
+    expect(getEntity(circle.id)).toBe(circle);
+  });
+
+  it('找不到的 id 视为已删：幂等且不报错', () => {
+    plainLine();
+    expect(deleteConstraint(999).ok).toBe(true);
   });
 });
 

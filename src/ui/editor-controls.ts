@@ -31,12 +31,14 @@ import {
   operandsFromSelection,
   popCommandValue as popOperationValue,
   type ClickInput,
+  type CommandStatusText,
   type OperationId,
 } from '../operations';
 import type { Renderer } from '../renderer';
 import { pruneSelection, selectionEntries, selectionSummary } from '../selection';
 import {
   commitDim,
+  deleteConstraint,
   deleteSelected,
   rollbackDim,
   solve,
@@ -73,6 +75,7 @@ export class EditorControls implements ToolbarHandlers {
   constructor(private readonly deps: EditorControlsDeps) {
     this.selectionList = new SelectionListView(deps.selectionSlot, {
       remove: (kind, id) => this.removeSelection(kind, id),
+      removeConstraint: (id) => this.removeConstraint(id),
     });
   }
 
@@ -82,20 +85,29 @@ export class EditorControls implements ToolbarHandlers {
     pruneSelection();
     this.deps.renderer.render();
     this.selectionList.update(selectionEntries());
-    const command = state.command;
-    const hint = command
-      ? commandStatus(command)
-      : (() => {
-          const tool = TOOLS.find((t) => t.id === state.tool);
-          return tool ? `${tool.label}（${tool.key.toUpperCase()}） · ${tool.hint}` : '';
-        })();
-    this.deps.hintEditor.updateStatus(hint, selectionSummary(), state.snapEnabled);
+    const status = currentStatus();
+    // 状态栏分成「当前操作」与「操作提示」两行：提示行 = 命令/工具提示 + 已选数 + 吸附
+    const hints: string[] = [status.hint];
+    const summary = selectionSummary();
+    if (summary) hints.push(summary);
+    if (!state.snapEnabled) hints.push('吸附已关');
+    this.deps.hintEditor.updateStatus(status.operation, hints.join(' · '));
   }
 
   /** 已选列表行内「移除」：只从选择集摘掉这一项，不改模型 */
   removeSelection(kind: SelectionKind, id: number): void {
     deselect(kind, id);
     this.sync();
+  }
+
+  /**
+   * 已选列表行内约束胶囊的「×」：按约束 id 删除这一条约束并重新求解。
+   * 选择集保持不变（删的是约束，不是对象）；行内胶囊靠 sync 的内容签名刷新。
+   * 先结算尺寸输入框：编辑中的尺寸可能正是这条约束，避免删完还回填一个悬空引用。
+   */
+  removeConstraint(id: number): void {
+    this.commitDimEditor();
+    this.apply(deleteConstraint(id));
   }
 
   /** 领域操作结果：失败/求解提示统一走 notify，然后同步画面与提示 */
@@ -390,6 +402,19 @@ export class EditorControls implements ToolbarHandlers {
   rollbackDimValue(con: Parameters<typeof rollbackDim>[0], pointId?: number): void {
     this.apply(rollbackDim(con, pointId));
   }
+}
+
+/**
+ * 当前状态栏的两段文案：命令进行中取命令状态，否则取所选工具。
+ * 操作与提示必须分开返回 —— 侧栏把「当前操作」和「其他提示」显示在各自的行上。
+ */
+function currentStatus(): CommandStatusText {
+  const command = state.command;
+  if (command) return commandStatus(command);
+  const tool = TOOLS.find((t) => t.id === state.tool);
+  return tool
+    ? { operation: `${tool.label}（${tool.key.toUpperCase()}）`, hint: tool.hint }
+    : { operation: '', hint: '' };
 }
 
 /** 清空后把工具栏与光标复位到选择工具（模型/状态已由调用方清空） */

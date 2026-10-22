@@ -11,7 +11,14 @@
 
 import { s2w } from './camera';
 import type { CameraView } from './camera';
-import { DRAG_THRESHOLD_PX } from './config';
+import {
+  CONSTRAINT_META,
+  DRAG_THRESHOLD_PX,
+  ENTITY_REF_KEYS,
+  POINT_REF_KEYS,
+  formatDimValue,
+} from './config';
+import { dimLabel, dimValue, isDimConstraint } from './dimensions';
 import { entityLabel, entityPointIds } from './entities';
 import {
   computeSnap,
@@ -35,13 +42,16 @@ import {
 } from './state';
 import { commandHover } from './operations';
 import type {
+  Constraint,
   Entity,
   Marquee,
   MeasureText,
   Point,
   Selection,
+  SelectionConstraint,
   SelectionEntry,
   SelectionItem,
+  SelectionKind,
   Vec,
 } from './types';
 
@@ -198,7 +208,51 @@ export function pruneSelection(): void {
 }
 
 /**
- * 已选择列表的展示数据：按选择集顺序生成 label，UI 层不查模型。
+ * 一条约束在已选列表里的文案：尺寸类带显示值（与画布标注同一格式），
+ * 其余只给种类名。数值缺失（数据异常）时退化成种类名，不显示 "0"。
+ */
+function constraintText(c: Constraint): string {
+  if (!isDimConstraint(c)) return CONSTRAINT_META[c.type].label;
+  const value = dimValue(c);
+  return Number.isFinite(value) ? `${dimLabel(c)} ${formatDimValue(value)}` : dimLabel(c);
+}
+
+/**
+ * 已选对象「已有约束」的展示数据（按模型插入顺序）。
+ *
+ * 判定口径是「这条约束是否约束了这个对象」：
+ * - 点：约束的点引用字段里有它；
+ * - 图元：约束的图元引用字段里有它，**或**点引用字段里有它的端点/圆心
+ *   （直线两端点、圆/弧圆心、圆弧两端点；点图元就是它引用的点）。
+ *   端点上的重合/距离虽然引用的是点，但它同样决定图元的几何，选中图元时应当看得到。
+ *
+ * 同一条约束只出现一次：循环对每条约束只 push 一次，`pointOnLine` 同时命中
+ * 图元的直线引用和端点引用也不会重复。
+ */
+function constraintTexts(kind: SelectionKind, id: number): SelectionConstraint[] {
+  const pointIds = new Set<number>();
+  if (kind === 'pt') {
+    pointIds.add(id);
+  } else {
+    const e = getEntity(id);
+    if (!e) return [];
+    for (const pid of entityPointIds(e)) pointIds.add(pid);
+  }
+
+  const constraints: SelectionConstraint[] = [];
+  for (const c of model.cons.values()) {
+    const byEntity = kind === 'ent' && ENTITY_REF_KEYS.some((key) => c[key] === id);
+    const byPoint = POINT_REF_KEYS.some((key) => {
+      const ref = c[key];
+      return typeof ref === 'number' && pointIds.has(ref);
+    });
+    if (byEntity || byPoint) constraints.push({ id: c.id, text: constraintText(c) });
+  }
+  return constraints;
+}
+
+/**
+ * 已选择列表的展示数据：按选择集顺序生成 label 与行内约束，UI 层不查模型。
  * 记录悬空 id 的项直接跳过（正常流程已被 pruneSelection 清掉，这里只做兜底）。
  */
 export function selectionEntries(): SelectionEntry[] {
@@ -206,10 +260,24 @@ export function selectionEntries(): SelectionEntry[] {
   for (const item of state.selection.items) {
     if (item.kind === 'ent') {
       const e = getEntity(item.id);
-      if (e) entries.push({ kind: 'ent', id: e.id, label: `${entityLabel(e)} #${e.id}` });
+      if (e) {
+        entries.push({
+          kind: 'ent',
+          id: e.id,
+          label: `${entityLabel(e)} #${e.id}`,
+          constraints: constraintTexts('ent', e.id),
+        });
+      }
     } else {
       const p = getPoint(item.id);
-      if (p) entries.push({ kind: 'pt', id: p.id, label: `点 #${p.id}` });
+      if (p) {
+        entries.push({
+          kind: 'pt',
+          id: p.id,
+          label: `点 #${p.id}`,
+          constraints: constraintTexts('pt', p.id),
+        });
+      }
     }
   }
   return entries;

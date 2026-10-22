@@ -11,6 +11,7 @@ import { DRAG_THRESHOLD_PX } from '../src/config';
 import { cam } from '../src/camera';
 import {
   addCircle,
+  addCon,
   addLine,
   addPt,
   arcGeometry,
@@ -328,15 +329,17 @@ describe('pruneSelection / selectionEntries', () => {
     selectOnly([entItem(line.id), ptItem(p.id)]);
 
     expect(selectionEntries()).toEqual([
-      { kind: 'ent', id: line.id, label: `直线 #${line.id}` },
-      { kind: 'pt', id: p.id, label: `点 #${p.id}` },
+      { kind: 'ent', id: line.id, label: `直线 #${line.id}`, constraints: [] },
+      { kind: 'pt', id: p.id, label: `点 #${p.id}`, constraints: [] },
     ]);
   });
 
   it('圆与圆弧的文案不同', () => {
     const c = addCircle(addPt(0, 0), 10);
     selectOnly([entItem(c.id)]);
-    expect(selectionEntries()).toEqual([{ kind: 'ent', id: c.id, label: `圆 #${c.id}` }]);
+    expect(selectionEntries()).toEqual([
+      { kind: 'ent', id: c.id, label: `圆 #${c.id}`, constraints: [] },
+    ]);
   });
 
   it('模型删除对象后 pruneSelection 摘掉悬空项，计数与列表同步', () => {
@@ -350,6 +353,84 @@ describe('pruneSelection / selectionEntries', () => {
 
     expect(state.selection.items).toEqual([ptItem(other.a)]);
     expect(selectionEntries()).toHaveLength(1);
+  });
+});
+
+describe('selectionEntries 行内约束', () => {
+  it('只显示已选对象已有的约束：图元直接引用 + 端点引用，同一条约束只出现一次', () => {
+    const line = addLine(addPt(0, 0), addPt(100, 0));
+    const horizontal = addCon('horizontal', { e: line.id });
+    // 距离尺寸引用两个端点：图元行要能看到它，并带显示值
+    const distance = addCon('distancePointPoint', { a: line.a, b: line.b, distance: 100 });
+    // 点在图元端点上的 pointOnLine 同时命中图元引用与端点引用，仍只列一次
+    const onLine = addCon('pointOnLine', { e: line.id, p: line.a });
+
+    selectOnly([entItem(line.id)]);
+    expect(selectionEntries()).toEqual([
+      {
+        kind: 'ent',
+        id: line.id,
+        label: `直线 #${line.id}`,
+        constraints: [
+          { id: horizontal.id, text: '水平' },
+          { id: distance.id, text: '距离 100' },
+          { id: onLine.id, text: '点在线上' },
+        ],
+      },
+    ]);
+  });
+
+  it('选中点时只列引用该点的约束；尺寸按画布同款两位小数显示', () => {
+    const a = addPt(0, 0);
+    const b = addPt(10, 0);
+    const other = addPt(50, 50);
+    const dim = addCon('distancePointPoint', { a: a.id, b: b.id, distance: 12.345 });
+    addCon('coincident', { a: b.id, b: other.id });
+
+    selectOnly([ptItem(a.id)]);
+    expect(selectionEntries()).toEqual([
+      {
+        kind: 'pt',
+        id: a.id,
+        label: `点 #${a.id}`,
+        constraints: [{ id: dim.id, text: '距离 12.35' }],
+      },
+    ]);
+  });
+
+  it('圆列出半径尺寸的显示值，未选中对象的约束不出现', () => {
+    const c1 = addCircle(addPt(0, 0), 5);
+    const c2 = addCircle(addPt(100, 0), 10);
+    const r1 = addCon('radius', { e: c1.id, radius: 5 });
+    addCon('radius', { e: c2.id, radius: 10 });
+
+    selectOnly([entItem(c1.id)]);
+    expect(selectionEntries()[0]?.constraints).toEqual([{ id: r1.id, text: '半径 5' }]);
+
+    selectOnly([]);
+    expect(selectionEntries()).toEqual([]);
+  });
+
+  it('同一条约束引用图元的两个端点时也只出现一次', () => {
+    const line = addLine(addPt(0, 0), addPt(10, 10));
+    const coincident = addCon('coincident', { a: line.a, b: line.b });
+
+    selectOnly([entItem(line.id)]);
+    expect(selectionEntries()[0]?.constraints).toEqual([{ id: coincident.id, text: '重合' }]);
+  });
+
+  it('约束条目各带模型 id：同文案的两条约束分属不同对象，不会互相顶替', () => {
+    const c1 = addCircle(addPt(0, 0), 5);
+    const c2 = addCircle(addPt(100, 0), 10);
+    const r1 = addCon('radius', { e: c1.id, radius: 5 });
+    const r2 = addCon('radius', { e: c2.id, radius: 10 });
+
+    selectOnly([entItem(c1.id), entItem(c2.id)]);
+    expect(selectionEntries().map((entry) => entry.constraints)).toEqual([
+      [{ id: r1.id, text: '半径 5' }],
+      [{ id: r2.id, text: '半径 10' }],
+    ]);
+    expect(r1.id).not.toBe(r2.id);
   });
 });
 

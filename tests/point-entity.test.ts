@@ -381,8 +381,25 @@ describe('点图元的选择语义', () => {
     expect(selectedPoints()).toEqual([plain]);
     expect(selectionDragPoints().map((p) => p.id)).toEqual([owned.id, plain.id]);
     expect(selectionEntries()).toEqual([
-      { kind: 'ent', id: e.id, label: `点 #${e.id}` },
-      { kind: 'pt', id: plain.id, label: `点 #${plain.id}` },
+      { kind: 'ent', id: e.id, label: `点 #${e.id}`, constraints: [] },
+      { kind: 'pt', id: plain.id, label: `点 #${plain.id}`, constraints: [] },
+    ]);
+  });
+
+  it('点图元的行内约束从它引用的点取（点才是约束引用的对象）', () => {
+    const owned = addPt(0, 0);
+    const e = addPointEntity(owned);
+    const other = addPt(50, 0);
+    const coincident = addCon('coincident', { a: owned.id, b: other.id });
+    selectOnly([entItem(e.id)]);
+
+    expect(selectionEntries()).toEqual([
+      {
+        kind: 'ent',
+        id: e.id,
+        label: `点 #${e.id}`,
+        constraints: [{ id: coincident.id, text: '重合' }],
+      },
     ]);
   });
 

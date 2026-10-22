@@ -26,7 +26,7 @@ import type { Notice } from '../sketch-actions';
 
 export type NoticeKind = 'info' | 'error';
 
-/** 初始化前到达的一条提示；等消息区/状态行就位后按原顺序处理 */
+/** 初始化前到达的一条提示；等消息区/状态栏就位后按原顺序处理 */
 interface PendingNotice {
   readonly message: string;
   readonly kind: NoticeKind;
@@ -34,7 +34,7 @@ interface PendingNotice {
 
 /** 消息区句柄（`.app-notices` 宿主里的 `.app-notice-list`）；null = 尚未初始化 */
 let area: MessageAreaHandle | null = null;
-/** info 级提示的出口（状态行闪示）；null = 尚未初始化 */
+/** info 级提示的出口（状态栏首行闪示）；null = 尚未初始化 */
 let infoHandler: ((message: string) => void) | null = null;
 /**
  * 当前消息区里的条目。
@@ -63,7 +63,7 @@ function renderError(message: string): void {
 
 /**
  * 初始化通知宿主：在 `.app-notices` 里建 miko_ui 消息区，并接上 info 级提示的出口。
- * 调用前 notify() 产生的提示会在这里按到达顺序补发（info 交给状态行、error 进消息区）。
+ * 调用前 notify() 产生的提示会在这里按到达顺序补发（info 交给状态栏首行、error 进消息区）。
  *
  * @param host 通知宿主（`.app-notices` 空 div）
  * @param onInfo info 级提示的接收者；main.ts 传 `(message) => editor.flashInfo(message)`
@@ -86,7 +86,7 @@ export function initNotifications(host: HTMLElement, onInfo: (message: string) =
   }
 }
 
-/** 非阻塞提示：info 走状态行闪示，error 自动消失，都不拦截任何点击 */
+/** 非阻塞提示：info 走状态栏首行闪示，error 自动消失，都不拦截任何点击 */
 export function notify(message: string, kind: NoticeKind = 'info'): void {
   if (kind === 'info') {
     if (infoHandler) infoHandler(message);
