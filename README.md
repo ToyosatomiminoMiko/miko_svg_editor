@@ -21,6 +21,9 @@
 求解器用 LM（Levenberg–Marquardt）+ 数值雅可比，原地求解模型参数；纯逻辑层（model / geometry /
 constraints / solver / dimensions / entities 等）不依赖 DOM，可直接在 node 里单测。
 
+> 想先理清架构再读代码：分层图、一次点击的完整链路、「要改某功能该动哪些文件」都整理在
+> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
+
 ## 快速开始
 
 应用 UI 全部基于 [`miko_ui`](https://www.npmjs.com/package/miko_ui)（DOM 原语、控件、布局行、消息区、
@@ -75,7 +78,7 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 `.app-*` 消费者类与 canvas 绘制 token）。页面布局是 `#app` 上的 CSS 网格：左列是通高的左侧状态栏、
 中间是可聚焦的 `.app-sidebar-resizer` 拖拽条、右列上行是 dock、下行是画布；dock 的底色、下沿分隔线与
 横向排布继续来自库的 `.dock`，应用样式只把它的定位与高度交还给网格。画布不是控件，仍由 `Renderer`
-用 canvas 2D 绘制；它的颜色/线宽/虚线只写在应用样式表的 `:root`，`theme.ts` 读取同一批变量
+用 canvas 2D 绘制；它的颜色/线宽/虚线只写在应用样式表的 `:root`，`render/theme.ts` 读取同一批变量
 （缺失时回退同值并告警）。
 点图元在画布上画成外环 + 实心中心，外环半径单独用 `--point-graphic-ring-radius` token，
 与线段端点、圆弧端点/圆心的小圆点（`--point-radius`）区分。
@@ -100,7 +103,7 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 ### 统一命令：参数槽位 + 填满即执行
 
 所有需要参数的操作（绘图、约束、尺寸、删除、固定、构造）都走同一条命令管线
-（`src/operations.ts`），不再有按工具分叉的 `pending` 状态机：
+（`src/core/operations.ts`），不再有按工具分叉的 `pending` 状态机：
 
 - **操作定义** = 槽位列表 + 一个 `execute` 函数。槽位声明自己接受什么（点 / 位置 / 直线 / 圆或弧 /
   任意图元 / 已有尺寸），适用性判断因此只有一份来源；圆弧的起点/终点是「点」槽位（不是纯位置），
@@ -177,7 +180,7 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 ### 约束按钮
 
 重合、水平、竖直、平行、垂直、等长、共线、相切、同心、等半径。按钮只负责**启动一个操作**，参数由
-选择集预填 + 画布点选补齐，填满立即执行。槽位表在 `src/operations.ts`：
+选择集预填 + 画布点选补齐，填满立即执行。槽位表在 `src/core/operations.ts`：
 
 | 按钮      | 槽位                         | 执行结果                                                   |
 | --------- | ---------------------------- | ---------------------------------------------------------- |
@@ -265,20 +268,21 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 
 ## 运行与质量门
 
-| 命令                   | 作用                                                             |
-| ---------------------- | ---------------------------------------------------------------- |
-| `npm run dev`          | `predev` 自动链接本地库（若可用）+ Vite 开发服务器               |
-| `npm run build`        | `tsc --noEmit && vite build`，产物到 `dist/`                     |
-| `npm run preview`      | 预览 `dist/`                                                     |
-| `npm run typecheck`    | `tsc --noEmit`（strict + `noUncheckedIndexedAccess`）            |
-| `npm run lint`         | `eslint .`                                                       |
-| `npm run format`       | `prettier --write .`                                             |
-| `npm run format:check` | `prettier --check .`                                             |
-| `npm run test`         | `vitest run`（node 环境，`tests/**/*.test.ts`）                  |
-| `npm run check`        | typecheck → lint → format:check → test → build，一条命令跑全部门 |
-| `npm run ui:link`      | 把 `node_modules/miko_ui` 链到本地库工作副本                     |
-| `npm run ui:unlink`    | 移除本地库软链（之后 `npm ci` 还原 npm 版）                      |
-| `npm run ui:status`    | 打印当前 miko_ui 解析来源（本地库 / npm 版）与版本               |
+| 命令                   | 作用                                                                |
+| ---------------------- | ------------------------------------------------------------------- |
+| `npm run dev`          | `predev` 自动链接本地库（若可用）+ Vite 开发服务器                  |
+| `npm run build`        | `tsc --noEmit && vite build`，产物到 `dist/`                        |
+| `npm run preview`      | 预览 `dist/`                                                        |
+| `npm run typecheck`    | `tsc --noEmit`（strict + `noUncheckedIndexedAccess`）               |
+| `npm run lint`         | `eslint .`（含按目录的依赖分层规则）                                |
+| `npm run arch`         | 依赖分层 + 运行期循环依赖检查（`scripts/check_architecture.mjs`）   |
+| `npm run format`       | `prettier --write .`                                                |
+| `npm run format:check` | `prettier --check .`                                                |
+| `npm run test`         | `vitest run`（node 环境，`tests/**/*.test.ts`）                     |
+| `npm run check`        | typecheck → lint → arch → format:check → test → build，一次跑全部门 |
+| `npm run ui:link`      | 把 `node_modules/miko_ui` 链到本地库工作副本                        |
+| `npm run ui:unlink`    | 移除本地库软链（之后 `npm ci` 还原 npm 版）                         |
+| `npm run ui:status`    | 打印当前 miko_ui 解析来源（本地库 / npm 版）与版本                  |
 
 **TypeScript 7 与 eslint 的由来**：项目用 TypeScript 7（原生 Go 版编译器），它不再导出 JS 编译器 API，
 上游 `typescript-eslint`（peer `<6.1.0`）在 import 时会直接拒绝 TS 7。因此 devDependencies 用
@@ -287,8 +291,8 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 本项目是单 tsconfig，直接在 `eslint.config.js` 里显式 `project: './tsconfig.json'`。
 
 CI（`.github/workflows/ci.yml`）：Node 24，`npm ci`（registry 上的 miko_ui 发布版）→ 打印
-`npm ls miko_ui` / `npm run ui:status` 备查 → `typecheck` → `lint` → `test` → `build`。
-`npm run check` 在本地额外包含 `format:check`。CI 不跑 `predev`，因此永远拿不到本地库软链。
+`npm ls miko_ui` / `npm run ui:status` 备查 → `typecheck` → `lint` → `arch` → `format:check` → `test` → `build`。
+CI 不跑 `predev`，因此永远拿不到本地库软链。
 
 ### ESLint 规则要点
 
@@ -297,55 +301,68 @@ CI（`.github/workflows/ci.yml`）：Node 24，`npm ci`（registry 上的 miko_u
   `no-console`、`naming-convention`（类型/接口/类 PascalCase，变量/函数 camelCase，常量允许 `UPPER_CASE`）；
   `no-unused-vars` 允许 `_` 前缀的占位参数，与 tsconfig 的 `noUnusedParameters` 口径一致
   （多态基类默认实现保留签名但不使用参数）；
-- 依赖分层：纯逻辑层（`src/{model,geometry,constraints,solver,dimensions,entities,vec,camera}.ts` 与
-  `src/config/**`）禁止 import `renderer/editor/toolbar/main/theme/ui`，需要视图数据时改为参数注入；
+- 依赖分层由 `no-restricted-imports` 强制（详见「依赖方向与配置分层」）：
+  `src/core/**` 与 `src/config/**` 禁止 import `render` / `ui` / `app` / `miko_ui`；
+  `src/render/**` 禁止 import `ui` / `app` / `miko_ui`；`src/ui/**` 禁止 import `app`。
+  需要视图数据时改为参数注入；
+- `npm run arch` 在 ESLint 之外再查两件 ESLint 做不到的事：运行期依赖（`import type` 会被擦除，
+  不算边）只能向下，以及同层/跨层 import 形成的运行期循环依赖；图层白名单与脚本注释保持同步；
 - `eslint-config-prettier` 收尾，避免格式规则与 Prettier 冲突。
 
 ## 目录结构
 
 ```text
-index.html                   仅一个 #app 挂载点；画布与全部 UI 由 main.ts 用 miko_ui 装配
+index.html                   仅一个 #app 挂载点；画布与全部 UI 由 app/main.ts 用 miko_ui 装配
+docs/
+  ARCHITECTURE.md            分层图 + 一次点击/一次约束的手把手调用链路 + 修改任务导航（本表详细版）
 src/
-  main.ts                    入口：mountAppShell 建网格外壳（左侧状态栏 / dock / 画布 / 通知区）、引样式、组装 Editor 与工具栏
-  editor.ts                  控制器：指针/键盘事件接线 + 手势状态机（拖拽/平移/框选）+ Enter/Backspace/Esc 路由；
-                             ResizeObserver 跟随布局重设画布
-  renderer.ts                canvas 渲染：网格、图元（按几何基元绘制，含点图元）、点、尺寸（按 DIM_META
-                             布局画线段/圆弧/箭头/文字，悬停高亮）、命令预览、框选、吸附标记
-  theme.ts                   从应用样式 src/styles.css :root 读一次 Theme（带默认值兜底），注入 Renderer
-  styles.css                 应用样式：页面网格与宿主定位 + dock 消费者类 + .app-* 消费者类 + canvas 绘制 token；
-                             控件与 dock 外观来自 miko_ui
-  types.ts                   非图元的数据类型：Point/Constraint/ToolId/SelectionItem/Selection/Marquee 等
+  app/                       应用层：组合根与事件控制器（唯一做「全局装配」的目录）
+    main.ts                  入口：mountAppShell 建网格外壳（左侧状态栏 / dock / 画布 / 通知区）、
+                             引样式、读主题、组装 Editor 与工具栏
+    editor.ts                控制器：指针/键盘事件接线 + 手势状态机（拖拽/平移/框选）+ Enter/Backspace/Esc
+                             路由 + ResizeObserver 跟随布局重设画布；命令实现委托 ui/editor-controls.ts
+  core/                      纯逻辑内核：不碰 DOM / miko_ui，node 环境可直接单测
+    types.ts                 非图元的数据类型：Point/Constraint/ToolId/SelectionItem/Selection/Marquee 等
                              （图元是多态类，在 entities.ts）
-  state.ts                   交互状态单例（工具/光标/吸附/悬停点/悬停图元/悬停尺寸/命令会话/选择/框选）
+    state.ts                 交互状态单例（工具/光标/吸附/悬停点/悬停图元/悬停尺寸/命令会话/选择/框选）
                              + 有序选择集操作
-  operations.ts              统一命令引擎：Operand/SlotSpec/OperationMeta、选择集预填、点击补槽位、
+    operations.ts            统一命令引擎：Operand/SlotSpec/OperationMeta、选择集预填、点击补槽位、
                              上下文排除、命令状态栏文案、预览形状，以及工具元数据 TOOLS
                              （顺序/快捷键/提示；全部操作的单一来源）
-  model.ts                   点/图元/约束容器与增删查、级联清理、点图元归属/孤立点回收；
+    sketch-actions.ts        原子领域操作与求解（画图/批量加约束/按 id 删约束/删除/固定/构造/尺寸/拖拽），
+                             不读交互状态
+    model.ts                 点/图元/约束容器与增删查、级联清理、点图元归属/孤立点回收；
                              注入点表后的图元门面：arcGeometry / curveRadius / primitiveOf
-  entities.ts                图元多态模型：EntityBase 子类各自实现 pointIds / 尺寸目标 / 几何基元 /
+    entities.ts              图元多态模型：EntityBase 子类各自实现 pointIds / 尺寸目标 / 几何基元 /
                              重合与相切约束映射 / 求解自由度 / 结构残差；EntityPrimitive 把几何归一到
                              线段 / 圆弧 / 点三种基元
-  geometry.ts                拾取/吸附/包围盒/框选相交判定；只对几何基元写一次数学
+    geometry.ts              拾取/吸附/包围盒/框选相交判定；只对几何基元写一次数学
                              （含点图元；不读全局相机，zoom 作参数）
-  constraints.ts             约束引用校验 + 各类残差方程表 RESID（Record 强制穷尽）
-  solver.ts                  LM 求解器：自由度组装（Point 坐标 + 图元 freeParams）、数值雅可比、
+    constraints.ts           约束引用校验 + 各类残差方程表 RESID（Record 强制穷尽）
+    solver.ts                LM 求解器：自由度组装（Point 坐标 + 图元 freeParams）、数值雅可比、
                              阻尼迭代、invalidConstraints；图元结构残差由 structuralResiduals 多态提供
-  dimensions.ts              尺寸单一元数据表 DIM_META：取值/设值/文案/校验/布局/命中/拖拽/图元匹配；
-                             布局输出屏幕绘制原语（线段/圆弧/箭头/文字），renderer、pickDim、尺寸拖拽共用
-  export-svg.ts              纯 SVG 导出（buildSVG，按几何基元生成标签，含点图元）；下载适配器在 ui/download.ts
-  camera.ts                  世界 ↔ 屏幕换算、缩放范围、网格间距（纯函数）
-  viewport.ts                视图交互写入口：适应视图、滚轮缩放、平移
-  vec.ts                     二维向量纯函数（含 safeLen / unitPerp 的零向量约定）
-  toolbar.ts                 顶部 dock 工具栏：miko_ui 的分段按钮组 / 按钮 / 开关 / 控制组 + 操作按钮高亮
-                             （两个分区 .dock-group / .dock-actions，不建面板；工具表来自 operations.TOOLS）
-  selection.ts               选择语义：单击/Shift/框选方向与结果；拖拽点集、已选列表数据（含行内约束 id/文案）、
-                             命令收集态的悬停候选（点图元按 ent；尺寸标注悬停优先于几何）
-  sketch-actions.ts          原子领域操作与求解（画图/批量加约束/按 id 删约束/删除/固定/构造/尺寸/拖拽），不读交互状态
-  ui/
+    dimensions.ts            尺寸单一元数据表 DIM_META：取值/设值/文案/校验/布局/命中/拖拽/图元匹配；
+                             布局输出屏幕绘制原语（线段/圆弧/箭头/文字），render 层、pickDim、尺寸拖拽共用
+    selection.ts             选择语义：单击/Shift/框选方向与结果；拖拽点集、已选列表数据（含行内约束
+                             id/文案）、命令收集态的悬停候选（点图元按 ent；尺寸标注悬停优先于几何）
+    viewport.ts              视图交互写入口：适应视图、滚轮缩放、平移
+    camera.ts                世界 ↔ 屏幕换算、缩放范围、网格间距（纯函数）
+    vec.ts                   二维向量纯函数（含 safeLen / unitPerp 的零向量约定）
+  render/                    绘图与输出适配层（canvas / SVG）：数据全部由参数注入
+    renderer.ts              canvas 渲染编排：DPR 与画布尺寸、逐帧调用各绘制模块、图元选中态判定
+    draw-grid.ts             网格 + 原点十字
+    draw-entities.ts         图元与点绘制：线段/圆弧基元，点图元「外环 + 实心中心」，普通点
+    draw-dimensions.ts       尺寸标注绘制：界线 / 尺寸线 / 角度弧 / 箭头 / 文字
+    draw-overlays.ts         命令预览、框选矩形、吸附十字
+    draw-primitives.ts       屏幕绘制原语：屏幕线段、实心箭头、几何基元描边（图元与预览共用一份画法）
+    theme.ts                 从应用样式 src/styles.css :root 读一次 Theme（带默认值兜底），注入 Renderer
+    export-svg.ts            纯 SVG 导出（buildSVG，按几何基元生成标签，含点图元）；下载适配器在 ui/download.ts
+  ui/                        miko_ui 组件封装（左侧状态栏 / 顶部 dock / 输入 / 通知）
+    toolbar.ts               顶部 dock 工具栏：miko_ui 的分段按钮组 / 按钮 / 开关 / 控制组 + 操作按钮高亮
+                             （两个分区 .dock-group / .dock-actions，不建面板；工具表来自 core.TOOLS）
+    editor-controls.ts       工具栏命令实现与唯一同步入口 sync()（render + 已选列表 + 左侧状态栏）
     app-shell.ts             应用外壳：在 #app 网格里建侧栏宿主 / 分隔条 / dock 宿主 / 画布 / 通知区，并接上拖拽条
     sidebar-resizer.ts       侧栏宽度：miko_ui bindWindowResize（与窗口边缘缩放同一套）+ 总位移 clamp（240–560px、画布 ≥420px）、←/→/Home/End、localStorage 记忆
-    editor-controls.ts       工具栏命令实现与唯一同步入口 sync()（render + 已选列表 + 左侧状态栏）
     status-panel.ts          左侧通高状态栏外壳：标题「草图状态」+ 已选择插槽 + 状态/尺寸输入插槽
     selection-list.ts        「已选择」列表区块（填充左侧栏上半区）：ObjectRow / Badge / Button，
                              行内第二层显示该对象已有的约束胶囊（胶囊内嵌「×」，按 id 删除约束）
@@ -354,10 +371,10 @@ src/
     notify.ts                错误提示进 miko_ui MessageArea；info 走状态栏；确认框用 Panel + Button
     download.ts              Blob/<a download>/objectURL 下载适配器
     measure-text.ts          canvas measureText 适配器（无 canvas 时回退估算）
-  config/
+  config/                    纯数据/常量层（index.ts 统一出口；只许 type-only 引 core 类型）
     index.ts                 汇总出口，业务统一从 './config' 引入
     angle.ts                 TAU / sweepOf / normalizeAngle / 弧段数
-    constraints-meta.ts      16 种约束元数据、去重键、引用字段推导（操作槽位/执行在 operations.ts）
+    constraints-meta.ts      16 种约束元数据、去重键、引用字段推导（操作槽位/执行在 core/operations.ts）
     export.ts                导出标定：颜色/线宽/精度/文件名/虚线/点半径/空图文案
     format.ts                formatNumber / formatDimValue（显示格式，与回填全精度分开）
     layout.ts                侧栏宽度记忆键、键盘步长、布局变量读不到时的兜底值（宽度与上下限的真相在 styles.css :root）
@@ -365,9 +382,16 @@ src/
     solver.ts                LM 迭代预算、收敛阈值、λ 超参、数值雅可比步长
     tolerances.ts            拾取/吸附/尺寸命中/拖拽阈值（屏幕像素）+ worldTol + SNAP_PRIORITY
     ui.ts                    无法用 CSS 表达的几何/交互常量（滚轮灵敏度、尺寸文字/引线留白、角度弧最小半径等）
-tests/                       纯逻辑层 node 环境测试（文件/用例数见 `npm run test`，详见「测试约定」）
+  styles.css                 应用样式：页面网格与宿主定位 + dock 消费者类 + .app-* 消费者类 + canvas 绘制 token；
+                             控件与 dock 外观来自 miko_ui
+tests/                       node 环境单测，按被测层分组
+  core/                      纯逻辑层：model/entities/geometry/constraints/solver/dimensions/operations/
+                             sketch-actions/selection/vec/camera 等（fixtures.ts 是建图辅助）
+  render/                    SVG 导出（buildSVG）
+  ui/                        无 DOM 的 UI 纯函数（尺寸输入解析 parseDimInput）
 scripts/dev_ui_link.mjs      本地库 / npm 发布版切换（link / unlink / status / auto）
-eslint.config.js             ESLint 扁平配置（含纯逻辑层 import 限制）
+scripts/check_architecture.mjs 架构依赖检查：层间方向（只许向下）+ 运行期循环依赖
+eslint.config.js             ESLint 扁平配置（按目录声明的依赖分层白名单）
 vitest.config.ts             Vitest：node 环境、include tests/**/*.test.ts、关闭 globals
 tsconfig.json                strict + noUncheckedIndexedAccess；include src/tests/配置
 vite.config.ts               base: './'；本地库存在时把它的路径加入 server.fs.allow，并 dedupe signals
@@ -378,31 +402,45 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
 
 ## 依赖方向与配置分层
 
-- **纯逻辑层不依赖 UI/视图**：model、geometry、constraints、solver、dimensions、entities、vec、camera、config
-  （以及 state / selection / sketch-actions / operations / export-svg / viewport）都不 import
-  renderer/editor/toolbar/main/theme/ui，
-  可在 node 直接测；其中前一组由 ESLint 的 `no-restricted-imports` 强制（根目录纯模块与 `config/`
-  分别按相对路径深度配置），后一组靠约定与 code review。
+分层只有一条规则：**依赖只能向下，箭头表示「允许 import」**。
+
+```text
+app ──► ui ──► render ──► core ──► config
+```
+
+- **core（纯逻辑内核）**：`model` / `geometry` / `constraints` / `solver` / `dimensions` / `entities` /
+  `vec` / `camera`（以及 `state` / `selection` / `sketch-actions` / `operations` / `viewport`）不 import
+  `render` / `ui` / `app`，也不依赖 DOM 与 miko_ui，可在 node 里直接单测；需要视图数据时改为参数注入。
+- **render（绘图与输出适配层）**：`renderer` 与 `draw-*` 只 import core/config，绘制数据（`Theme`、
+  `CameraView`、`MeasureText`）由调用方注入；`export-svg` 是纯 SVG 输出。render 不 import ui/app。
+- **ui（组件封装层）**：`toolbar` / `editor-controls` / 状态栏与输入控件用 miko_ui 搭，可以 import
+  core/render/config，但不 import app（组合根在 app/main.ts）。
+- **app（应用层）**：`main.ts` 是唯一组合根，`editor.ts` 接事件；可以 import 所有下层。
+- **config（纯数据层）**：只能被依赖；约定只允许 type-only 引用 core 的类型（`constraints-meta` 需要
+  `Constraint` / `EntityKind`），运行期依赖保持 core → config 单向。
+- 以上「禁止 import」由 ESLint 的 `no-restricted-imports` 按目录强制（`eslint.config.js` 顶部的
+  `forbidLayers`）；core/config 还禁止 import `miko_ui`。更详细的分层理由与文件级地图见
+  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
 - **视图数据靠参数注入**：几何拾取/吸附接收 `zoom`；尺寸布局接收 `CameraView` 快照；
   文字宽度接收 `MeasureText` 函数；渲染接收 `Theme`。
-- **UI 层只用 miko_ui 搭建**：`main.ts` / `toolbar.ts` / `ui/*` 里不手写控件 DOM、不写第二套控件 CSS；
+- **UI 层只用 miko_ui 搭建**：`app/main.ts` / `ui/toolbar.ts` / `ui/*` 里不手写控件 DOM、不写第二套控件 CSS；
   节点来自 `miko_ui` 的公开面（`create_element` / `createPanel` / `createButton` / `createSegmented` /
   `createSwitch` / `createNumberField` / `createValueDisplay` / `createMessageArea` 等）。
   应用样式表只写页面布局、`.app-*` 消费者类与 canvas 绘制 token（`create_element` 是库的 DOM 原语，
   不是应用自己 `document.createElement`）。
-- **主题只读一次**：`main.ts` 调 `readTheme()`，再把 `Theme` 传给 `Renderer`/`Editor`；
+- **主题只读一次**：`app/main.ts` 调 `readTheme()`，再把 `Theme` 传给 `Renderer`/`Editor`；
   纯逻辑模块不读 `getComputedStyle`。界面控件的配色不归应用：那是 `miko_ui` 的 token 体系。
 - **配置分层**（按「外观 / 布局 / 手感 / 数值 / 导出 / 元数据」拆分，变更频率不同）：
-  - 外观（颜色/线宽/点半径/点图元外环半径/虚线/箭头/字体）→ `src/styles.css :root`，`theme.ts` 读取；
-    `theme.ts` 里的默认值必须与 CSS 保持一致（改 token 要同时改两处兜底值）。
+  - 外观（颜色/线宽/点半径/点图元外环半径/虚线/箭头/字体）→ `src/styles.css :root`，`render/theme.ts` 读取；
+    `render/theme.ts` 里的默认值必须与 CSS 保持一致（改 token 要同时改两处兜底值）。
   - 页面布局（侧栏宽度默认值与上下限、分隔条宽度、画布最小宽度）→ `src/styles.css :root`，拖拽时
     读同一批变量；键盘步长与宽度记忆键 → `config/layout.ts`（`LAYOUT_FALLBACK` 只在计算样式读不到时兜底）。
   - 交互手感（拾取/吸附/命中/拖拽阈值）→ `config/tolerances.ts`，屏幕像素声明、用时 `worldTol(px, zoom)` 换算。
   - 视图/模型上下限 → `config/limits.ts`。
   - 数值算法（角度、LM 超参、迭代预算、收敛阈值）→ `config/angle.ts`、`config/solver.ts`。
   - 导出标定（颜色/线宽/精度/文件名/虚线/点半径）→ `config/export.ts`，导出不读 canvas 主题。
-  - 元数据表 → `config/constraints-meta.ts`（约束引用字段/去重键）与 `dimensions.ts` 的 `DIM_META`（尺寸）；
-    操作的槽位/执行/预览 → `operations.ts`。
+  - 元数据表 → `config/constraints-meta.ts`（约束引用字段/去重键）与 `core/dimensions.ts` 的 `DIM_META`（尺寸）；
+    操作的槽位/执行/预览 → `core/operations.ts`。
 - **单一来源**：常量与文案只写一处，`config/index.ts` 统一出口；业务代码不深引 config 内部文件。
 
 ## 约定与扩展点
@@ -454,14 +492,15 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
 2. 若新图元的几何能复用 `segment` / `circular` / `dot` 之一，**渲染、导出、拾取、吸附无需改动**；
    只有当它引入新的基元种类时，才扩展 `EntityPrimitive` 联合，并在 `geometry.ts` 的
    `primitiveDistance` / `primitiveSnapCandidates` / `primitiveSamples` / `primitiveBounds`、
-   `renderer.ts` 与 `export-svg.ts` 的基元 switch 补分支——穷尽 switch 会直接报错提醒；
+   `render/draw-primitives.ts`（线段/圆弧）、`render/draw-entities.ts`（点）与
+   `render/export-svg.ts` 的基元 switch 补分支——穷尽 switch 会直接报错提醒；
 3. `model.ts`：`addXxx()` 里 `new` 子类；级联删除与孤立点回收自动走 `pointIds`；若图元独占
    已有对象，还要补类似 `addPointEntity` / `pointEntityOf` / `ownedPointIds` 的归属查询；
 4. 点图元这类零尺寸图元：基元返回 `dot`；`pickPoint` 跳过 `ownedPointIds()`、`pickEntity` 先按点
    容差命中；渲染循环跳过被拥有的点，否则同一对象会有 `pt` / `ent` 两种选择身份；
 5. `sketch-actions.ts`：`addXxx` 的原子创建入口与退化阈值；`operations.ts`：对应操作的槽位
    （`accepts`）与 `execute`（点图元是 `point` 槽位 + `placePointEntity`）；
-6. `tests/`：补创建、基元、拾取、包围盒、导出、槽位匹配用例（多态契约见 `tests/entities.test.ts`）。
+6. `tests/`：补创建、基元、拾取、包围盒、导出、槽位匹配用例（多态契约见 `tests/core/entities.test.ts`）。
 
 ### 新增约束种类
 
@@ -475,7 +514,8 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
    一个按钮按参数类型生成不同 kind 时（重合、相切都是），把映射写进图元的多态方法
    （`pointOnConstraint` / `tangentWith`），槽位负责把不合法的组合提前挡掉
    （相切用动态槽位，重合用 `pointRole` 拼出的 `reject`）；
-5. `tests/operations.test.ts` / `coincident.test.ts` / `solver.test.ts` 补槽位、拒绝与收敛用例。
+5. `tests/core/operations.test.ts` / `tests/core/coincident.test.ts` / `tests/core/solver.test.ts`
+   补槽位、拒绝与收敛用例。
 
 ### 新增操作（工具 / 按钮 / 命令）
 
@@ -491,7 +531,7 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
 3. 工具类操作还要在 `TOOL_ORDER` / `TOOL_HINTS` 里补快捷键与提示（label 自动取操作表）；
 4. 有几何预览就在 `commandPreview` 的 switch 里补分支，返回 `PreviewShape`（线段/圆弧基元），
    渲染器与实体绘制共用同一份画法；
-5. `tests/operations.test.ts` 补「选择集预填 / 点击补槽位 / 上下文排除 / 执行」用例。
+5. `tests/core/operations.test.ts` 补「选择集预填 / 点击补槽位 / 上下文排除 / 执行」用例。
 
 ### 新增尺寸种类
 
@@ -506,7 +546,7 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
    `operations.ts` 的尺寸操作 `execute` 的 `point` 分支里把点操作数交给 `dimForPoints`；
 4. `operations.ts` 的尺寸槽位：新目标类型需要第二击时加可选槽位 / 放置槽位；拖拽是纯展示参数，
    不需要改 solver；
-5. `tests/dimensions.test.ts` 补布局/命中/拖拽用例；`tests/solver.test.ts` 若引入新残差补收敛用例。
+5. `tests/core/dimensions.test.ts` 补布局/命中/拖拽用例；`tests/core/solver.test.ts` 若引入新残差补收敛用例。
 
 ### 约束现状与构造线
 
@@ -523,7 +563,7 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
 ### 测试约定
 
 - node 环境、无 DOM；测试显式 `import { describe, it, expect } from 'vitest'`（不开 globals）；
-- 需要按「圆心 + 半径 + 起终角」造圆弧 fixture 时用 `tests/fixtures.ts` 的 `addArcByAngles`
+- 需要按「圆心 + 半径 + 起终角」造圆弧 fixture 时用 `tests/core/fixtures.ts` 的 `addArcByAngles`
   （内部会换成三个点；整圆复用起点，与生产创建一致）；
 - 直接测纯逻辑模块（model/geometry/dimensions/solver/export-svg/selection/sketch-actions/operations/
   entities/parse-dim-input 等），用 `model.clearModel()` 隔离单例 fixture；命令引擎的用例直接构造

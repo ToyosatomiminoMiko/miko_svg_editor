@@ -28,9 +28,9 @@ import {
   type Signal,
 } from 'miko_ui';
 import { TOAST_DURATION_MS } from '../config';
-import { dimLabel, dimValue } from '../dimensions';
-import type { DimConstraint } from '../dimensions';
-import type { DimResult } from '../sketch-actions';
+import { dimLabel, dimValue } from '../core/dimensions';
+import type { DimConstraint } from '../core/dimensions';
+import type { DimResult } from '../core/sketch-actions';
 import { notify, notifyAll } from './notify';
 import { parseDimInput } from './parse-dim-input';
 import type { ParseDimResult } from './parse-dim-input';

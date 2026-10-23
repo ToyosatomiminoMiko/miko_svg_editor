@@ -29,7 +29,7 @@ import {
   createObjectRow,
   createRowActions,
 } from 'miko_ui';
-import type { SelectionConstraint, SelectionEntry, SelectionKind } from '../types';
+import type { SelectionConstraint, SelectionEntry, SelectionKind } from '../core/types';
 
 /** 宿主回调：按「种类 + id」从选择集中移除一项；约束按约束 id 删除（id 含义见各自容器） */
 export interface SelectionListHost {

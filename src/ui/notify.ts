@@ -22,7 +22,7 @@ import {
   type MessageEntry,
 } from 'miko_ui';
 import { TOAST_DURATION_MS } from '../config';
-import type { Notice } from '../sketch-actions';
+import type { Notice } from '../core/sketch-actions';
 
 export type NoticeKind = 'info' | 'error';
 

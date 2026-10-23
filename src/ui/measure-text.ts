@@ -4,7 +4,7 @@
  */
 
 import { TEXT_FALLBACK_CHAR_WIDTH, TEXT_FALLBACK_FONT_PX } from '../config';
-import type { MeasureText } from '../types';
+import type { MeasureText } from '../core/types';
 
 /** 从字体简写里取字号；解析失败时按回退字号算 */
 const fontPx = (font: string): number => {

@@ -1,6 +1,6 @@
 name: CI
 
-# 工程约束：typecheck / lint / test / build 四道闸门（audit/AUDIT.md §6）。
+# 工程约束：typecheck / lint / test / build 四道闸门（见 README「运行与质量门」与 docs/ARCHITECTURE.md）。
 # 顺序有意安排为「最快的静态检查在前」，失败时尽早结束。
 on:
   push:
@@ -33,6 +33,9 @@ jobs:
 
       - name: ESLint
         run: npm run lint
+
+      - name: 架构依赖检查
+        run: npm run arch
 
       - name: Prettier 格式检查
         run: npm run format:check

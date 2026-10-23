@@ -12,11 +12,11 @@
  *   repeat 操作保持可继续点；其余约束/编辑操作回到选择工具。
  */
 
-import { cam } from '../camera';
+import { cam } from '../core/camera';
 import { EXPORT_EMPTY_MESSAGE, ITER_FULL } from '../config';
-import type { DimConstraint } from '../dimensions';
-import { buildSVG } from '../export-svg';
-import { clearModel, isEmpty } from '../model';
+import type { DimConstraint } from '../core/dimensions';
+import { buildSVG } from '../render/export-svg';
+import { clearModel, isEmpty } from '../core/model';
 import {
   cancelCommand as cancelOperationSession,
   clickCommand as clickCommandOperation,
@@ -36,9 +36,9 @@ import {
   type CommandSession,
   type CommandStatusText,
   type OperationId,
-} from '../operations';
-import type { Renderer } from '../renderer';
-import { pruneSelection, selectionEntries, selectionSummary } from '../selection';
+} from '../core/operations';
+import type { Renderer } from '../render/renderer';
+import { pruneSelection, selectionEntries, selectionSummary } from '../core/selection';
 import {
   commitDim,
   deleteConstraint,
@@ -47,11 +47,11 @@ import {
   solve,
   type ActionResult,
   type Notice,
-} from '../sketch-actions';
-import { clearSelection, deselect, resetInteraction, state } from '../state';
-import type { ToolbarHandle, ToolbarHandlers } from '../toolbar';
-import type { SelectionKind, ToolId } from '../types';
-import { fitView as fitViewport } from '../viewport';
+} from '../core/sketch-actions';
+import { clearSelection, deselect, resetInteraction, state } from '../core/state';
+import type { ToolbarHandle, ToolbarHandlers } from './toolbar';
+import type { SelectionKind, ToolId } from '../core/types';
+import { fitView as fitViewport } from '../core/viewport';
 import { downloadSvg } from './download';
 import type { HintEditor } from './hint-editor';
 import { notify, notifyAll, askConfirm } from './notify';
@@ -411,7 +411,7 @@ function currentStatus(): CommandStatusText {
 
 /**
  * 工具栏回调适配器：main.ts 把 `editor.handlers` 交给 buildToolbar。
- * 放在本文件而不是 Editor 里，保证 editor.ts 只保留事件接线与手势状态机（§5.2 ≤250 行）。
+ * 放在本文件而不是 Editor 里，保证 editor.ts 只保留事件接线与手势状态机（见 docs/ARCHITECTURE.md「依赖规则」）。
  */
 export function createToolbarHandlers(controls: EditorControls): ToolbarHandlers {
   return {

@@ -8,8 +8,8 @@
  * 具体槽位与执行见 operations.ts。
  */
 
-import type { EntityKind } from '../entities';
-import type { Constraint, ConstraintKind } from '../types';
+import type { EntityKind } from '../core/entities';
+import type { Constraint, ConstraintKind } from '../core/types';
 
 /** 一条约束引用：图元或点，以及图元引用可接受的种类 */
 export interface ConstraintRefMeta {

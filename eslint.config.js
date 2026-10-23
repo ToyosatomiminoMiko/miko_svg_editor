@@ -8,9 +8,15 @@
  * 注意它不支持 parserOptions.projectService，只支持「显式 project」或「向上找最近的 tsconfig」，
  * 本仓库是单 tsconfig 项目，用显式 project 指向根 tsconfig。
  *
- * 分层规则：纯逻辑/纯计算模块禁止 import 渲染、编辑器、工具栏、主题、UI 层，
- * 需要视图数据时改为参数注入（见 audit/AUDIT.md §5.1）；UI 层（editor/renderer/toolbar/
- * main/ui）不受此限制。
+ * 分层规则（箭头 = 允许 import，只能向下）：
+ *   app ──► ui ──► render ──► core ──► config
+ * 组合根是 app/main.ts；core 是可在 node 里直接单测的纯逻辑内核；render 是 canvas/SVG
+ * 输出适配层；ui 是 miko_ui 组件封装。各层禁止反向 import（core 不碰 render/ui/app，
+ * render 不碰 ui/app，ui 不碰 app），需要视图数据时改为参数注入。
+ * 约定例外：config 可以 type-only 引用 core 的类型（constraints-meta 需要 Constraint/EntityKind），
+ * 运行期依赖仍只有 core → config 一个方向。
+ * 具体到文件/函数的地图见 docs/ARCHITECTURE.md「依赖规则」；README「依赖方向与配置分层」
+ * 是面向使用者的说明。
  */
 
 import js from '@eslint/js';
@@ -20,36 +26,35 @@ import prettier from 'eslint-config-prettier';
 /** 由 ts7-eslint 解析（需要 TypeScript 程序）的文件 */
 const TS_FILES = ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'];
 
-/** src 根目录下的纯逻辑/纯计算模块（与 UI 层同级） */
-const PURE_ROOT_FILES = [
-  'src/{model,geometry,constraints,solver,dimensions,entities,vec,camera}.ts',
-];
-
-/** config 目录同样是纯逻辑层，但相对路径深度不同，单独一套规则 */
-const PURE_CONFIG_FILES = ['src/config/**/*.ts'];
-
-/** 纯逻辑层禁止引用的 UI/视图模块名 */
-const UI_MODULES = ['renderer', 'editor', 'toolbar', 'main', 'theme', 'ui'];
-
-/** 违规时给读者的统一提示 */
-const PURE_LAYER_MESSAGE =
-  '纯逻辑层禁止 import renderer/editor/toolbar/main/theme/ui：改为参数注入（见 audit/AUDIT.md §5.1）。';
+/** 分层目录：规则按「谁禁止 import 谁」分别声明 */
+const CORE_FILES = ['src/core/**/*.ts'];
+const CONFIG_FILES = ['src/config/**/*.ts'];
+const RENDER_FILES = ['src/render/**/*.ts'];
+const UI_FILES = ['src/ui/**/*.ts'];
 
 /**
- * 生成禁止 import 的路径模式。
+ * 生成「禁止 import 这些目录」的通配模式。
  * no-restricted-imports 的 patterns 用 minimatch 匹配「源码里写的原始路径」，不做模块解析，
- * 所以必须按相对路径深度分开列：src 根目录的纯逻辑文件只会写 './renderer'，
- * config/*.ts 只会写 '../renderer'（更深一层是 '../../renderer'）。
- * 不能用按模块名的通配（例如把 ui 当成任何层级都禁止）：它会把 src/config/index.ts 里的 './ui'
- * （config/ui.ts，只是外观/交互常量，仍是纯配置）误判成 UI 层。
+ * 所以必须按相对路径深度分开列：从本层目录上跳一层写 '../x'，层内子目录里写 '../../x'。
+ * 不用 './x'：它会在同目录里误伤同名文件（config/index.ts 的 './ui' 是 config/ui.ts，
+ * 只是交互常量，不是 UI 层）。
  */
-const UI_IMPORTS_FROM_SRC_ROOT = UI_MODULES.flatMap((name) => [`./${name}`, `./${name}/*`]);
-const UI_IMPORTS_FROM_CONFIG = UI_MODULES.flatMap((name) => [
-  `../${name}`,
-  `../${name}/*`,
-  `../../${name}`,
-  `../../${name}/*`,
-]);
+const forbidLayers = (targets) =>
+  targets.flatMap((target) =>
+    ['../', '../../'].flatMap((up) => [`${up}${target}`, `${up}${target}/*`]),
+  );
+
+/** core/config 同时禁止引 miko_ui：纯逻辑层不该依赖 DOM 组件库 */
+const COMPONENT_LIB = ['miko_ui', 'miko_ui/*'];
+
+const CORE_MESSAGE =
+  'core 是纯逻辑内核，禁止 import render/ui/app 或 miko_ui：需要视图数据请参数注入（见 docs/ARCHITECTURE.md「依赖规则」）。';
+const CONFIG_MESSAGE =
+  'config 是纯数据/常量层，禁止 import render/ui/app 或 miko_ui；允许 type-only 引用 core 的类型（见 docs/ARCHITECTURE.md「依赖规则」）。';
+const RENDER_MESSAGE =
+  'render 是绘图/输出适配层，禁止 import ui/app 或 miko_ui：绘制数据由调用方传入（见 docs/ARCHITECTURE.md「依赖规则」）。';
+const UI_MESSAGE =
+  'ui 只能依赖 core/render/config 与 miko_ui，禁止反向 import app（组合根在 app/main.ts，见 docs/ARCHITECTURE.md「依赖规则」）。';
 
 export default [
   {
@@ -76,7 +81,7 @@ export default [
       // switch 必须穷尽联合类型的所有分支（配合 assertNever 在编译期之外再兜底）
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
 
-      // 禁止阻塞式弹窗：提示统一走 UI 层（audit/AUDIT.md §5.1）
+      // 禁止阻塞式弹窗：提示统一走 UI 层（notify.ts / 状态栏）
       'no-alert': 'error',
       'no-restricted-globals': ['error', 'alert', 'confirm'],
 
@@ -122,22 +127,63 @@ export default [
   },
 
   {
-    files: PURE_ROOT_FILES,
+    // 纯逻辑内核：可在 node 里直接单测，只能依赖 config
+    files: CORE_FILES,
     rules: {
-      // 纯逻辑层不得依赖 UI/视图层，保证这些模块能在 node 里直接单测
       'no-restricted-imports': [
         'error',
-        { patterns: [{ group: UI_IMPORTS_FROM_SRC_ROOT, message: PURE_LAYER_MESSAGE }] },
+        {
+          patterns: [
+            {
+              group: [...forbidLayers(['render', 'ui', 'app']), ...COMPONENT_LIB],
+              message: CORE_MESSAGE,
+            },
+          ],
+        },
       ],
     },
   },
 
   {
-    files: PURE_CONFIG_FILES,
+    // 配置层：只能被依赖，不反向依赖视图层；允许 type-only 引用 core 类型
+    files: CONFIG_FILES,
     rules: {
       'no-restricted-imports': [
         'error',
-        { patterns: [{ group: UI_IMPORTS_FROM_CONFIG, message: PURE_LAYER_MESSAGE }] },
+        {
+          patterns: [
+            {
+              group: [...forbidLayers(['render', 'ui', 'app']), ...COMPONENT_LIB],
+              message: CONFIG_MESSAGE,
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  {
+    // 输出适配层：只用 core/config，绘制数据由参数注入
+    files: RENDER_FILES,
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            { group: [...forbidLayers(['ui', 'app']), ...COMPONENT_LIB], message: RENDER_MESSAGE },
+          ],
+        },
+      ],
+    },
+  },
+
+  {
+    // 组件封装层：可以用 core/render/config 与 miko_ui，但不能反向依赖组合根
+    files: UI_FILES,
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: [{ group: forbidLayers(['app']), message: UI_MESSAGE }] },
       ],
     },
   },
