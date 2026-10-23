@@ -1,9 +1,9 @@
 /**
  * config/constraints-meta.ts 的约束元数据与 operations.ts 约束操作的对应关系。
  * 三件事必须同时成立，否则「元数据 ↔ 槽位/执行」的单一来源会漏：
- * 1) 18 种 ConstraintKind 都有元数据与引用字段（Record 穷尽在运行时也要有测试兜底）；
+ * 1) 19 种 ConstraintKind 都有元数据与引用字段（Record 穷尽在运行时也要有测试兜底）；
  * 2) 引用字段推导与去重键只由元数据决定，反序选择落到同一个键；
- * 3) operations.ts 的 9 个约束操作都能生成元数据表里的合法 kind
+ * 3) operations.ts 的 10 个约束操作都能生成元数据表里的合法 kind
  *    （重合/相切是多态操作，一个按钮会落到多个 kind）。
  * 槽位填充/上下文排除/状态栏等行为见 tests/operations.test.ts 与 tests/coincident.test.ts。
  */
@@ -26,7 +26,7 @@ import {
 import { resetInteraction } from '../src/state';
 import type { ConstraintKind } from '../src/types';
 
-/** 18 种约束种类，显式列出：元数据表增删时测试需要人跟着改，防止悄悄漂移 */
+/** 19 种约束种类，显式列出：元数据表增删时测试需要人跟着改，防止悄悄漂移 */
 const ALL_KINDS: readonly ConstraintKind[] = [
   'coincident',
   'horizontal',
@@ -34,6 +34,7 @@ const ALL_KINDS: readonly ConstraintKind[] = [
   'parallel',
   'perpendicular',
   'equalLength',
+  'collinear',
   'pointOnLine',
   'pointOnCircle',
   'tangentLineCircle',
@@ -54,9 +55,9 @@ beforeEach(() => {
 });
 
 describe('CONSTRAINT_META', () => {
-  it('恰好覆盖 18 种 ConstraintKind', () => {
+  it('恰好覆盖 19 种 ConstraintKind', () => {
     const kinds = Object.keys(CONSTRAINT_META) as ConstraintKind[];
-    expect(kinds).toHaveLength(18);
+    expect(kinds).toHaveLength(19);
     expect([...kinds].sort()).toEqual([...ALL_KINDS].sort());
   });
 
@@ -118,8 +119,8 @@ describe('引用字段推导', () => {
 });
 
 describe('约束操作与元数据一致', () => {
-  it('9 个约束操作：id/label 不重复，槽位与 execute 都是函数', () => {
-    expect(CONSTRAINT_OPERATIONS).toHaveLength(9);
+  it('10 个约束操作：id/label 不重复，槽位与 execute 都是函数', () => {
+    expect(CONSTRAINT_OPERATIONS).toHaveLength(10);
     const ids = CONSTRAINT_OPERATIONS.map((op) => op.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const op of CONSTRAINT_OPERATIONS) {
@@ -168,6 +169,15 @@ describe('约束操作与元数据一致', () => {
       ],
       [
         'equalLength',
+        {
+          items: [
+            { kind: 'ent', id: line.id },
+            { kind: 'ent', id: line2.id },
+          ],
+        },
+      ],
+      [
+        'collinear',
         {
           items: [
             { kind: 'ent', id: line.id },
@@ -299,6 +309,10 @@ describe('constraintRefKey：无序引用去重（BUG-3 反序选择）', () => 
     );
     expect(constraintRefKey('equalLength', { e1: 1, e2: 2 })).toBe(
       constraintRefKey('equalLength', { e1: 2, e2: 1 }),
+    );
+    // 共线：两条直线谁作基准都可以，交换引用仍是同一条约束
+    expect(constraintRefKey('collinear', { e1: 1, e2: 2 })).toBe(
+      constraintRefKey('collinear', { e1: 2, e2: 1 }),
     );
     expect(constraintRefKey('concentric', { e1: 1, e2: 2 })).toBe(
       constraintRefKey('concentric', { e1: 2, e2: 1 }),

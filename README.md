@@ -5,7 +5,7 @@
 - 8 个绘图/编辑工具：选择、点、直线、圆、圆弧、矩形、尺寸、删除
 - 圆弧的两端是真实点：和线段端点一样可拾取/拖拽/固定/约束、可被点图元提升，也能直接复用已有点
   （共享同一个点即完成连接）；半径与起终角由「圆心 + 起点 + 终点」三个点推出
-- 9 个约束按钮：重合、水平、竖直、平行、垂直、等长、相切、同心、等半径
+- 10 个约束按钮：重合、水平、竖直、平行、垂直、等长、共线、相切、同心、等半径
 - 统一命令模型：每个操作 = 若干**参数槽位** + 一个执行函数。先选对象再点操作，缺的参数在画布上
   点选补齐，**填满立即执行**（左侧状态栏显示当前命令与每个参数的进度）
 - 尺寸标注：两点距离、直线长度、圆/弧半径；输入框全精度回填、显示两位小数
@@ -57,16 +57,16 @@ npm run ui:status    # 打印当前解析的是本地库还是 npm 版、版本�
 
 UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 
-| UI 区块                     | miko_ui 组件                                                                                                                                                                                                                                                                                                                            | 应用侧只保留                                                                                                   |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| 顶部 dock（工具栏）         | `.dock.app-dock` 宿主（`create_element` 建，外观复用库的 `.dock`）+ `createSegmented`（8 个工具，单选）+ `createButton`（9 个约束 + 固定/构造 + 3 个即时命令）+ `createSwitch` / `createInlineToggle`（吸附开关）+ `createControlGroup`（工具 / 约束 / 视图与文件三组）；两个分区是 `.dock-group` / `.dock-actions`，不建面板、无标题栏 | `.app-dock*` 定位、窄视口换行与分节线                                                                          |
-| 左侧状态栏（已选择 + 状态） | `createPanel`（通高面板，标题「草图状态」）+ `createObjectRow` / `createRowActions` / `createBadge` / `createButton`（已选择行；约束胶囊用 `createBadge` 做壳，内嵌一颗 `createButton` 的「×」）+ `createValueDisplay<string>` ×2（「当前操作」与「操作提示」各一行 `<output>`，各自由 signal 驱动）                                    | `.app-status*` / `.app-selection*` 布局与紧凑行样式                                                            |
-| 尺寸输入框                  | `createNumberField` + `createNumberRow`（文字 + `<input type="number">`）                                                                                                                                                                                                                                                               | `.app-dim-field`（宽度 / 非法红框）                                                                            |
-| 左侧栏宽度拖拽条            | `bindWindowResize`（与桌面窗口边缘缩放手柄同一条手势接线，方向 `'e'`：报告指针绝对位置）                                                                                                                                                                                                                                                | `.app-sidebar-resizer` 定位与拖动中高亮；起手锚 + 总位移夹取、键盘与 localStorage 记忆在 ui/sidebar-resizer.ts |
-| 错误提示                    | `createMessageArea` + `MessageList`（`aria-live` 容器、条目外观、自动消失）                                                                                                                                                                                                                                                             | `.app-notices` / `.app-notice-list` 定位                                                                       |
-| info 提示                   | 复用左侧状态栏的 `ValueDisplay`（`flashInfo` 闪示，不占额外位置）                                                                                                                                                                                                                                                                       | 无                                                                                                             |
-| 清空确认框                  | `createPanel`（`role="dialog"`）+ `createButton`（取消 / 确定主按钮变体）                                                                                                                                                                                                                                                               | `.app-confirm-*` 遮罩与按钮变体                                                                                |
-| 页面外壳                    | `create_element`（canvas + 左侧状态栏 / dock / 通知区三个宿主 + 分隔条）+ CSS 网格                                                                                                                                                                                                                                                      | `#app` 网格、`--status-sidebar-width`、`.app-sidebar-resizer`                                                  |
+| UI 区块                     | miko_ui 组件                                                                                                                                                                                                                                                                                                                             | 应用侧只保留                                                                                                   |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 顶部 dock（工具栏）         | `.dock.app-dock` 宿主（`create_element` 建，外观复用库的 `.dock`）+ `createSegmented`（8 个工具，单选）+ `createButton`（10 个约束 + 固定/构造 + 3 个即时命令）+ `createSwitch` / `createInlineToggle`（吸附开关）+ `createControlGroup`（工具 / 约束 / 视图与文件三组）；两个分区是 `.dock-group` / `.dock-actions`，不建面板、无标题栏 | `.app-dock*` 定位、窄视口换行与分节线                                                                          |
+| 左侧状态栏（已选择 + 状态） | `createPanel`（通高面板，标题「草图状态」）+ `createObjectRow` / `createRowActions` / `createBadge` / `createButton`（已选择行；约束胶囊用 `createBadge` 做壳，内嵌一颗 `createButton` 的「×」）+ `createValueDisplay<string>` ×2（「当前操作」与「操作提示」各一行 `<output>`，各自由 signal 驱动）                                     | `.app-status*` / `.app-selection*` 布局与紧凑行样式                                                            |
+| 尺寸输入框                  | `createNumberField` + `createNumberRow`（文字 + `<input type="number">`）                                                                                                                                                                                                                                                                | `.app-dim-field`（宽度 / 非法红框）                                                                            |
+| 左侧栏宽度拖拽条            | `bindWindowResize`（与桌面窗口边缘缩放手柄同一条手势接线，方向 `'e'`：报告指针绝对位置）                                                                                                                                                                                                                                                 | `.app-sidebar-resizer` 定位与拖动中高亮；起手锚 + 总位移夹取、键盘与 localStorage 记忆在 ui/sidebar-resizer.ts |
+| 错误提示                    | `createMessageArea` + `MessageList`（`aria-live` 容器、条目外观、自动消失）                                                                                                                                                                                                                                                              | `.app-notices` / `.app-notice-list` 定位                                                                       |
+| info 提示                   | 复用左侧状态栏的 `ValueDisplay`（`flashInfo` 闪示，不占额外位置）                                                                                                                                                                                                                                                                        | 无                                                                                                             |
+| 清空确认框                  | `createPanel`（`role="dialog"`）+ `createButton`（取消 / 确定主按钮变体）                                                                                                                                                                                                                                                                | `.app-confirm-*` 遮罩与按钮变体                                                                                |
+| 页面外壳                    | `create_element`（canvas + 左侧状态栏 / dock / 通知区三个宿主 + 分隔条）+ CSS 网格                                                                                                                                                                                                                                                       | `#app` 网格、`--status-sidebar-width`、`.app-sidebar-resizer`                                                  |
 
 样式加载顺序固定为 `miko_ui/styles.css`（token + 字体 + 控件 + 反馈）→ `src/styles.css`（只写页面布局、
 `.app-*` 消费者类与 canvas 绘制 token）。页面布局是 `#app` 上的 CSS 网格：左列是通高的左侧状态栏、
@@ -171,7 +171,7 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 
 ### 约束按钮
 
-重合、水平、竖直、平行、垂直、等长、相切、同心、等半径。按钮只负责**启动一个操作**，参数由
+重合、水平、竖直、平行、垂直、等长、共线、相切、同心、等半径。按钮只负责**启动一个操作**，参数由
 选择集预填 + 画布点选补齐，填满立即执行。槽位表在 `src/operations.ts`：
 
 | 按钮      | 槽位                         | 执行结果                                                   |
@@ -181,6 +181,7 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 | 平行      | 直线 + 直线                  | `parallel`                                                 |
 | 垂直      | 直线 + 直线                  | `perpendicular`                                            |
 | 等长      | 直线 + 直线                  | `equalLength`                                              |
+| 共线      | 直线 + 直线                  | `collinear`（两条直线落在同一条无限长直线上）              |
 | 相切      | 直线或圆/弧 +（直线或圆/弧） | `tangentLineCircle` 或 `tangentCircleCircle`               |
 | 同心      | 圆/弧 + 圆/弧                | `concentric`                                               |
 | 等半径    | 圆/弧 + 圆/弧                | `equalRadius`                                              |
@@ -189,6 +190,9 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 - 「重合」的上下文排除在**填槽位阶段**完成：同一个点不能和自己重合；点已经是目标直线端点/圆弧端点
   （假约束）或目标圆/弧圆心（会把半径挤成 0）时，该对象点不进去并给出原因。
 - 「相切」用动态槽位：第一条是直线时，第二条只接受圆/弧，「两条直线相切」从拾取阶段就不可能。
+- 「共线」是两条直线落在同一条无限长直线上（不是三点共线）：残差同时要求方向叉积为 0（平行）与
+  第二条线起点到第一条线的有符号距离为 0。它按引用去重，反序选择同一组直线也只加一条；
+  但同一条直线不能填进两个槽位。
 - 不适用/多选的对象不会被静默写模型：装不进槽位的对象被忽略并在状态栏提示；参数不齐时点击/执行
   会说明缺哪个槽位。
 - 按「种类 + 引用字段」去重：同一组引用重复添加会跳过并提示「已跳过 N 个重复约束」；重合这类无序
@@ -319,7 +323,7 @@ src/
   config/
     index.ts                 汇总出口，业务统一从 './config' 引入
     angle.ts                 TAU / sweepOf / normalizeAngle / wrapPi / 弧段数
-    constraints-meta.ts      18 种约束元数据、去重键、引用字段推导（操作槽位/执行在 operations.ts）
+    constraints-meta.ts      19 种约束元数据、去重键、引用字段推导（操作槽位/执行在 operations.ts）
     export.ts                导出标定：颜色/线宽/精度/文件名/虚线/点半径/空图文案
     format.ts                formatNumber / formatDimValue（显示格式，与回填全精度分开）
     layout.ts                侧栏宽度记忆键、键盘步长、布局变量读不到时的兜底值（宽度与上下限的真相在 styles.css :root）
@@ -448,7 +452,7 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
 
 ### 约束现状与构造线
 
-- **9 个约束按钮**：重合、水平、竖直、平行、垂直、等长、相切、同心、等半径，定义在
+- **10 个约束按钮**：重合、水平、竖直、平行、垂直、等长、共线、相切、同心、等半径，定义在
   `operations.ts` 的 `CONSTRAINT_OPERATIONS`。「相切」按槽位类型映射到 `tangentLineCircle` 或
   `tangentCircleCircle`；「重合」按目标操作数多态分派到 `coincident` / `pointOnLine` / `pointOnCircle`。
   另有 `distancePointPoint`（距离）与 `radius`（半径）两种尺寸类约束，入口在尺寸操作，不在约束按钮区。

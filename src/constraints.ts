@@ -83,6 +83,23 @@ export const RESID: Record<ConstraintKind, (c: Constraint) => number[]> = {
     return [vec.dist(a1, b1) - vec.dist(a2, b2)];
   },
 
+  /**
+   * 两直线共线：方向平行 + 第二条线起点落在第一条线上，两条都归一到 0。
+   * 只写方向叉积不够——平行但错开的两条线仍然不共线，必须再加一条「点到直线距离」；
+   * 这条距离用第一条线的方向归一化（与 pointOnLine 同口径），角度残差用两个
+   * 方向模长之积归一到 sin 值，避免长短线在最小二乘里权重失衡。
+   */
+  collinear(c) {
+    const [a1, b1] = ends(lineOf(c.e1));
+    const [a2, b2] = ends(lineOf(c.e2));
+    const d1 = vec.sub(b1, a1);
+    const d2 = vec.sub(b2, a2);
+    return [
+      vec.crs(d1, d2) / (vec.safeLen(d1) * vec.safeLen(d2)),
+      vec.crs(vec.sub(a2, a1), d1) / vec.safeLen(d1),
+    ];
+  },
+
   pointOnLine(c) {
     const [a, b] = ends(lineOf(c.e));
     const p = pointOf(c.p);

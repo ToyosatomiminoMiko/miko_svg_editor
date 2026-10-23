@@ -73,6 +73,16 @@ export const CONSTRAINT_META: Record<ConstraintKind, ConstraintKindMeta> = {
       { key: 'e2', kind: 'entity', accepts: LINE },
     ],
   },
+  collinear: {
+    label: '共线',
+    ui: true,
+    // 两条直线谁作基准都可以，交换引用仍是同一条约束
+    unorderedRefs: true,
+    refs: [
+      { key: 'e1', kind: 'entity', accepts: LINE },
+      { key: 'e2', kind: 'entity', accepts: LINE },
+    ],
+  },
   pointOnLine: {
     label: '点在线上',
     ui: true, // 由「重合」按钮在「1 个点 + 1 条直线」时生成

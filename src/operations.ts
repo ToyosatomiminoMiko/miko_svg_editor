@@ -163,6 +163,7 @@ export type ConstraintOperationId =
   | 'parallel'
   | 'perpendicular'
   | 'equalLength'
+  | 'collinear'
   | 'tangent'
   | 'concentric'
   | 'equalRadius';
@@ -522,9 +523,9 @@ const verticalOperation: OperationMeta = {
   },
 };
 
-/** 双直线约束：平行 / 垂直 / 等长只有种类不同 */
+/** 双直线约束：平行 / 垂直 / 等长 / 共线只有种类不同 */
 const twoLineOperation = (
-  id: 'parallel' | 'perpendicular' | 'equalLength',
+  id: 'parallel' | 'perpendicular' | 'equalLength' | 'collinear',
   label: string,
 ): OperationMeta => ({
   id,
@@ -617,6 +618,7 @@ export const OPERATIONS: readonly OperationMeta[] = [
   twoLineOperation('parallel', '平行'),
   twoLineOperation('perpendicular', '垂直'),
   twoLineOperation('equalLength', '等长'),
+  twoLineOperation('collinear', '共线'),
   tangentOperation,
   curvePairOperation('concentric', '同心'),
   curvePairOperation('equalRadius', '等半径'),
@@ -1174,6 +1176,7 @@ export function commandPreview(session: CommandSession, cursor: Vec): PreviewSha
     case 'parallel':
     case 'perpendicular':
     case 'equalLength':
+    case 'collinear':
     case 'tangent':
     case 'concentric':
     case 'equalRadius':

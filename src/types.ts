@@ -93,6 +93,7 @@ export type ConstraintKind =
   | 'parallel'
   | 'perpendicular'
   | 'equalLength'
+  | 'collinear'
   | 'pointOnLine'
   | 'pointOnCircle'
   | 'tangentLineCircle'

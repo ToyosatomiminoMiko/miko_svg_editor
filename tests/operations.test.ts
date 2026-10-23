@@ -110,7 +110,7 @@ describe('操作表', () => {
       expect(typeof op.slots).toBe('function');
       expect(typeof op.execute).toBe('function');
     }
-    expect(CONSTRAINT_OPERATIONS).toHaveLength(9);
+    expect(CONSTRAINT_OPERATIONS).toHaveLength(10);
   });
 
   it('TOOLS 里除 select 外每个工具都能找到对应操作', () => {
