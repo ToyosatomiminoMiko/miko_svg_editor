@@ -26,6 +26,7 @@ import {
   clickCommand,
   commandPreview,
   commandStatus,
+  dimensionPreview,
   continuationOf,
   createSession,
   executeCommand,
@@ -529,6 +530,93 @@ describe('画布点击补参数', () => {
     // 点图元本身没有被删掉
     expect(getEntity(e1.id)).toBeDefined();
     expect(getEntity(e2.id)).toBeDefined();
+  });
+});
+
+/* ======================= 尺寸落位预览 ======================= */
+
+describe('尺寸落位预览', () => {
+  it('两个点选完后预览距离尺寸，跟随光标移动；预览不写模型，按下放置才创建', () => {
+    const p1 = addPt(0, 0);
+    const p2 = addPt(100, 0);
+    const session = createSession('dim');
+    clickCommand(session, input({ x: 0, y: 0 }));
+    clickCommand(session, input({ x: 100, y: 0 }));
+    expect(isComplete(session)).toBe(false);
+
+    const lower = dimensionPreview(session, { x: 50, y: 20 }, view, 1);
+    expect(lower?.kind).toBe('distancePointPoint');
+    expect(lower?.text.text).toBe('100');
+    expect(lower?.segments[2]?.a.y).toBe(320); // 屏幕 y 向下：世界 offset 20 → 屏幕 +20
+    expect(model.cons.size).toBe(0);
+
+    const higher = dimensionPreview(session, { x: 50, y: 60 }, view, 1);
+    expect(higher?.segments[2]?.a.y).toBe(360);
+
+    // 按下放置才真正创建
+    expect(clickCommand(session, input({ x: 50, y: 20 })).filled).toBe(true);
+    const outcome = executeCommand(session, 1);
+    expect(outcome.kind).toBe('dim');
+    expect(model.cons.size).toBe(1);
+    expect(p1.id).not.toBe(p2.id);
+  });
+
+  it('直线目标选完后预览长度尺寸，光标决定偏移', () => {
+    addLine(addPt(0, 0), addPt(100, 0));
+    const session = createSession('dim');
+    clickCommand(session, input({ x: 50, y: 0 }));
+
+    const preview = dimensionPreview(session, { x: 50, y: 30 }, view, 1);
+    expect(preview?.kind).toBe('distancePointPoint');
+    expect(preview?.segments[2]?.a.y).toBe(330);
+    expect(model.cons.size).toBe(0);
+  });
+
+  it('圆目标选完后预览半径尺寸，光标方向决定引线', () => {
+    addCircle(addPt(0, 0), 50);
+    const session = createSession('dim');
+    clickCommand(session, input({ x: 50, y: 0 }));
+
+    const preview = dimensionPreview(session, { x: 0, y: 50 }, view, 1);
+    expect(preview?.kind).toBe('radius');
+    expect(preview?.text.text).toBe('R50');
+    // 圆心屏幕 (400,300)，世界 (0,50) 方向 → 箭头落在圆的下方 (400,350)
+    expect(preview?.arrows[0]?.tip).toEqual({ x: 400, y: 350 });
+    expect(model.cons.size).toBe(0);
+  });
+
+  it('两条直线选完后预览角度尺寸，象限随光标切换', () => {
+    addLine(addPt(0, 0), addPt(100, 0));
+    addLine(addPt(0, 0), addPt(100, 100));
+    const session = createSession('dim');
+    clickCommand(session, input({ x: 50, y: 0 }));
+    clickCommand(session, input({ x: 50, y: 50 }));
+
+    const sector0 = dimensionPreview(session, { x: 20, y: 5 }, view, 1);
+    expect(sector0?.kind).toBe('angleLineLine');
+    expect(sector0?.text.text).toBe('45°');
+    if (sector0?.kind !== 'angleLineLine') throw new Error('预览种类不符');
+    expect(sector0.arcs[0]?.sweep).toBeCloseTo(Math.PI / 4, 9);
+
+    // 另一侧的扇形：目标角取补角
+    const sector1 = dimensionPreview(session, { x: -20, y: 5 }, view, 1);
+    expect(sector1?.text.text).toBe('135°');
+    expect(model.cons.size).toBe(0);
+  });
+
+  it('已有尺寸时下一击是改值，不预览重复尺寸', () => {
+    addCircle(addPt(0, 0), 50);
+    const session = createSession('dim');
+    clickCommand(session, input({ x: 50, y: 0 }));
+    clickCommand(session, input({ x: 0, y: 50 }));
+    clickCommand(session, input({ x: 0, y: 50 }));
+    const outcome = executeCommand(session, 1);
+    if (outcome.kind !== 'dim' || !outcome.result.ok) throw new Error('尺寸创建失败');
+
+    const again = createSession('dim');
+    clickCommand(again, input({ x: 50, y: 0 }));
+    expect(isComplete(again)).toBe(true);
+    expect(dimensionPreview(again, { x: 0, y: 50 }, view, 1)).toBeNull();
   });
 });
 

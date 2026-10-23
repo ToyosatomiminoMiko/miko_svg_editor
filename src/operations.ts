@@ -14,14 +14,21 @@
  */
 
 import type { CameraView } from './camera';
-import { TAU, formatDimValue, sweepOf, type ResolvedConstraint } from './config';
+import { MIN_DIM_DISTANCE, TAU, formatDimValue, sweepOf, type ResolvedConstraint } from './config';
 import {
+  angleLineGeometry,
+  angleRadiusFromPlacement,
+  angleSectorAt,
+  angleSectorDegrees,
+  clampRadiusLeaderAngle,
   dimLabel,
+  dimLayout,
   findAngleDim,
   findDimForEntity,
   findDistanceDim,
   pickDim,
   type DimConstraint,
+  type DimLayout,
 } from './dimensions';
 import { isCurveEntity, type Entity, type EntityPrimitive } from './entities';
 import { pickEntity, pickPoint, pickPointEntity } from './geometry';
@@ -1249,6 +1256,104 @@ const PREVIEW_BUILDERS: Partial<Record<OperationId, PreviewBuilder>> = {
 export function commandPreview(session: CommandSession, cursor: Vec): PreviewShape[] {
   const build = PREVIEW_BUILDERS[session.opId];
   return build ? build(filledValues(session), cursor, session) : [];
+}
+
+/**
+ * 尺寸工具的落位预览：目标已经选好、只差「放置」这一击时，按光标位置构造一条**临时尺寸**
+ * （不写入 model），再复用 dimLayout 得到与正式标注完全一致的画法。
+ *
+ * 返回 null 表示当前不在可预览阶段（没有目标 / 已可执行 / 下一击是编辑已有尺寸等）。
+ * 放在 operations 是因为只有这里知道命令槽位语义（哪些操作数已经填、下一步点击是第二条直线
+ * 还是放置位置）；dimensions 保持纯布局，不读命令会话。
+ */
+export function dimensionPreview(
+  session: CommandSession,
+  cursor: Vec,
+  view: CameraView,
+  zoom: number,
+): DimLayout | null {
+  if (session.opId !== 'dim' || isComplete(session)) return null;
+  const values = filledValues(session);
+  const first = values[0];
+  if (!first) return null;
+
+  /* 两个点：光标决定尺寸线的法向偏移（与 dimForPoints 的创建口径一致） */
+  if (first.kind === 'point') {
+    const second = values[1];
+    if (!isPointOperand(second)) return null;
+    const a = getPoint(first.point.id);
+    const b = getPoint(second.point.id);
+    if (!a || !b) return null;
+    const distance = vec.dist(a, b);
+    if (distance < MIN_DIM_DISTANCE) return null;
+    const offset = vec.dot(vec.sub(cursor, a), vec.unitPerp(vec.sub(b, a)));
+    return dimLayout(
+      { id: -1, type: 'distancePointPoint', a: a.id, b: b.id, distance, offset },
+      view,
+    );
+  }
+
+  if (first.kind !== 'entity') return null;
+  const e = first.entity;
+
+  /* 直线：第二条直线已点中 → 角度；光标悬在另一条直线上 → 下一次点击会填它，也按角度预览 */
+  if (e.category === 'line') {
+    const second = values[1];
+    let other: Entity | undefined;
+    if (
+      second?.kind === 'entity' &&
+      second.entity.category === 'line' &&
+      second.entity.id !== e.id
+    ) {
+      other = second.entity;
+    } else {
+      const hover = pickEntity(cursor, zoom);
+      if (hover && hover.category === 'line' && hover.id !== e.id) other = hover;
+    }
+    if (other) {
+      const g = angleLineGeometry(e, other);
+      if (!g) return null;
+      const sector = angleSectorAt(g, cursor);
+      return dimLayout(
+        {
+          id: -1,
+          type: 'angleLineLine',
+          e1: e.id,
+          e2: other.id,
+          angle: angleSectorDegrees(g, sector),
+          offset: angleRadiusFromPlacement(g.vertex, cursor, zoom),
+          angleSector: sector,
+        },
+        view,
+      );
+    }
+    // 已有长度尺寸：下一击是打开改值框，不预览一条重复的尺寸
+    if (findDimForEntity(e)) return null;
+    const target = e.dimTarget();
+    if (!target || target.kind !== 'distance') return null;
+    const a = getPoint(target.a);
+    const b = getPoint(target.b);
+    if (!a || !b) return null;
+    const distance = vec.dist(a, b);
+    if (distance < MIN_DIM_DISTANCE) return null;
+    const offset = vec.dot(vec.sub(cursor, a), vec.unitPerp(vec.sub(b, a)));
+    return dimLayout(
+      { id: -1, type: 'distancePointPoint', a: target.a, b: target.b, distance, offset },
+      view,
+    );
+  }
+
+  /* 圆 / 圆弧：光标方向决定引线方向（与 dimForEntity 的创建口径一致） */
+  const target = e.dimTarget();
+  if (target?.kind !== 'radius') return null;
+  const curve = getEntity(target.e);
+  if (!isCurveEntity(curve)) return null;
+  const center = getPoint(curve.c);
+  const radius = curve.radius(getPoint);
+  if (!center || radius === null) return null;
+  const raw = Math.atan2(cursor.y - center.y, cursor.x - center.x);
+  const leaderAngle = clampRadiusLeaderAngle(curve, raw);
+  return dimLayout({ id: -1, type: 'radius', e: curve.id, radius, leaderAngle }, view);
 }
 
 /** 操作数 → Selection（删除/固定/构造这些复用选择集级联逻辑的动作） */

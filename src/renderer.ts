@@ -6,9 +6,9 @@
 
 import { cam, gridSize, s2w, w2s } from './camera';
 import { TAU } from './config';
-import { dimLayout, type DimTextLayout } from './dimensions';
+import { dimLayout, type DimLayout, type DimTextLayout } from './dimensions';
 import { getPoint, model, ownedPointIds, primitiveOf } from './model';
-import { commandPreview, type PreviewShape } from './operations';
+import { commandPreview, dimensionPreview, type PreviewShape } from './operations';
 import {
   isCommandEntity,
   isCommandPoint,
@@ -244,15 +244,19 @@ export class Renderer {
 
   /**
    * 尺寸标注：绘制原语全部是屏幕坐标，绘制/命中/拖拽共用 dimensions.dimLayout 这一份布局。
-   * 悬停中的尺寸用选中色；save/restore 保证描边、虚线、字体不会泄漏到后续绘制。
+   * 悬停中的尺寸用选中色；正式标注与落位预览共用 drawDimLayout。
    */
   private drawDim(c: Constraint): void {
     const layout = dimLayout(c, cam);
     if (!layout) return;
+    this.drawDimLayout(layout, state.hoverDim === c ? this.theme.selection : this.theme.dim);
+  }
 
+  /** 用指定颜色画一份尺寸布局；save/restore 保证描边、虚线、字体不会泄漏到后续绘制 */
+  private drawDimLayout(layout: DimLayout, color: string): void {
     const { ctx, theme } = this;
     ctx.save();
-    ctx.strokeStyle = state.hoverDim === c ? theme.selection : theme.dim;
+    ctx.strokeStyle = color;
     ctx.lineWidth = theme.hairlineWidth;
     ctx.lineCap = 'butt';
 
@@ -291,22 +295,29 @@ export class Renderer {
     ctx.fillText(text.text, text.pos.x, text.pos.y);
   }
 
-  /** 命令预览：操作表给出世界坐标的几何基元，画法与实体绘制共用 strokePrimitive */
+  /**
+   * 命令预览：几何基元用虚线画在实体层（strokePrimitive），尺寸落位用正式标注的画法 +
+   * 预览色，跟在指针后面——目标选好后用户看到的就是「按下会得到的那条尺寸」。
+   */
   private drawPreview(): void {
     const command = state.command;
     if (!command) return;
     const cur = state.snap ? state.snap.pos : state.cursorWorld;
     const shapes = commandPreview(command, cur);
-    if (shapes.length === 0) return;
+    const dim = dimensionPreview(command, cur, cam, cam.z);
+    if (shapes.length === 0 && !dim) return;
     const { ctx, theme } = this;
 
-    ctx.save();
-    ctx.strokeStyle = theme.preview;
-    ctx.lineWidth = theme.strokeWidth;
-    ctx.setLineDash(theme.dashPreview);
-    for (const shape of shapes) this.strokePrimitive(shape);
-    ctx.setLineDash([]);
-    ctx.restore();
+    if (shapes.length > 0) {
+      ctx.save();
+      ctx.strokeStyle = theme.preview;
+      ctx.lineWidth = theme.strokeWidth;
+      ctx.setLineDash(theme.dashPreview);
+      for (const shape of shapes) this.strokePrimitive(shape);
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+    if (dim) this.drawDimLayout(dim, theme.preview);
   }
 
   /** 框选矩形：方向判定与命中判定共用 selection.isCrossing（下→上交叉 / 上→下窗口） */
