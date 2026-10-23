@@ -7,7 +7,8 @@
 
 import { isFullSweep, sweepOf } from '../src/config';
 import { addArc, addPt } from '../src/model';
-import type { ArcEntity, Point } from '../src/types';
+import type { ArcEntity } from '../src/entities';
+import type { Point } from '../src/types';
 
 /** 按极坐标造圆弧：起点在 a0、终点在 a1；整圆复用起点，不留下两个重合端点（与生产创建一致） */
 export function addArcByAngles(center: Point, r: number, a0: number, a1: number): ArcEntity {

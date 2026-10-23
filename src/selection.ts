@@ -19,7 +19,7 @@ import {
   formatDimValue,
 } from './config';
 import { dimLabel, dimValue, isDimConstraint } from './dimensions';
-import { entityLabel, entityPointIds } from './entities';
+import type { Entity } from './entities';
 import {
   computeSnap,
   entityCrossesRect,
@@ -43,7 +43,6 @@ import {
 import { commandHover } from './operations';
 import type {
   Constraint,
-  Entity,
   Marquee,
   MeasureText,
   Point,
@@ -66,11 +65,9 @@ export interface ClickResult {
   startMarquee: boolean;
 }
 
-/** 图元相关的点（直线两端点 / 圆心）；点被级联删除时过滤掉悬空 id */
+/** 图元相关的点（直线两端点 / 圆心 / 圆弧端点）；点被级联删除时过滤掉悬空 id */
 const pointsOf = (e: Entity): Point[] =>
-  entityPointIds(e)
-    .map(getPoint)
-    .filter((p): p is Point => p !== undefined);
+  e.pointIds.map(getPoint).filter((p): p is Point => p !== undefined);
 
 /** 某项是否被显式选中（图元端点属于「隐含选中」，见 isPointSelected） */
 export const isEntitySelected = (id: number): boolean => hasSelected('ent', id);
@@ -84,7 +81,7 @@ export function isPointSelected(p: Point): boolean {
   for (const item of state.selection.items) {
     if (item.kind !== 'ent') continue;
     const e = getEntity(item.id);
-    if (e && entityPointIds(e).includes(p.id)) return true;
+    if (e && e.pointIds.includes(p.id)) return true;
   }
   return false;
 }
@@ -122,7 +119,7 @@ export function selectionDragPoints(): Point[] {
       continue;
     }
     const e = getEntity(item.id);
-    if (e) for (const pid of entityPointIds(e)) ids.add(pid);
+    if (e) for (const pid of e.pointIds) ids.add(pid);
   }
   return [...ids].map(getPoint).filter((p): p is Point => p !== undefined);
 }
@@ -236,7 +233,7 @@ function constraintTexts(kind: SelectionKind, id: number): SelectionConstraint[]
   } else {
     const e = getEntity(id);
     if (!e) return [];
-    for (const pid of entityPointIds(e)) pointIds.add(pid);
+    for (const pid of e.pointIds) pointIds.add(pid);
   }
 
   const constraints: SelectionConstraint[] = [];
@@ -264,7 +261,7 @@ export function selectionEntries(): SelectionEntry[] {
         entries.push({
           kind: 'ent',
           id: e.id,
-          label: `${entityLabel(e)} #${e.id}`,
+          label: `${e.label} #${e.id}`,
           constraints: constraintTexts('ent', e.id),
         });
       }

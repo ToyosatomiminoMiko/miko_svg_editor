@@ -28,7 +28,7 @@ import {
   setDimValue,
   type DimConstraint,
 } from './dimensions';
-import { entityDimTarget, entityPointIds, isCurveEntity } from './entities';
+import { isCurveEntity, type Entity } from './entities';
 import {
   addArc,
   addCircle,
@@ -49,7 +49,7 @@ import {
   removePoint,
 } from './model';
 import { solveSketch } from './solver';
-import type { Entity, Point, Selection, Vec } from './types';
+import type { Point, Selection, Vec } from './types';
 import { vec } from './vec';
 
 /* ======================= 结果与提示 ======================= */
@@ -274,7 +274,7 @@ export function toggleFixed(selection: Selection): ActionResult {
       continue;
     }
     const e = getEntity(item.id);
-    if (e) for (const pid of entityPointIds(e)) ids.add(pid);
+    if (e) for (const pid of e.pointIds) ids.add(pid);
   }
   const pts = [...ids].map(getPoint).filter((p): p is Point => p !== undefined);
   if (pts.length === 0) return actionFail('先选中图形或点');
@@ -307,7 +307,7 @@ export function dimForEntity(e: Entity, zoom: number): DimResult {
   const existing = findDimForEntity(e);
   if (existing) return { ok: true, con: existing, created: false, notices: [] };
 
-  const target = entityDimTarget(e);
+  const target = e.dimTarget();
   // 点图元没有独立尺寸：它只作为两点距离的一端（入口在 operations.ts 的 dim 操作）
   if (!target) return { ok: false, reason: '该图元不能标注尺寸' };
   if (target.kind === 'radius') {

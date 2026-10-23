@@ -10,10 +10,10 @@
  */
 
 import { CONSTRAINT_META, wrapPi } from './config';
-import type { CurveEntity } from './entities';
+import type { CurveEntity, LineEntity } from './entities';
 import { curveRadius, ends, getEntity, getPoint } from './model';
 import { vec } from './vec';
-import type { Constraint, ConstraintKind, LineEntity, Point } from './types';
+import type { Constraint, ConstraintKind, Point } from './types';
 
 const finite = (v: number | undefined): boolean => typeof v === 'number' && Number.isFinite(v);
 

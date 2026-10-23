@@ -27,7 +27,8 @@ import {
   operandsFromSelection,
 } from '../src/operations';
 import { resetInteraction } from '../src/state';
-import type { Entity, Point, Selection } from '../src/types';
+import type { Entity } from '../src/entities';
+import type { Point, Selection } from '../src/types';
 import { vec } from '../src/vec';
 import { addArcByAngles } from './fixtures';
 

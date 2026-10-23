@@ -8,11 +8,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { AUTO_AXIS_RATIO, DIM_DEFAULT_OFFSET_PX } from '../src/config';
 import { isDimConstraint, dimValue } from '../src/dimensions';
-import { entityPointIds } from '../src/entities';
 import {
   addCircle,
   addCon,
   addLine,
+  addPointEntity,
   addPt,
   arcGeometry,
   clearModel,
@@ -112,7 +112,7 @@ describe('createCircle / createArc', () => {
 
     const arc = [...model.ents.values()].find((e) => e.type === 'arc');
     if (!arc || arc.type !== 'arc') throw new Error('圆弧未创建');
-    expect(entityPointIds(arc)).toEqual([c.id, start.id, end.id]);
+    expect(arc.pointIds).toEqual([c.id, start.id, end.id]);
     const g = arcGeometry(arc);
     expect(g?.r).toBeCloseTo(10, 6);
     expect(g?.a0).toBeCloseTo(0, 12);
@@ -327,7 +327,7 @@ describe('dimForEntity', () => {
   });
 
   it('点图元没有独立尺寸目标', () => {
-    const e = { id: 999, type: 'point' as const, construction: false, p: 1 };
+    const e = addPointEntity(addPt(0, 0));
     const result = dimForEntity(e, 1);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain('不能标注尺寸');

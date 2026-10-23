@@ -10,8 +10,8 @@
  */
 
 import type { CommandSession } from './operations';
+import type { Entity } from './entities';
 import type {
-  Entity,
   Marquee,
   Point,
   Selection,

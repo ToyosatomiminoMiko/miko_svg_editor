@@ -1,8 +1,9 @@
 /**
- * 拾取与吸附（容差按屏幕像素声明、按 zoom 换算成世界单位），
- * 以及包围盒/框选所需的图元折线近似。
- * 吸附优先级：已有点 > 中点 > 曲线上的点 > 直线上任意点 > 网格（见 config/tolerances 的 SNAP_PRIORITY）。
- * 本文件不读全局相机：所有视图相关量由调用方传入 zoom。
+ * 拾取、吸附、包围盒与框选判定。
+ * 图元的几何差异已经在 entities.ts 里多态归一到 EntityPrimitive（线段 / 圆弧 / 点）：
+ * 本文件只对基元写一次数学，拾取距离、吸附候选、折线近似与包围盒因此不会出现
+ * 「圆和圆弧各写一遍」的重复分支。所有视图相关量由调用方传入 zoom（不读全局相机）。
+ * 吸附优先级：已有点 > 中点 > 曲线上的点 > 直线上任意点 > 网格（见 config/tolerances）。
  */
 
 import {
@@ -15,18 +16,16 @@ import {
   SNAP_ON_LINE_T_MIN,
   SNAP_PRIORITY,
   SNAP_PX,
-  TAU,
   arcSegments,
   isFullSweep,
   normalizeAngle,
-  sweepOf,
   worldTol,
 } from './config';
 import { gridSize } from './camera';
-import { assertNever } from './entities';
-import { arcGeometry, ends, getPoint, model, ownedPointIds } from './model';
+import { PointEntity, type Entity, type EntityPrimitive } from './entities';
+import { getPoint, model, ownedPointIds, primitiveOf } from './model';
 import { vec } from './vec';
-import type { Entity, Point, PointEntity, Rect, Snap, Vec } from './types';
+import type { Point, Rect, Snap, Vec } from './types';
 
 /** 所有图元的世界坐标包围盒（含留白）；没有图元时返回 null */
 interface Bounds {
@@ -49,12 +48,26 @@ export function distToSeg(p: Vec, a: Vec, b: Vec): number {
 
 /**
  * 角度是否落在圆弧范围内（支持跨 0）。
- * 扫角语义统一走 config/angle.sweepOf：起终点同角按整圆处理，整圆任意角度都命中。
+ * 扫角语义统一走 config/angle.sweepOf（圆弧基元在构造时已换算成 sweep），
+ * 整圆任意角度都命中。
  */
-function angInArc(ang: number, a0: number, a1: number): boolean {
-  const sweep = sweepOf(a0, a1);
-  if (isFullSweep(sweep)) return true;
-  return normalizeAngle(ang - a0) <= sweep;
+function angleInSweep(ang: number, start: number, sweep: number): boolean {
+  return isFullSweep(sweep) || normalizeAngle(ang - start) <= sweep;
+}
+
+/** 世界点到基元的最近距离；圆弧角度范围外视为无穷远（不参与拾取/吸附） */
+function primitiveDistance(w: Vec, prim: EntityPrimitive): number {
+  switch (prim.kind) {
+    case 'segment':
+      return distToSeg(w, prim.a, prim.b);
+    case 'circular': {
+      const ang = Math.atan2(w.y - prim.center.y, w.x - prim.center.x);
+      if (!angleInSweep(ang, prim.start, prim.sweep)) return Infinity;
+      return Math.abs(vec.dist(w, prim.center) - prim.radius);
+    }
+    case 'dot':
+      return vec.dist(w, prim.at);
+  }
 }
 
 export function pickPoint(w: Vec, zoom: number): Point | null {
@@ -84,7 +97,7 @@ export function pickPointEntity(w: Vec, zoom: number): PointEntity | null {
   let best: PointEntity | null = null;
   let bestD = tol;
   for (const e of model.ents.values()) {
-    if (e.type !== 'point') continue;
+    if (!(e instanceof PointEntity)) continue;
     const p = getPoint(e.p);
     if (!p) continue;
     const d = vec.dist(w, p);
@@ -105,33 +118,10 @@ export function pickEntity(w: Vec, zoom: number): Entity | null {
   let best: Entity | null = null;
   let bestD = tol;
   for (const e of model.ents.values()) {
-    let d = Infinity;
-    switch (e.type) {
-      case 'point':
-        // 已在上方 pickPointEntity 处理
-        break;
-      case 'line': {
-        const [a, b] = ends(e);
-        d = distToSeg(w, a, b);
-        break;
-      }
-      case 'circle': {
-        const c = getPoint(e.c);
-        if (!c) break;
-        d = Math.abs(vec.dist(w, c) - e.r);
-        break;
-      }
-      case 'arc': {
-        const g = arcGeometry(e);
-        if (!g) break;
-        const ang = Math.atan2(w.y - g.center.y, w.x - g.center.x);
-        if (!angInArc(ang, g.a0, g.a1)) break;
-        d = Math.abs(vec.dist(w, g.center) - g.r);
-        break;
-      }
-      default:
-        assertNever(e);
-    }
+    const prim = primitiveOf(e);
+    // 点基元已在上方 pickPointEntity 按点容差处理，这里不再参与线/面拾取
+    if (!prim || prim.kind === 'dot') continue;
+    const d = primitiveDistance(w, prim);
     if (d < bestD) {
       bestD = d;
       best = e;
@@ -141,6 +131,45 @@ export function pickEntity(w: Vec, zoom: number): Entity | null {
 }
 
 /* ---------------- 吸附 ---------------- */
+
+/** 基元能提供的吸附候选（不含已有点与网格：前者由点容器提供，后者由调用方兜底） */
+interface PrimitiveSnapCandidate {
+  pos: Vec;
+  d: number;
+  pri: number;
+}
+
+function primitiveSnapCandidates(prim: EntityPrimitive, w: Vec): PrimitiveSnapCandidate[] {
+  switch (prim.kind) {
+    case 'segment': {
+      const { a, b } = prim;
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const out: PrimitiveSnapCandidate[] = [
+        { pos: mid, d: vec.dist(mid, w), pri: SNAP_PRIORITY.mid },
+      ];
+      const ab = vec.sub(b, a);
+      const den = vec.dot(ab, ab);
+      const t = den === 0 ? 0 : vec.dot(vec.sub(w, a), ab) / den;
+      if (t > SNAP_ON_LINE_T_MIN && t < SNAP_ON_LINE_T_MAX) {
+        const on = { x: a.x + ab.x * t, y: a.y + ab.y * t };
+        out.push({ pos: on, d: vec.dist(on, w), pri: SNAP_PRIORITY.on });
+      }
+      return out;
+    }
+    case 'circular': {
+      const ang = Math.atan2(w.y - prim.center.y, w.x - prim.center.x);
+      if (!angleInSweep(ang, prim.start, prim.sweep)) return [];
+      const on = {
+        x: prim.center.x + prim.radius * Math.cos(ang),
+        y: prim.center.y + prim.radius * Math.sin(ang),
+      };
+      return [{ pos: on, d: vec.dist(on, w), pri: SNAP_PRIORITY.curve }];
+    }
+    case 'dot':
+      // 点图元的点已经作为「已有点」进入候选（优先级最高），基元层不重复产出
+      return [];
+  }
+}
 
 export function computeSnap(w: Vec, zoom: number): Snap | null {
   const tol = worldTol(SNAP_PX, zoom);
@@ -154,52 +183,12 @@ export function computeSnap(w: Vec, zoom: number): Snap | null {
     }
   }
 
-  // 中点 / 圆上点 / 线上点
+  // 中点 / 圆上点 / 线上点：由基元多态提供，圆与圆弧共用同一段径向投影数学
   for (const e of model.ents.values()) {
-    switch (e.type) {
-      case 'point':
-        // 点图元的点已经作为「已有点」进入上面的候选（优先级最高），这里无需重复
-        break;
-      case 'line': {
-        const [a, b] = ends(e);
-        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-        const dm = vec.dist(mid, w);
-        if (dm < tol) cands.push({ pos: mid, d: dm, pri: SNAP_PRIORITY.mid });
-
-        const ab = vec.sub(b, a);
-        const den = vec.dot(ab, ab);
-        const t = den === 0 ? 0 : vec.dot(vec.sub(w, a), ab) / den;
-        if (t > SNAP_ON_LINE_T_MIN && t < SNAP_ON_LINE_T_MAX) {
-          const on = { x: a.x + ab.x * t, y: a.y + ab.y * t };
-          const d = vec.dist(on, w);
-          if (d < tol) cands.push({ pos: on, d, pri: SNAP_PRIORITY.on });
-        }
-        break;
-      }
-      case 'circle': {
-        const c = getPoint(e.c);
-        if (!c) break;
-        const ang = Math.atan2(w.y - c.y, w.x - c.x);
-        const on = { x: c.x + e.r * Math.cos(ang), y: c.y + e.r * Math.sin(ang) };
-        const d = vec.dist(on, w);
-        if (d < tol) cands.push({ pos: on, d, pri: SNAP_PRIORITY.curve });
-        break;
-      }
-      case 'arc': {
-        const g = arcGeometry(e);
-        if (!g) break;
-        const ang = Math.atan2(w.y - g.center.y, w.x - g.center.x);
-        if (!angInArc(ang, g.a0, g.a1)) break;
-        const on = {
-          x: g.center.x + g.r * Math.cos(ang),
-          y: g.center.y + g.r * Math.sin(ang),
-        };
-        const d = vec.dist(on, w);
-        if (d < tol) cands.push({ pos: on, d, pri: SNAP_PRIORITY.curve });
-        break;
-      }
-      default:
-        assertNever(e);
+    const prim = primitiveOf(e);
+    if (!prim) continue;
+    for (const cand of primitiveSnapCandidates(prim, w)) {
+      if (cand.d < tol) cands.push({ pos: cand.pos, d: cand.d, pri: cand.pri });
     }
   }
 
@@ -259,61 +248,44 @@ function segRectIntersect(a: Vec, b: Vec, r: Rect): boolean {
   return true;
 }
 
-/** 圆/弧的折线近似；sweep = TAU 时即整圆 */
-function circleSamples(c: Point, r: number, a0: number, sweep: number): Vec[] {
+/** 圆弧的折线近似；sweep = TAU 时即整圆 */
+function circularSamples(center: Vec, radius: number, start: number, sweep: number): Vec[] {
   const n = arcSegments(sweep);
   const pts: Vec[] = [];
   for (let i = 0; i <= n; i++) {
-    const ang = a0 + (sweep * i) / n;
-    pts.push({ x: c.x + r * Math.cos(ang), y: c.y + r * Math.sin(ang) });
+    const ang = start + (sweep * i) / n;
+    pts.push({ x: center.x + radius * Math.cos(ang), y: center.y + radius * Math.sin(ang) });
   }
   return pts;
 }
 
-/** 用折线近似图元，供框选使用 */
-function entitySamples(e: Entity): Vec[] {
-  switch (e.type) {
-    case 'line':
-      return ends(e);
-    case 'circle': {
-      const c = getPoint(e.c);
-      return c ? circleSamples(c, e.r, 0, TAU) : [];
-    }
-    case 'arc': {
-      const g = arcGeometry(e);
-      return g ? circleSamples(g.center, g.r, g.a0, sweepOf(g.a0, g.a1)) : [];
-    }
-    case 'point': {
-      const p = getPoint(e.p);
-      return p ? [p] : [];
-    }
-    default:
-      return assertNever(e);
+/** 用折线近似基元，供框选使用 */
+function primitiveSamples(prim: EntityPrimitive): Vec[] {
+  switch (prim.kind) {
+    case 'segment':
+      return [prim.a, prim.b];
+    case 'circular':
+      return circularSamples(prim.center, prim.radius, prim.start, prim.sweep);
+    case 'dot':
+      return [prim.at];
   }
 }
 
-/** 图元的紧包围盒：圆弧只算弧段范围，整圆才按圆包围盒；点图元退化为零尺寸矩形 */
-function entityBounds(e: Entity): Rect | null {
-  switch (e.type) {
-    case 'line': {
-      const a = getPoint(e.a);
-      const b = getPoint(e.b);
-      return a && b ? rectOf(a, b) : null;
-    }
-    case 'circle': {
-      const c = getPoint(e.c);
-      return c ? { minx: c.x - e.r, miny: c.y - e.r, maxx: c.x + e.r, maxy: c.y + e.r } : null;
-    }
-    case 'arc': {
-      const g = arcGeometry(e);
-      if (!g) return null;
-      const sweep = sweepOf(g.a0, g.a1);
+/** 基元的紧包围盒：圆弧只算弧段范围，整圆才按整圆包围盒；点基元退化为零尺寸矩形 */
+function primitiveBounds(prim: EntityPrimitive): Rect | null {
+  switch (prim.kind) {
+    case 'segment':
+      return rectOf(prim.a, prim.b);
+    case 'dot':
+      return rectOf(prim.at, prim.at);
+    case 'circular': {
+      const { center, radius, start, sweep } = prim;
       if (isFullSweep(sweep)) {
         return {
-          minx: g.center.x - g.r,
-          miny: g.center.y - g.r,
-          maxx: g.center.x + g.r,
-          maxy: g.center.y + g.r,
+          minx: center.x - radius,
+          miny: center.y - radius,
+          maxx: center.x + radius,
+          maxy: center.y + radius,
         };
       }
       let minx = Infinity;
@@ -326,29 +298,25 @@ function entityBounds(e: Entity): Rect | null {
         if (p.x > maxx) maxx = p.x;
         if (p.y > maxy) maxy = p.y;
       };
-      // 起终点用实际端点（端点可能因求解有极小径向误差），象限极值按圆心+半径算
-      grow(g.start);
-      grow(g.end);
+      const at = (ang: number): Vec => ({
+        x: center.x + radius * Math.cos(ang),
+        y: center.y + radius * Math.sin(ang),
+      });
+      // 起终点与象限极值都按「圆心 + 半径 + 角度」计算，和圆弧基元本身保持同一口径
+      grow(at(start));
+      grow(at(start + sweep));
       for (let k = 0; k < 4; k++) {
         const ang = (Math.PI / 2) * k;
-        if (angInArc(ang, g.a0, g.a1)) {
-          grow({ x: g.center.x + g.r * Math.cos(ang), y: g.center.y + g.r * Math.sin(ang) });
-        }
+        if (angleInSweep(ang, start, sweep)) grow(at(ang));
       }
       return { minx, miny, maxx, maxy };
     }
-    case 'point': {
-      const p = getPoint(e.p);
-      return p ? rectOf(p, p) : null;
-    }
-    default:
-      return assertNever(e);
   }
 }
 
 /**
  * 所有图元的世界坐标包围盒（含留白）；没有图元时返回 null。
- * 每个图元先用 entityBounds 取紧包围盒（圆弧按弧段而不是整圆），
+ * 每个图元先用基元取紧包围盒（圆弧按弧段而不是整圆），
  * 再加 pad = 最长边 × padRatio + BBOX_PAD_MIN，避免退化图形留白为 0。
  */
 export function sketchBounds(padRatio = BBOX_PAD_RATIO): Bounds | null {
@@ -357,7 +325,8 @@ export function sketchBounds(padRatio = BBOX_PAD_RATIO): Bounds | null {
   let maxx = -Infinity;
   let maxy = -Infinity;
   for (const e of model.ents.values()) {
-    const b = entityBounds(e);
+    const prim = primitiveOf(e);
+    const b = prim ? primitiveBounds(prim) : null;
     if (!b) continue;
     if (b.minx < minx) minx = b.minx;
     if (b.miny < miny) miny = b.miny;
@@ -379,7 +348,9 @@ export function sketchBounds(padRatio = BBOX_PAD_RATIO): Bounds | null {
 
 /** 交叉框选：矩形与图元有任何重叠即命中 */
 export function entityCrossesRect(e: Entity, r: Rect): boolean {
-  const pts = entitySamples(e);
+  const prim = primitiveOf(e);
+  if (!prim) return false;
+  const pts = primitiveSamples(prim);
   for (const p of pts) if (pointInRect(p, r)) return true;
   // i 从 1 开始且小于 pts.length，i-1 与 i 都落在数组内；断言只为满足 noUncheckedIndexedAccess
   for (let i = 1; i < pts.length; i++) {
@@ -390,7 +361,8 @@ export function entityCrossesRect(e: Entity, r: Rect): boolean {
 
 /** 窗口框选：图元必须完全落在矩形内 */
 export function entityInsideRect(e: Entity, r: Rect): boolean {
-  const b = entityBounds(e);
+  const prim = primitiveOf(e);
+  const b = prim ? primitiveBounds(prim) : null;
   if (!b) return false;
   return b.minx >= r.minx && b.maxx <= r.maxx && b.miny >= r.miny && b.maxy <= r.maxy;
 }

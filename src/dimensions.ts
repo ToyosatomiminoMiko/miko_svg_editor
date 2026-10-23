@@ -14,12 +14,12 @@ import {
   formatDimValue,
 } from './config';
 import { distToSeg } from './geometry';
-import { isCurveEntity } from './entities';
+import { LineEntity, isCurveEntity, type Entity } from './entities';
 import { getEntity, getPoint, model } from './model';
 import { vec } from './vec';
 import { w2s } from './camera';
 import type { CameraView } from './camera';
-import type { Constraint, Entity, MeasureText, Vec } from './types';
+import type { Constraint, MeasureText, Vec } from './types';
 
 /** 能画成尺寸标注的约束种类 */
 export type DimKind = 'distancePointPoint' | 'radius';
@@ -101,7 +101,7 @@ export const DIM_META: Record<DimKind, DimMeta> = {
         textPos: { x: (A2.x + B2.x) / 2, y: (A2.y + B2.y) / 2 - DIM_TEXT_GAP_PX },
       };
     },
-    matchesEntity: (c, e) => e.type === 'line' && samePair(c, e.a, e.b),
+    matchesEntity: (c, e) => e instanceof LineEntity && samePair(c, e.a, e.b),
     matchesPoints: (c, a, b) => samePair(c, a, b),
   },
 

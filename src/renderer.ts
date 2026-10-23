@@ -7,8 +7,7 @@
 import { cam, gridSize, s2w, w2s } from './camera';
 import { TAU, sweepOf } from './config';
 import { dimLayout } from './dimensions';
-import { assertNever } from './entities';
-import { arcGeometry, ends, getPoint, model, ownedPointIds } from './model';
+import { getPoint, model, ownedPointIds, primitiveOf } from './model';
 import { commandPreview } from './operations';
 import {
   isCommandEntity,
@@ -19,7 +18,8 @@ import {
 } from './selection';
 import { state } from './state';
 import type { Theme } from './theme';
-import type { Constraint, Entity, Point, Vec } from './types';
+import type { Entity } from './entities';
+import type { Constraint, Point, Vec } from './types';
 
 export class Renderer {
   readonly canvas: HTMLCanvasElement;
@@ -114,8 +114,9 @@ export class Renderer {
    */
   private isSelectedForRender(e: Entity): boolean {
     if (isEntitySelected(e.id) || isCommandEntity(e)) return true;
-    if (e.type !== 'point') return false;
-    const p = getPoint(e.p);
+    const owned = e.ownedPointId;
+    if (owned === null) return false;
+    const p = getPoint(owned);
     return p !== undefined && (isPointSelected(p) || isCommandPoint(p));
   }
 
@@ -136,59 +137,46 @@ export class Renderer {
     ctx.setLineDash(e.construction ? theme.dashConstruction : []);
     ctx.lineCap = 'round';
 
-    switch (e.type) {
-      case 'line': {
-        const [a, b] = ends(e);
-        const A = w2s(a);
-        const B = w2s(b);
-        ctx.beginPath();
-        ctx.moveTo(A.x, A.y);
-        ctx.lineTo(B.x, B.y);
-        ctx.stroke();
-        break;
-      }
-      case 'circle': {
-        const c = getPoint(e.c);
-        if (!c) break;
-        const C = w2s(c);
-        ctx.beginPath();
-        // r >= 0 是 addCircle/solver 保证的不变量，这里不再取 abs
-        ctx.arc(C.x, C.y, e.r * cam.z, 0, TAU);
-        ctx.stroke();
-        break;
-      }
-      case 'arc': {
-        // 半径/起终角由圆心与两端点推出（端点本身是普通点，可单独拖拽/约束）
-        const g = arcGeometry(e);
-        if (!g) break;
-        const C = w2s(g.center);
-        // 扫角统一走 sweepOf：起终点同角=整圆（整圆画整圆，与创建/导出/拾取一致）
-        ctx.beginPath();
-        ctx.arc(C.x, C.y, g.r * cam.z, g.a0, g.a0 + sweepOf(g.a0, g.a1));
-        ctx.stroke();
-        break;
-      }
-      case 'point': {
-        const p = getPoint(e.p);
-        if (!p) break;
-        const S = w2s(p);
-        // 固定点与其他点一致始终显示为红色（选中/悬停也不改色，靠线宽与选择环区分）
-        if (p.fixed) ctx.strokeStyle = theme.pointFixed;
-        // 点图元画成「外环 + 实心中心」，与线段端点/圆心的小圆点区分；
-        // 构造点只留外环（虚线外环），表达「不参与导出实体」的构造语义
-        ctx.beginPath();
-        ctx.arc(S.x, S.y, theme.pointGraphicRingRadius, 0, TAU);
-        ctx.stroke();
-        if (!e.construction) {
+    // 图元已多态归一到基元：这里只认线段 / 圆弧 / 点三种画法，不再按图元种类 switch
+    const prim = primitiveOf(e);
+    if (prim) {
+      switch (prim.kind) {
+        case 'segment': {
+          const A = w2s(prim.a);
+          const B = w2s(prim.b);
           ctx.beginPath();
-          ctx.arc(S.x, S.y, theme.pointRadius, 0, TAU);
-          ctx.fillStyle = ctx.strokeStyle;
-          ctx.fill();
+          ctx.moveTo(A.x, A.y);
+          ctx.lineTo(B.x, B.y);
+          ctx.stroke();
+          break;
         }
-        break;
+        case 'circular': {
+          const C = w2s(prim.center);
+          // 圆与圆弧共用同一段画法：整圆只是 sweep = TAU 的圆弧
+          ctx.beginPath();
+          ctx.arc(C.x, C.y, prim.radius * cam.z, prim.start, prim.start + prim.sweep);
+          ctx.stroke();
+          break;
+        }
+        case 'dot': {
+          // 点图元画成「外环 + 实心中心」，与线段端点/圆心的小圆点区分；
+          // 构造点只留外环（虚线外环），表达「不参与导出实体」的构造语义
+          const S = w2s(prim.at);
+          const p = e.ownedPointId === null ? undefined : getPoint(e.ownedPointId);
+          // 固定点与其他点一致始终显示为红色（选中/悬停也不改色，靠线宽与选择环区分）
+          if (p?.fixed) ctx.strokeStyle = theme.pointFixed;
+          ctx.beginPath();
+          ctx.arc(S.x, S.y, theme.pointGraphicRingRadius, 0, TAU);
+          ctx.stroke();
+          if (!e.construction) {
+            ctx.beginPath();
+            ctx.arc(S.x, S.y, theme.pointRadius, 0, TAU);
+            ctx.fillStyle = ctx.strokeStyle;
+            ctx.fill();
+          }
+          break;
+        }
       }
-      default:
-        assertNever(e);
     }
     ctx.setLineDash([]);
   }

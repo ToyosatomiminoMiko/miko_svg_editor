@@ -8,7 +8,8 @@
  * `ui` 标记「是否存在 UI 入口」（预留扩展点），具体槽位与执行见 operations.ts。
  */
 
-import type { Constraint, ConstraintKind, EntityKind } from '../types';
+import type { EntityKind } from '../entities';
+import type { Constraint, ConstraintKind } from '../types';
 
 /** 一条约束引用：图元或点，以及图元引用可接受的种类 */
 export interface ConstraintRefMeta {

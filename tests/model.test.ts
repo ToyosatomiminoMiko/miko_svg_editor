@@ -9,7 +9,6 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { INITIAL_SEQ, MIN_DRAW_LENGTH } from '../src/config';
-import { entityPointIds } from '../src/entities';
 import {
   addArc,
   addCircle,
@@ -69,7 +68,7 @@ describe('新增对象', () => {
     const start = addPt(10, 0);
     const end = addPt(0, 10);
     const arc = addArc(c, start, end);
-    expect(entityPointIds(arc)).toEqual([c.id, start.id, end.id]);
+    expect(arc.pointIds).toEqual([c.id, start.id, end.id]);
   });
 
   it('ends 按图元端点取点对象', () => {

@@ -14,9 +14,11 @@
   每颗约束胶囊末尾的「×」可逐条删除该约束；行末「移除」把对象移出选择集；状态栏宽度可拖拽并在刷新后保持；
   按住任一已选图元/点即可整体拖动全部已选
 - 视图与文件：吸附开关、固定、构造、适应视图、导出 SVG、清空
+- 图元是多态类（`EntityBase` 子类），几何归一到线段/圆弧/点三种基元；拾取、吸附、包围盒、
+  渲染与导出只认基元，新增复用已有基元的图元时这些层不需要改
 
 求解器用 LM（Levenberg–Marquardt）+ 数值雅可比，原地求解模型参数；纯逻辑层（model / geometry /
-constraints / solver / dimensions 等）不依赖 DOM，可直接在 node 里单测。
+constraints / solver / dimensions / entities 等）不依赖 DOM，可直接在 node 里单测。
 
 ## 快速开始
 
@@ -270,6 +272,8 @@ CI（`.github/workflows/ci.yml`）：Node 24，`npm ci`（registry 上的 miko_u
 - `@typescript-eslint` 的 `recommendedTypeChecked`（类型感知）+ `js.configs.recommended`；
 - 显式 error：`switch-exhaustiveness-check`、`no-alert`、`no-restricted-globals: alert/confirm`、
   `no-console`、`naming-convention`（类型/接口/类 PascalCase，变量/函数 camelCase，常量允许 `UPPER_CASE`）；
+  `no-unused-vars` 允许 `_` 前缀的占位参数，与 tsconfig 的 `noUnusedParameters` 口径一致
+  （多态基类默认实现保留签名但不使用参数）；
 - 依赖分层：纯逻辑层（`src/{model,geometry,constraints,solver,dimensions,entities,vec,camera}.ts` 与
   `src/config/**`）禁止 import `renderer/editor/toolbar/main/theme/ui`，需要视图数据时改为参数注入；
 - `eslint-config-prettier` 收尾，避免格式规则与 Prettier 冲突。
@@ -282,23 +286,27 @@ src/
   main.ts                    入口：mountAppShell 建网格外壳（左侧状态栏 / dock / 画布 / 通知区）、引样式、组装 Editor 与工具栏
   editor.ts                  控制器：指针/键盘事件接线 + 手势状态机（拖拽/平移/框选）+ Enter/Backspace/Esc 路由；
                              ResizeObserver 跟随布局重设画布
-  renderer.ts                canvas 渲染：网格、图元（含点图元）、点、尺寸、命令预览、框选、吸附标记
+  renderer.ts                canvas 渲染：网格、图元（按几何基元绘制，含点图元）、点、尺寸、命令预览、框选、吸附标记
   theme.ts                   从应用样式 src/styles.css :root 读一次 Theme（带默认值兜底），注入 Renderer
   styles.css                 应用样式：页面网格与宿主定位 + dock 消费者类 + .app-* 消费者类 + canvas 绘制 token；
                              控件与 dock 外观来自 miko_ui
-  types.ts                   数据模型静态类型（Entity/Constraint/ToolId/SelectionItem/Selection/Marquee 等）
+  types.ts                   非图元的数据类型：Point/Constraint/ToolId/SelectionItem/Selection/Marquee 等
+                             （图元是多态类，在 entities.ts）
   state.ts                   交互状态单例（工具/光标/吸附/悬停/命令会话/选择/框选）+ 有序选择集操作
   operations.ts              统一命令引擎：Operand/SlotSpec/OperationMeta、选择集预填、点击补槽位、
                              上下文排除、命令状态栏文案、预览形状（全部操作的单一来源）
-  model.ts                   点/图元/约束容器与增删查、级联清理、点图元归属/孤立点回收、
-                             圆弧派生几何 arcGeometry/curveRadius（包围盒在 geometry.sketchBounds）
-  entities.ts                图元类型分派（引用点 id、尺寸目标、种类→大类守卫）；assertNever 穷尽兜底
-  geometry.ts                拾取/吸附/包围盒/框选相交判定（含点图元；不读全局相机，zoom 作参数）
+  model.ts                   点/图元/约束容器与增删查、级联清理、点图元归属/孤立点回收；
+                             注入点表后的图元门面：arcGeometry / curveRadius / primitiveOf
+  entities.ts                图元多态模型：EntityBase 子类各自实现 pointIds / 尺寸目标 / 几何基元 /
+                             重合与相切约束映射 / 求解自由度 / 结构残差；EntityPrimitive 把几何归一到
+                             线段 / 圆弧 / 点三种基元
+  geometry.ts                拾取/吸附/包围盒/框选相交判定；只对几何基元写一次数学
+                             （含点图元；不读全局相机，zoom 作参数）
   constraints.ts             约束引用校验 + 各类残差方程表 RESID（Record 强制穷尽）
-  solver.ts                  LM 求解器：自由度组装、数值雅可比、阻尼迭代、invalidConstraints；
-                             圆弧的「终点与起点共圆」是内部结构残差（不是可删的约束）
+  solver.ts                  LM 求解器：自由度组装（Point 坐标 + 图元 freeParams）、数值雅可比、
+                             阻尼迭代、invalidConstraints；图元结构残差由 structuralResiduals 多态提供
   dimensions.ts              尺寸单一元数据表 DIM_META：取值/设值/布局/命中/图元匹配
-  export-svg.ts              纯 SVG 导出（buildSVG，含点图元）；下载适配器在 ui/download.ts
+  export-svg.ts              纯 SVG 导出（buildSVG，按几何基元生成标签，含点图元）；下载适配器在 ui/download.ts
   camera.ts                  世界 ↔ 屏幕换算、缩放范围、网格间距（纯函数）
   viewport.ts                视图交互写入口：适应视图、滚轮缩放、平移
   vec.ts                     二维向量纯函数（含 safeLen / unitPerp 的零向量约定）
@@ -381,14 +389,31 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
 2. **为什么**：原理、公式、推导、可能的坑、警告（例如为什么整圆弧要按 `TAU` 而不是 `0`）；
 3. **元信息**：作者、时间等。
 
+### 图元多态
+
+- 图元不是「可辨识联合 + 各调用点 `switch (e.type)`」，而是 `EntityBase` 的子类：引用点
+  （`pointIds`）、尺寸目标（`dimTarget`）、点在图元里的结构角色（`pointRole`）、重合/相切约束映射
+  （`pointOnConstraint` / `tangentWith`）、求解自由度（`freeParams`）、结构残差
+  （`structuralResiduals`）与半径（`radius`）都由子类重写，调用点只依赖基类接口；
+- 几何差异再归一到 `EntityPrimitive`：`segment`（线段）/ `circular`（圆心 + 半径 + 起始角 + 扫角）/
+  `dot`（点）。拾取距离、吸附候选、折线近似、包围盒、canvas 绘制与 SVG 导出只对这三种基元
+  写一次数学，圆与圆弧共用同一段半径/角度逻辑（整圆 = `sweep` 为 `TAU` 的圆弧）；
+- 调用点不检查 `e.type`（`constraints-meta` 的 `accepts` 校验仍按种类字面量）；
+  `isCurveEntity` 用 `instanceof CurveEntityBase` 判断，新增曲线子类时自动覆盖；
+- 图元方法需要模型里的点时接收 `PointLookup`（由 `model.getPoint` 注入），
+  因此 `entities.ts` 不反向依赖 model 容器；`model.primitiveOf()` / `arcGeometry()` /
+  `curveRadius()` 是注入点表后的薄门面。
+
 ### 圆弧的表示
 
 - `ArcEntity` 只存三个点的 id：`c`（圆心）、`a`（起点）、`b`（终点）；半径 = |起点 - 圆心|，起终角是两点
-  相对圆心的极角，都由 `model.arcGeometry()` 派生，**没有** `r` / `a0` / `a1` 字段。改半径或角度的约束
-  因此作用在点上，而不是某个标量参数上。
-- 「终点与起点共圆」是 solver 的内部结构残差（`|终点-圆心| - |起点-圆心| = 0`），不是 `Constraint`：
-  它不可删除、不出现在约束按钮里，只维持圆弧自洽。新增引用圆弧半径/角度的约束时，半径统一走
-  `model.curveRadius()`（圆读 `r`，圆弧由点算）。
+  相对圆心的极角，都由 `ArcEntity.arcGeometry()` 派生，**没有** `r` / `a0` / `a1` 字段
+  （`model.arcGeometry()` 是注入点表后的门面）。改半径或角度的约束因此作用在点上，
+  而不是某个标量参数上。
+- 「终点与起点共圆」是圆弧的**结构残差**（`ArcEntity.structuralResiduals`：
+  `|终点-圆心| - |起点-圆心| = 0`），不是 `Constraint`：它不可删除、不出现在约束按钮里，
+  只维持圆弧自洽。新增引用圆弧半径/角度的约束时，半径统一走 `model.curveRadius()`
+  （多态实现：圆读 `r`，圆弧由点算）。
 - 端点就是普通 `Point`：拾取/框选/拖拽/固定/删除级联和其它图元端点同权；点工具可以把端点提升为
   点图元；创建圆弧时复用吸附到的已有点，圆弧与直线就共享同一个点（不需要再加 `coincident`）。
 - 求解器阻尼用标量 λ 而不是按 `JᵀJ` 对角缩放：圆弧端点存在「整体绕圆心旋转」的零空间方向，
@@ -396,23 +421,21 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
 
 ### 新增图元
 
-1. `types.ts`：加入 `Entity` 联合成员；像 `PointEntity { type:'point', p }` 这种「包装已有自由度」的图元，
-   要在注释里写清点归属关系；
-2. `entities.ts`：`entityPointIds` / `entityDimTarget` 的 switch（`assertNever` 会逼你补分支）；并在
-   `ENTITY_CATEGORY` 里把新种类归入 `line` / `curve` / `point`——这张表是 `satisfies Record<EntityKind, …>`，
-   漏归类直接编译失败。曲线类判断统一用推导出的 `isCurveEntity` 守卫（`CurveEntity` 也由该表推导），
-   不要在调用点写 `type !== 'circle' && type !== 'arc'`；
-3. `model.ts`：`addXxx()`，级联删除复用 `entityPointIds`；若图元独占已有对象，还要补类似
-   `addPointEntity` / `pointEntityOf` / `ownedPointIds` 的归属查询；
-4. `geometry.ts`：`entitySamples` / `entityBounds` 的 switch（拾取/吸附/包围盒/框选）；
-   点图元这类零尺寸图元要在 `pickPoint` 里跳过、由 `pickEntity` 用点拾取容差命中，否则同一对象会有
-   `pt` / `ent` 两种选择身份；
-5. `renderer.ts`：`drawEntity` 的 switch；若该图元包装的是普通点，渲染循环里要跳过它的点（`ownedPointIds`）；
-6. `export-svg.ts`：`buildSVG` 的 switch（不导出就显式跳过）；
-7. `sketch-actions.ts`：`addXxx` 的原子创建入口与退化阈值；`operations.ts`：对应操作的槽位（`accepts`）与
-   `execute`（点图元是 `point` 槽位 + `placePointEntity`）；
-8. `selection.ts`：框选/拾取遍历 `model.pts` 时跳过 `ownedPointIds()`，避免同一个点在已选列表出现两行；
-9. `tests/`：补创建、拾取、包围盒、导出、槽位匹配用例。
+1. `entities.ts`：加一个 `EntityBase` 子类——实现抽象 `primitive()`，按能力重写 `pointIds` /
+   `dimTarget` / `pointRole` / `pointOnConstraint` / `tangentWith` / `freeParams` /
+   `structuralResiduals` / `radius`；把子类加进文件顶部的 `Entity` 联合（曲线再加进
+   `CurveEntity`）。`EntityKind` 由联合自动推导，`isCurveEntity` 由 `instanceof` 自动覆盖；
+2. 若新图元的几何能复用 `segment` / `circular` / `dot` 之一，**渲染、导出、拾取、吸附无需改动**；
+   只有当它引入新的基元种类时，才扩展 `EntityPrimitive` 联合，并在 `geometry.ts` 的
+   `primitiveDistance` / `primitiveSnapCandidates` / `primitiveSamples` / `primitiveBounds`、
+   `renderer.ts` 与 `export-svg.ts` 的基元 switch 补分支——穷尽 switch 会直接报错提醒；
+3. `model.ts`：`addXxx()` 里 `new` 子类；级联删除与孤立点回收自动走 `pointIds`；若图元独占
+   已有对象，还要补类似 `addPointEntity` / `pointEntityOf` / `ownedPointIds` 的归属查询；
+4. 点图元这类零尺寸图元：基元返回 `dot`；`pickPoint` 跳过 `ownedPointIds()`、`pickEntity` 先按点
+   容差命中；渲染循环跳过被拥有的点，否则同一对象会有 `pt` / `ent` 两种选择身份；
+5. `sketch-actions.ts`：`addXxx` 的原子创建入口与退化阈值；`operations.ts`：对应操作的槽位
+   （`accepts`）与 `execute`（点图元是 `point` 槽位 + `placePointEntity`）；
+6. `tests/`：补创建、基元、拾取、包围盒、导出、槽位匹配用例（多态契约见 `tests/entities.test.ts`）。
 
 ### 新增约束种类
 
@@ -423,8 +446,9 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
 4. `solver.ts` 无需改（自由度与残差表解耦）；有按钮入口时在 `operations.ts` 加一条约束操作：
    `slots(...)` 声明每个参数的接受类型（可带 `reject` 做上下文排除），`execute(values)` 用
    `addConstraints([{ kind, props }])` 写入——不再需要单独的 resolve/适用性判断；
-   一个按钮按参数类型生成不同 kind 时（重合、相切都是），把多态写在 `execute` 里，槽位负责把
-   不合法的组合提前挡掉（相切用动态槽位，重合用 `reject`）；
+   一个按钮按参数类型生成不同 kind 时（重合、相切都是），把映射写进图元的多态方法
+   （`pointOnConstraint` / `tangentWith`），槽位负责把不合法的组合提前挡掉
+   （相切用动态槽位，重合用 `pointRole` 拼出的 `reject`）；
 5. `tests/operations.test.ts` / `coincident.test.ts` / `solver.test.ts` 补槽位、拒绝与收敛用例。
 
 ### 新增操作（工具 / 按钮 / 命令）
@@ -446,15 +470,16 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
 1. `dimensions.ts`：`DimKind` 联合 + `DIM_META` 一条记录（label/value/setValue/layout/matchesEntity/
    `matchesPoints?`）；`DimKind` 的 `Record` 会强制穷尽；
 2. 在 `sketch-actions.ts` 里接上创建入口（如 `dimForEntity`/`dimForPoints`）与命中查找；点图元没有
-   独立尺寸目标（`entityDimTarget` 返回 null），它只作为两点距离的一端，入口在 `operations.ts` 的
-   尺寸操作 `execute` 的 `point` 分支里把点操作数交给 `dimForPoints`；
+   独立尺寸目标（多态方法 `dimTarget()` 返回 null），它只作为两点距离的一端，入口在 `operations.ts`
+   的尺寸操作 `execute` 的 `point` 分支里把点操作数交给 `dimForPoints`；
 3. `tests/dimensions.test.ts` 补布局/命中/编辑用例。
 
 ### 约束现状与构造线
 
 - **10 个约束按钮**：重合、水平、竖直、平行、垂直、等长、共线、相切、同心、等半径，定义在
-  `operations.ts` 的 `CONSTRAINT_OPERATIONS`。「相切」按槽位类型映射到 `tangentLineCircle` 或
-  `tangentCircleCircle`；「重合」按目标操作数多态分派到 `coincident` / `pointOnLine` / `pointOnCircle`。
+  `operations.ts` 的 `CONSTRAINT_OPERATIONS`。「相切」由图元多态方法 `tangentWith()` 映射到
+  `tangentLineCircle` 或 `tangentCircleCircle`；「重合」按目标对象分派到 `coincident`（点）
+  与图元方法 `pointOnConstraint()`（`pointOnLine` / `pointOnCircle`）。
   另有 `distancePointPoint`（距离）与 `radius`（半径）两种尺寸类约束，入口在尺寸操作，不在约束按钮区。
 - **暂无 UI 入口但有残差/求解支持的 4 种**：`distancePointLine`（点到线距离）、`angle`（角度）、
   `midpoint`（中点）、`symmetric`（对称）。它们可经 `model.addCon()` 在代码/测试里使用，接 UI 时在
@@ -468,7 +493,7 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
 - 需要按「圆心 + 半径 + 起终角」造圆弧 fixture 时用 `tests/fixtures.ts` 的 `addArcByAngles`
   （内部会换成三个点；整圆复用起点，与生产创建一致）；
 - 直接测纯逻辑模块（model/geometry/dimensions/solver/export-svg/selection/sketch-actions/operations/
-  parse-dim-input 等），用 `model.clearModel()` 隔离单例 fixture；命令引擎的用例直接构造
+  entities/parse-dim-input 等），用 `model.clearModel()` 隔离单例 fixture；命令引擎的用例直接构造
   `ClickInput`（假 CameraView / MeasureText / Snap）驱动 `clickCommand`，不需要真实画布；
 - 需要视图数据时传假 `CameraView` / 假 `MeasureText`，不 mock 全局 camera 的渲染；
 - 测试文件与用例数不在这里写死：见 `npm run test`，当前全部通过。

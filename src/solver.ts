@@ -1,8 +1,8 @@
 /**
  * 约束求解器：LM（Levenberg–Marquardt）+ 数值雅可比，原地修改 model 里的参数。
- * 自由度 = 未 fixed 且不在 exclude 集合里的点的 x,y + 圆的 r。
- * 圆弧没有标量参数：半径/起终角都由它的圆心/起点/终点点导出（见 model.arcGeometry），
- * 「终点与起点共圆」作为内部结构残差参与求解；两端点因此和线段端点一样是真正的自由度。
+ * 自由度 = 未 fixed 且不在 exclude 集合里的点的 x,y + 图元多态的 freeParams（目前只有圆的半径）。
+ * 圆弧没有标量参数：半径/起终角都由它的圆心/起点/终点导出（ArcEntity.arcGeometry），
+ * 「终点与起点共圆」作为结构残差参与求解；两端点因此和线段端点一样是真正的自由度。
  *
  * 残差评估遇到无效约束（引用悬空/种类不符/数值缺失，或残差抛错/非有限）时，
  * 把约束 id 记入 invalidConstraints 并把该条残差按 0 计入，保证后续迭代仍可跑；
@@ -21,14 +21,8 @@ import {
   RETRY_LIMIT,
 } from './config';
 import { RESID, isConstraintRefsValid } from './constraints';
-import { assertNever } from './entities';
-import { arcGeometry, model } from './model';
-import { vec } from './vec';
-
-interface Param {
-  get: () => number;
-  set: (v: number) => void;
-}
+import type { FreeParam } from './entities';
+import { getPoint, model } from './model';
 
 export interface SolveResult {
   /** 残差平方和；converged 为 residual <= CONVERGE_EPS */
@@ -51,9 +45,9 @@ const addAt = (arr: Float64Array, i: number, v: number): void => {
   arr[i] = at(arr, i) + v;
 };
 
-/** 组装自由度向量；exclude 用于拖拽时临时排除被拖的点（不再写进模型） */
-function buildParams(excludedPointIds?: ReadonlySet<number>): Param[] {
-  const ps: Param[] = [];
+/** 组装自由度向量；坐标自由度来自 Point，标量自由度由图元自己的 freeParams() 提供 */
+function buildParams(excludedPointIds?: ReadonlySet<number>): FreeParam[] {
+  const ps: FreeParam[] = [];
   for (const p of model.pts.values()) {
     if (p.fixed || excludedPointIds?.has(p.id)) continue;
     ps.push({
@@ -69,27 +63,8 @@ function buildParams(excludedPointIds?: ReadonlySet<number>): Param[] {
       },
     });
   }
-  for (const e of model.ents.values()) {
-    switch (e.type) {
-      case 'line':
-      case 'point':
-        // 直线/点图元没有独立参数：坐标都在 model.pts 里，已经作为自由度加入
-        break;
-      case 'arc':
-        // 圆弧也没有独立参数：圆心/起点/终点的坐标已经在 model.pts 里；共圆由结构残差约束
-        break;
-      case 'circle':
-        ps.push({
-          get: () => e.r,
-          set: (v) => {
-            e.r = Math.max(0, v);
-          },
-        });
-        break;
-      default:
-        assertNever(e);
-    }
-  }
+  // 圆半径等图元自有参数：多态实现，新增带标量参数的图元不需要改求解器
+  for (const e of model.ents.values()) ps.push(...e.freeParams());
   return ps;
 }
 
@@ -121,13 +96,11 @@ function evalResiduals(invalid: Set<number>): number[] {
     }
     for (const v of r) out.push(v);
   }
-  // 圆弧的结构残差：终点必须落在「圆心 + 起点」确定的圆上。
-  // 不放进 Constraint 表：它不可删除、不出现在约束按钮里，只维持圆弧的自洽；
-  // 引用缺失（级联删除漏网）时跳过，与约束的 invalid 语义区分开。
+  // 图元的内部结构残差（目前只有圆弧端点共圆）：由图元类型多态提供，
+  // 不放进 Constraint 表——它们不可删除、不出现在约束按钮里，只维持图元自洽；
+  // 引用缺失（级联删除漏网）时对应图元返回空数组，与约束的 invalid 语义区分开。
   for (const e of model.ents.values()) {
-    if (e.type !== 'arc') continue;
-    const g = arcGeometry(e);
-    if (g) out.push(vec.dist(g.end, g.center) - g.r);
+    for (const v of e.structuralResiduals(getPoint)) out.push(v);
   }
   return out;
 }

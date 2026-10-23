@@ -175,7 +175,7 @@ describe('clickSelect 多选整体拖动', () => {
     expect(result.hit).toBe('entity');
     // 不能塌缩成单项，否则拖动会只带动一条线
     expect(state.selection.items).toEqual([entItem(a.id), entItem(b.id)]);
-    // 共享端点不存在时 4 个端点都参与拖动；顺序按选择集与 entityPointIds 的稳定顺序
+    // 共享端点不存在时 4 个端点都参与拖动；顺序按选择集与 pointIds 的稳定顺序
     expect(result.dragPoints.map((p) => p.id)).toEqual([a.a, a.b, b.a, b.b]);
   });
 

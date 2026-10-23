@@ -22,7 +22,8 @@ import {
 import { selectionEntries } from '../src/selection';
 import { solveSketch } from '../src/solver';
 import { resetInteraction, selectOnly } from '../src/state';
-import type { Entity, Selection } from '../src/types';
+import type { Entity } from '../src/entities';
+import type { Selection } from '../src/types';
 import { vec } from '../src/vec';
 
 /** 图元选择集：顺序即用户点击顺序（决定哪个进 e1、哪个进 e2 槽位） */

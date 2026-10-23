@@ -43,7 +43,8 @@ import {
 } from '../src/operations';
 import { resetInteraction, state } from '../src/state';
 import { TOOLS } from '../src/tools';
-import type { Entity, MeasureText, Point, Selection, SelectionItem, Snap, Vec } from '../src/types';
+import type { Entity } from '../src/entities';
+import type { MeasureText, Point, Selection, SelectionItem, Snap, Vec } from '../src/types';
 import { vec } from '../src/vec';
 
 const view: CameraView = { x: 0, y: 0, z: 1, viewportW: 800, viewportH: 600 };

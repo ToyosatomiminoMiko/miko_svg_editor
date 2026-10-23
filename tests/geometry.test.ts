@@ -17,7 +17,7 @@ import {
   rectOf,
   sketchBounds,
 } from '../src/geometry';
-import { addCircle, addLine, addPt, arcGeometry, clearModel, model } from '../src/model';
+import { addCircle, addLine, addPt, arcGeometry, clearModel } from '../src/model';
 import { state } from '../src/state';
 import { addArcByAngles } from './fixtures';
 
@@ -262,11 +262,11 @@ describe('矩形与线段判定', () => {
 
 describe('引用悬空时的容错', () => {
   it('图元引用不存在的点时被跳过而不是抛错', () => {
-    // 绕过 model API 直接构造悬空引用，模拟异常数据（级联由 model 保证，这里只测几何容错）
-    model.ents.set(1, { id: 1, type: 'line', a: 999, b: 998, construction: false });
+    // 绕过 model 的级联保证，把已有图元改成悬空引用，模拟异常数据（这里只测几何容错）
+    const line = addLine(addPt(0, 0), addPt(1, 1));
+    line.a = 999;
+    line.b = 998;
     expect(sketchBounds()).toBeNull();
-    expect(entityInsideRect(model.ents.get(1)!, { minx: 0, miny: 0, maxx: 1, maxy: 1 })).toBe(
-      false,
-    );
+    expect(entityInsideRect(line, { minx: 0, miny: 0, maxx: 1, maxy: 1 })).toBe(false);
   });
 });

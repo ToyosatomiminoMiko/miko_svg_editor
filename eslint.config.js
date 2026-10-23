@@ -83,6 +83,13 @@ export default [
       // 禁止 console：日志应通过 UI 提示或显式调试工具
       'no-console': 'error',
 
+      // 与 tsconfig 的 noUnusedParameters 口径一致：下划线前缀表示「占位参数」。
+      // 多态基类的默认实现要保留参数签名（子类按同一签名重写），但默认实现本身用不到它。
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
+
       // 命名：类型/接口/类 PascalCase；变量/函数 camelCase，常量允许 UPPER_CASE
       '@typescript-eslint/naming-convention': [
         'error',

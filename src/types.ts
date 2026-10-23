@@ -1,5 +1,6 @@
 /**
- * 数据模型的静态类型定义。
+ * 数据模型的静态类型定义：点、约束、选择集、交互瞬态。
+ * 图元是多态类（EntityBase 子类），定义在 entities.ts；
  * 运行时数据结构与方法见 model.ts；约束残差见 constraints.ts；
  * 数值常量与约束元数据见 config/。
  */
@@ -24,62 +25,6 @@ export interface Point {
   /** 固定点不参与求解 */
   fixed: boolean;
 }
-
-interface EntityBase {
-  id: number;
-  /**
-   * 构造线：canvas 与导出都用虚线。
-   * 目前由工具栏「构造」按钮切换选中的图元，默认 false。
-   */
-  construction: boolean;
-}
-
-export interface LineEntity extends EntityBase {
-  type: 'line';
-  a: number;
-  b: number;
-}
-
-export interface CircleEntity extends EntityBase {
-  type: 'circle';
-  c: number;
-  /** 不变量：r >= 0（由 model.addCircle 与 solver 参数钳制保证） */
-  r: number;
-}
-
-/**
- * 圆弧：圆心 + 起点 + 终点三个点。
- * 半径 = |起点 - 圆心|，起终角是两点相对圆心的极角（不是存下来的标量）：
- * 半径与角度都由点推出来（见 model.arcGeometry），所以圆弧的端点、圆心是真实的求解自由度，
- * 可以像线段端点一样被拾取/拖拽/固定/约束/共享（例如直接复用直线端点）。
- * 「终点与起点共圆」是结构不变量：solver 把它作为内部残差，不是用户可删的 Constraint。
- */
-export interface ArcEntity extends EntityBase {
-  type: 'arc';
-  /** 圆心点 */
-  c: number;
-  /** 起点（决定半径与起始角） */
-  a: number;
-  /** 终点（决定终止角）；与起点同角 / 同位置时按整圆处理，见 config/angle.ts 的 sweepOf() */
-  b: number;
-}
-
-/**
- * 点图元：可独立绘制、选择、导出的点。
- * 几何坐标仍由被引用的 Point 持有（点的 x/y/fixed 是求解自由度），
- * 本类型只负责「这个点是一个图元」这件事：让点进入图元容器，
- * 从而被包围盒/导出/删除级联/选择集按图元对待，并在 pruneOrphanPoints 时保留其 Point。
- */
-export interface PointEntity extends EntityBase {
-  type: 'point';
-  /** 引用的点 id；一个点最多被一个点图元拥有（由点工具保证） */
-  p: number;
-}
-
-export type Entity = LineEntity | CircleEntity | ArcEntity | PointEntity;
-
-/** 图元种类 */
-export type EntityKind = Entity['type'];
 
 /**
  * 约束种类。

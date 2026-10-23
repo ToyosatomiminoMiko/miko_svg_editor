@@ -16,7 +16,7 @@
 import type { CameraView } from './camera';
 import { formatDimValue, type ResolvedConstraint } from './config';
 import { dimLabel, pickDim, type DimConstraint } from './dimensions';
-import { entityLabel, isCurveEntity } from './entities';
+import { isCurveEntity, type Entity } from './entities';
 import { pickEntity, pickPoint, pickPointEntity } from './geometry';
 import { addPt, discardPoint, getEntity, getPoint, pointEntityOf } from './model';
 import {
@@ -36,7 +36,7 @@ import {
   type DimResult,
   type Notice,
 } from './sketch-actions';
-import type { Entity, MeasureText, Point, Selection, Snap, ToolId, Vec } from './types';
+import type { MeasureText, Point, Selection, Snap, ToolId, Vec } from './types';
 import { vec } from './vec';
 
 /* ======================= 操作数 ======================= */
@@ -81,7 +81,7 @@ export function operandLabel(op: Operand): string {
     case 'position':
       return `位置 (${formatDimValue(op.pos.x)}, ${formatDimValue(op.pos.y)})`;
     case 'entity':
-      return `${entityLabel(op.entity)} #${op.entity.id}`;
+      return `${op.entity.label} #${op.entity.id}`;
     case 'dim':
       return `${dimLabel(op.con)} #${op.con.id}`;
   }
@@ -120,7 +120,7 @@ export interface SlotSpec {
 const acceptsPoint = (op: Operand): boolean => op.kind === 'point';
 const acceptsPosition = (op: Operand): boolean => op.kind === 'position';
 const acceptsEntity = (op: Operand): boolean => op.kind === 'entity';
-const acceptsLine = (op: Operand): boolean => op.kind === 'entity' && op.entity.type === 'line';
+const acceptsLine = (op: Operand): boolean => op.kind === 'entity' && op.entity.category === 'line';
 const acceptsCurve = (op: Operand): boolean => op.kind === 'entity' && isCurveEntity(op.entity);
 const acceptsLineOrCurve = (op: Operand): boolean => acceptsLine(op) || acceptsCurve(op);
 const acceptsPointOrEntity = (op: Operand): boolean => op.kind === 'point' || op.kind === 'entity';
@@ -330,7 +330,7 @@ const dimOperation: OperationMeta = {
         return dimOut({ ok: true, con: first.con, created: false, notices: [] });
       case 'entity':
         // 点图元只能作为两点距离的一端，不能直接标半径/线长
-        if (first.entity.type === 'point') {
+        if (first.entity.category === 'point') {
           return dimOut({ ok: false, reason: '点图元只能作为两点距离的一端' });
         }
         return dimOut(dimForEntity(first.entity, ctx.zoom));
@@ -411,24 +411,17 @@ const constructionOperation: OperationMeta = {
 /**
  * 「重合」的上下文排除（写模型前就挡住无意义约束）：
  * - 同一个点不能和自己重合；
- * - 点已经是目标直线的端点 → pointOnLine 恒成立，是假约束；
- * - 点已经是目标圆/弧的圆心 → pointOnCircle 会把半径挤成 0；
- * - 点已经是目标圆弧的起点/终点 → pointOnCircle 同样恒成立，是假约束。
+ * - 点已经是目标图元的结构点（直线端点 / 圆或弧圆心 / 圆弧端点）时，
+ *   对应约束恒成立或是把半径挤成 0 的假约束。
+ * 结构角色由 target.entity.pointRole() 多态给出，这里不按图元种类分叉。
  */
 function coincidentConflict(anchor: Point, target: Operand): string | undefined {
   if (target.kind === 'point') {
     return target.point.id === anchor.id ? '同一个点不能和自己重合' : undefined;
   }
   if (target.kind !== 'entity') return undefined;
-  const e = target.entity;
-  if (e.type === 'line' && (e.a === anchor.id || e.b === anchor.id)) {
-    return '这个点已经是该直线的端点';
-  }
-  if (isCurveEntity(e) && e.c === anchor.id) return '这个点已经是该圆/弧的圆心';
-  if (e.type === 'arc' && (e.a === anchor.id || e.b === anchor.id)) {
-    return '这个点已经是该圆弧的端点';
-  }
-  return undefined;
+  const role = target.entity.pointRole(anchor.id);
+  return role === null ? undefined : `这个点已经是该${target.entity.label}的${role}`;
 }
 
 const coincidentOperation: OperationMeta = {
@@ -470,20 +463,9 @@ const coincidentOperation: OperationMeta = {
       );
     }
     if (target.kind === 'entity') {
-      if (target.entity.type === 'line') {
-        return actionOut(
-          addConstraints([
-            { kind: 'pointOnLine', props: { p: anchor.point.id, e: target.entity.id } },
-          ]),
-        );
-      }
-      if (isCurveEntity(target.entity)) {
-        return actionOut(
-          addConstraints([
-            { kind: 'pointOnCircle', props: { p: anchor.point.id, e: target.entity.id } },
-          ]),
-        );
-      }
+      // 目标图元自己决定「点落在它上面」是哪种约束：直线 pointOnLine、圆/弧 pointOnCircle
+      const con = target.entity.pointOnConstraint(anchor.point.id);
+      if (con) return actionOut(addConstraints([con]));
     }
     return actionOut(actionFail('重合的目标只能是点、直线或圆/弧'));
   },
@@ -568,24 +550,10 @@ const tangentOperation: OperationMeta = {
     const a = values[0];
     const b = values[1];
     if (!isEntityOperand(a) || !isEntityOperand(b)) return actionOut(actionFail('缺少两个图元'));
-    const ea = a.entity;
-    const eb = b.entity;
-    if (ea.type === 'line' && isCurveEntity(eb)) {
-      return actionOut(
-        addConstraints([{ kind: 'tangentLineCircle', props: { line: ea.id, circ: eb.id } }]),
-      );
-    }
-    if (eb.type === 'line' && isCurveEntity(ea)) {
-      return actionOut(
-        addConstraints([{ kind: 'tangentLineCircle', props: { line: eb.id, circ: ea.id } }]),
-      );
-    }
-    if (isCurveEntity(ea) && isCurveEntity(eb)) {
-      return actionOut(
-        addConstraints([{ kind: 'tangentCircleCircle', props: { e1: ea.id, e2: eb.id } }]),
-      );
-    }
-    return actionOut(actionFail('相切需要 1 条直线 + 1 个圆/弧，或 2 个圆/弧'));
+    // 相切种类由图元多态决定（直线-圆 / 圆-圆），执行函数只负责把组合交给图元
+    const con = a.entity.tangentWith(b.entity);
+    if (!con) return actionOut(actionFail('相切需要 1 条直线 + 1 个圆/弧，或 2 个圆/弧'));
+    return actionOut(addConstraints([con]));
   },
 };
 
@@ -764,8 +732,10 @@ export function operandsFromSelection(selection: Selection): Operand[] {
     const e = getEntity(item.id);
     if (!e) continue;
     operands.push(entityOperand(e));
-    if (e.type === 'point') {
-      const p = getPoint(e.p);
+    // 点图元同时提供它包装的点：点槽位与图元槽位因此都能认出同一对象，由槽位类型决定用哪个
+    const owned = e.ownedPointId;
+    if (owned !== null) {
+      const p = getPoint(owned);
       if (p) operands.push(pointOperand(p));
     }
   }
