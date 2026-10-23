@@ -9,6 +9,8 @@
  */
 
 import { cam, s2w } from './camera';
+import { DRAG_THRESHOLD_PX } from './config';
+import { applyDimDrag, pickDim, type DimConstraint } from './dimensions';
 import { Renderer } from './renderer';
 import { applyMarquee, clearHover, clickSelect, updateHover, updateMarquee } from './selection';
 import { moveDrag, type DragGesture } from './sketch-actions';
@@ -22,7 +24,21 @@ import { StatusPanel } from './ui/status-panel';
 import { applyPan, beginPan, wheelZoom, type PanAnchor } from './viewport';
 import { TOOLS, type ClickInput } from './operations';
 
-type Gesture = { kind: 'pan'; pan: PanAnchor } | { kind: 'drag'; drag: DragGesture };
+/**
+ * 尺寸拖拽手势：startS/startW 是按下时的屏幕/世界坐标（屏幕位移判阈值，世界坐标只作记录），
+ * moved 越过 DRAG_THRESHOLD_PX 后置位；未拖动松手 = 单击打开尺寸输入框。
+ */
+interface DimGesture {
+  con: DimConstraint;
+  startS: Vec;
+  startW: Vec;
+  moved: boolean;
+}
+
+type Gesture =
+  | { kind: 'pan'; pan: PanAnchor }
+  | { kind: 'drag'; drag: DragGesture }
+  | { kind: 'dim'; dim: DimGesture };
 export class Editor {
   private readonly canvas: HTMLCanvasElement;
   private readonly hintEditor: HintEditor;
@@ -148,6 +164,13 @@ export class Editor {
       this.controls.clickCommand(this.clickInput());
       return;
     }
+    // 选择工具单击尺寸标注：进入尺寸手势（不选中几何、不框选）；尺寸优先于几何拾取
+    const dim = pickDim(state.cursorWorld, cam, this.measureText, this.dimFont);
+    if (dim) {
+      this.startDim(dim, sp);
+      this.controls.sync();
+      return;
+    }
     const result = clickSelect(state.cursorWorld, cam.z, shift);
     if (result.dragPoints.length > 0) this.startDrag(result.dragPoints);
     if (result.startMarquee) {
@@ -168,6 +191,11 @@ export class Editor {
     }
     if (gesture?.kind === 'drag') {
       moveDrag(gesture.drag, state.cursorWorld);
+      this.controls.sync();
+      return;
+    }
+    if (gesture?.kind === 'dim') {
+      this.moveDim(gesture.dim, sp);
       this.controls.sync();
       return;
     }
@@ -199,6 +227,15 @@ export class Editor {
       this.controls.sync();
     } else if (gesture?.kind === 'drag') {
       this.controls.finishDrag(cancelled);
+    } else if (gesture?.kind === 'dim') {
+      // 结束/取消都清悬停高亮（下次移动由 updateHover 重新命中）；
+      // 未拖动的正常 pointerup 视为单击，打开该尺寸的输入框（不求解）
+      state.hoverDim = null;
+      if (!cancelled && ev.type === 'pointerup' && !gesture.dim.moved) {
+        this.controls.openDimEditor(gesture.dim.con);
+      } else {
+        this.controls.sync();
+      }
     } else if (marquee) {
       // 结算用捕获的手势参数；state.marquee 只负责手势进行中的 live 状态
       if (marquee.active && !cancelled) applyMarquee(marquee);
@@ -256,6 +293,24 @@ export class Editor {
       drag: { startW: { x: w.x, y: w.y }, items, exclude: new Set(points.map((p) => p.id)) },
     };
     clearHover();
+  }
+
+  /** 尺寸手势入口：清吸附/悬停后点亮该尺寸，记录按下时的屏幕/世界坐标 */
+  private startDim(con: DimConstraint, sp: Vec): void {
+    clearHover();
+    state.hoverDim = con;
+    this.gesture = {
+      kind: 'dim',
+      dim: { con, startS: { ...sp }, startW: { ...state.cursorWorld }, moved: false },
+    };
+  }
+
+  /** 尺寸拖动：屏幕位移越过阈值才算拖动，之后按世界坐标改摆放参数（不改目标值、不需要求解） */
+  private moveDim(dim: DimGesture, sp: Vec): void {
+    if (!dim.moved && Math.hypot(sp.x - dim.startS.x, sp.y - dim.startS.y) > DRAG_THRESHOLD_PX) {
+      dim.moved = true;
+    }
+    if (dim.moved) applyDimDrag(dim.con, state.cursorWorld, cam);
   }
 
   /**

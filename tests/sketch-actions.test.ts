@@ -6,8 +6,14 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { AUTO_AXIS_RATIO, DIM_DEFAULT_OFFSET_PX } from '../src/config';
-import { isDimConstraint, dimValue } from '../src/dimensions';
+import { AUTO_AXIS_RATIO } from '../src/config';
+import {
+  angleLineGeometry,
+  dimText,
+  dimValue,
+  findAngleDim,
+  isDimConstraint,
+} from '../src/dimensions';
 import {
   addCircle,
   addCon,
@@ -30,6 +36,7 @@ import {
   deleteConstraint,
   deleteSelected,
   dimForEntity,
+  dimForLines,
   dimForPoints,
   moveDrag,
   rollbackDim,
@@ -281,44 +288,55 @@ describe('toggleFixed / toggleConstruction', () => {
 });
 
 describe('dimForEntity', () => {
-  it('圆/弧创建半径尺寸，重复点中时返回编辑会话', () => {
+  it('圆/弧创建半径尺寸，放置点决定引线方向；重复点中时返回编辑会话', () => {
     const circle = addCircle(addPt(0, 0), 10);
-    const first = dimForEntity(circle, 1);
+    const first = dimForEntity(circle, { x: 10, y: 10 });
     expect(first.ok).toBe(true);
     if (!first.ok) return;
     expect(first.created).toBe(true);
     expect(first.con.type).toBe('radius');
     expect(dimValue(first.con)).toBe(10);
+    expect(first.con.leaderAngle).toBeCloseTo(Math.PI / 4, 12);
 
-    const second = dimForEntity(circle, 1);
+    const second = dimForEntity(circle, { x: -10, y: -10 });
     expect(second.ok).toBe(true);
     if (!second.ok) return;
     expect(second.created).toBe(false);
     expect(second.con.id).toBe(first.con.id);
+    // 编辑已有尺寸时不覆盖摆放参数
+    expect(second.con.leaderAngle).toBeCloseTo(Math.PI / 4, 12);
   });
 
   it('圆弧半径尺寸取派生半径（圆心到起点的距离）', () => {
     const arc = addArcByAngles(addPt(0, 0, true), 10, 0, Math.PI / 2);
-    const result = dimForEntity(arc, 1);
+    const result = dimForEntity(arc, { x: 10, y: 0 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.con.type).toBe('radius');
     expect(dimValue(result.con)).toBe(10);
   });
 
-  it('直线创建距离尺寸，offset 按当前缩放换算成世界偏移', () => {
+  it('直线创建距离尺寸，放置点决定世界 offset', () => {
     const { line } = plainLine();
-    const result = dimForEntity(line, 2);
+    const result = dimForEntity(line, { x: 50, y: 25 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.con.type).toBe('distancePointPoint');
     expect(dimValue(result.con)).toBe(100);
-    expect(result.con.offset).toBe(DIM_DEFAULT_OFFSET_PX / 2);
+    expect(result.con.offset).toBeCloseTo(25, 12);
+  });
+
+  it('没有放置点时不创建长度/半径尺寸（由操作槽位保证正常流程不会发生）', () => {
+    const { line } = plainLine();
+    const result = dimForEntity(line);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain('放置');
+    expect(model.cons.size).toBe(0);
   });
 
   it('commitDim 改目标值并求解', () => {
     const circle = addCircle(addPt(0, 0), 10);
-    const result = dimForEntity(circle, 1);
+    const result = dimForEntity(circle, { x: 10, y: 0 });
     if (!result.ok) throw new Error('尺寸创建失败');
     const committed = commitDim(result.con, 5);
     expect(committed.ok).toBe(true);
@@ -328,10 +346,73 @@ describe('dimForEntity', () => {
 
   it('点图元没有独立尺寸目标', () => {
     const e = addPointEntity(addPt(0, 0));
-    const result = dimForEntity(e, 1);
+    const result = dimForEntity(e);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain('不能标注尺寸');
     expect(model.cons.size).toBe(0);
+  });
+});
+
+describe('dimForLines（角度尺寸）', () => {
+  /** 两条 45° 夹角直线，交点 (0,0) */
+  function angleLines(): { line1: ReturnType<typeof addLine>; line2: ReturnType<typeof addLine> } {
+    const line1 = addLine(addPt(0, 0), addPt(100, 0));
+    const line2 = addLine(addPt(0, 0), addPt(100, 100));
+    return { line1, line2 };
+  }
+
+  it('创建角度尺寸：目标角取放置扇形的当前夹角，放置点决定象限与弧半径', () => {
+    const { line1, line2 } = angleLines();
+    const result = dimForLines(line1, line2, { x: 20, y: 5 }, 1);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.created).toBe(true);
+    expect(result.con.type).toBe('angleLineLine');
+    expect(dimValue(result.con)).toBeCloseTo(45, 9);
+    expect(result.con.angleSector).toBe(0);
+    expect(result.con.offset).toBeCloseTo(Math.hypot(20, 5), 9);
+    expect(dimText(result.con)).toBe('45°');
+
+    const again = dimForLines(line1, line2, { x: 10, y: 10 }, 1);
+    if (!again.ok) throw new Error('应返回已有角度尺寸');
+    expect(again.created).toBe(false);
+    expect(again.con.id).toBe(result.con.id);
+    expect(findAngleDim(line2.id, line1.id)?.id).toBe(result.con.id);
+  });
+
+  it('平行直线拒绝创建并给理由', () => {
+    const line1 = addLine(addPt(0, 0), addPt(100, 0));
+    const line2 = addLine(addPt(0, 10), addPt(100, 10));
+    const result = dimForLines(line1, line2, { x: 50, y: 5 }, 1);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain('平行');
+    expect(model.cons.size).toBe(0);
+  });
+
+  it('commitDim 驱动求解收敛到新的夹角', () => {
+    const { line1, line2 } = angleLines();
+    const result = dimForLines(line1, line2, { x: 20, y: 5 }, 1);
+    if (!result.ok) throw new Error('尺寸创建失败');
+    const committed = commitDim(result.con, 60);
+    expect(committed.ok).toBe(true);
+    const g = angleLineGeometry(line1, line2);
+    if (!g) throw new Error('直线求交失败');
+    // 放置象限 0 的夹角（两条线的方向夹角）应为 60°
+    const d1 = g.d1;
+    const d2 = g.d2;
+    const cos = (d1.x * d2.x + d1.y * d2.y) / (Math.hypot(d1.x, d1.y) * Math.hypot(d2.x, d2.y));
+    expect((Math.acos(cos) * 180) / Math.PI).toBeCloseTo(60, 3);
+  });
+
+  it('角度输入超过 180° 被拒绝，目标值不变', () => {
+    const { line1, line2 } = angleLines();
+    const result = dimForLines(line1, line2, { x: 20, y: 5 }, 1);
+    if (!result.ok) throw new Error('尺寸创建失败');
+    const before = dimValue(result.con);
+    const committed = commitDim(result.con, 180);
+    expect(committed.ok).toBe(false);
+    if (!committed.ok) expect(committed.reason).toContain('180');
+    expect(dimValue(result.con)).toBe(before);
   });
 });
 

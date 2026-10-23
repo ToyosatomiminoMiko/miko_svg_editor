@@ -207,17 +207,21 @@ describe('选择集预填：按类型装槽位，与选择顺序无关', () => {
     expect(e.construction).toBe(true);
   });
 
-  it('尺寸：选中直线一次填满；选中两个点得到两点距离', () => {
+  it('尺寸：选中直线 / 两个点后还需要一击放置；执行后返回尺寸会话', () => {
     const a = addPt(0, 0);
     const b = addPt(100, 0);
     const line = addLine(a, b);
 
     const lineSession = arm('dim', [line]).session;
+    // 目标已填，但还缺「放置」这一击：Smart Dimension 用第二击决定标注摆在哪
+    expect(isComplete(lineSession)).toBe(false);
+    expect(clickCommand(lineSession, input({ x: 50, y: 20 })).filled).toBe(true);
     expect(isComplete(lineSession)).toBe(true);
     const lineOutcome = executeCommand(lineSession, 1);
     expect(lineOutcome.kind).toBe('dim');
     if (lineOutcome.kind === 'dim' && lineOutcome.result.ok) {
       expect(lineOutcome.result.con.type).toBe('distancePointPoint');
+      expect(lineOutcome.result.con.offset).toBeCloseTo(20, 12);
     }
 
     clearModel();
@@ -225,11 +229,14 @@ describe('选择集预填：按类型装槽位，与选择顺序无关', () => {
     const p1 = addPt(0, 0);
     const p2 = addPt(100, 0);
     const pointSession = arm('dim', [], [p1, p2]).session;
+    expect(isComplete(pointSession)).toBe(false);
+    expect(clickCommand(pointSession, input({ x: 50, y: 20 })).filled).toBe(true);
     expect(isComplete(pointSession)).toBe(true);
     const pointOutcome = executeCommand(pointSession, 1);
     expect(pointOutcome.kind).toBe('dim');
     if (pointOutcome.kind === 'dim' && pointOutcome.result.ok) {
       expect(pointOutcome.result.con).toMatchObject({ a: p1.id, b: p2.id });
+      expect(pointOutcome.result.con.offset).toBeCloseTo(20, 12);
     }
     expect(model.cons).toHaveLength(1);
   });
@@ -460,10 +467,13 @@ describe('画布点击补参数', () => {
     expect(cons()[0]).toMatchObject({ type: 'pointOnLine', p: p.id, e: line.id });
   });
 
-  it('尺寸：点击直线目标进入可执行态，执行后返回尺寸会话', () => {
+  it('尺寸：点击直线目标后还需点放置，执行后返回尺寸会话', () => {
     addLine(addPt(0, 0), addPt(100, 0));
     const session = createSession('dim');
     expect(clickCommand(session, input({ x: 50, y: 0 })).filled).toBe(true);
+    // 第二击是放置，不是「已可执行」
+    expect(isComplete(session)).toBe(false);
+    expect(clickCommand(session, input({ x: 50, y: 20 })).filled).toBe(true);
     expect(isComplete(session)).toBe(true);
 
     const outcome = executeCommand(session, 1);
@@ -474,7 +484,25 @@ describe('画布点击补参数', () => {
     }
   });
 
-  it('尺寸：点图元作为目标时进入两点流程，第二点可点已有点图元', () => {
+  it('尺寸：两条直线依次点击 + 放置点击得到角度尺寸', () => {
+    addLine(addPt(0, 0), addPt(100, 0));
+    addLine(addPt(0, 0), addPt(100, 100));
+    const session = createSession('dim');
+    expect(clickCommand(session, input({ x: 50, y: 0 })).filled).toBe(true);
+    expect(clickCommand(session, input({ x: 50, y: 50 })).filled).toBe(true);
+    expect(isComplete(session)).toBe(false);
+    expect(clickCommand(session, input({ x: 20, y: 5 })).filled).toBe(true);
+    expect(isComplete(session)).toBe(true);
+
+    const outcome = executeCommand(session, 1);
+    expect(outcome.kind).toBe('dim');
+    if (outcome.kind === 'dim' && outcome.result.ok) {
+      expect(outcome.result.con.type).toBe('angleLineLine');
+      expect(outcome.result.con.angle).toBeCloseTo(45, 9);
+    }
+  });
+
+  it('尺寸：点图元作为目标时进入两点流程，第二点可点已有点图元，最后点放置', () => {
     const p1 = addPt(0, 0);
     const e1 = addPointEntity(p1);
     const p2 = addPt(100, 0);
@@ -486,6 +514,9 @@ describe('画布点击补参数', () => {
     expect(clickCommand(session, input({ x: 0, y: 0 })).filled).toBe(true);
     expect(isComplete(session)).toBe(false);
     expect(clickCommand(session, input({ x: 100, y: 0 })).filled).toBe(true);
+    // 第二点已填，但还缺放置
+    expect(isComplete(session)).toBe(false);
+    expect(clickCommand(session, input({ x: 50, y: 20 })).filled).toBe(true);
     expect(isComplete(session)).toBe(true);
 
     const outcome = executeCommand(session, 1);
@@ -534,11 +565,18 @@ describe('动态槽位', () => {
     expect(cons()[0]?.type).toBe('tangentCircleCircle');
   });
 
-  it('尺寸：目标类型决定槽位数量', () => {
+  it('尺寸：目标类型决定槽位；直线保留可选第二条直线，点目标有第二点与放置', () => {
     const line = addLine(addPt(0, 0), addPt(100, 0));
     const p = addPt(5, 5);
-    expect(operationById('dim').slots([{ kind: 'entity', entity: line }])).toHaveLength(1);
-    expect(operationById('dim').slots([{ kind: 'point', point: p, at: p }])).toHaveLength(2);
+    const lineSlots = operationById('dim').slots([{ kind: 'entity', entity: line }]);
+    expect(lineSlots).toHaveLength(3);
+    expect(lineSlots[1]?.optional).toBe(true);
+    expect(lineSlots[2]?.place).toBe('position');
+
+    const pointSlots = operationById('dim').slots([{ kind: 'point', point: p, at: p }]);
+    expect(pointSlots).toHaveLength(3);
+    expect(pointSlots[1]?.place).toBe('point');
+    expect(pointSlots[2]?.place).toBe('position');
   });
 });
 

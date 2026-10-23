@@ -15,7 +15,14 @@
 
 import type { CameraView } from './camera';
 import { TAU, formatDimValue, sweepOf, type ResolvedConstraint } from './config';
-import { dimLabel, pickDim, type DimConstraint } from './dimensions';
+import {
+  dimLabel,
+  findAngleDim,
+  findDimForEntity,
+  findDistanceDim,
+  pickDim,
+  type DimConstraint,
+} from './dimensions';
 import { isCurveEntity, type Entity, type EntityPrimitive } from './entities';
 import { pickEntity, pickPoint, pickPointEntity } from './geometry';
 import { addPt, discardPoint, getEntity, getPoint, pointEntityOf } from './model';
@@ -28,6 +35,7 @@ import {
   createRect,
   deleteSelected,
   dimForEntity,
+  dimForLines,
   dimForPoints,
   placePointEntity,
   toggleConstruction,
@@ -106,6 +114,11 @@ export interface SlotSpec {
   readonly prompt: string;
   readonly accepts: (operand: Operand) => boolean;
   readonly place?: 'point' | 'position';
+  /**
+   * 可选槽位：留空也算参数齐全（尺寸工具的「第二条直线」：不选它就把第一条直线标长度）。
+   * execute 收到的是压缩掉空槽后的值数组，读取时按实际填了哪些参数解释。
+   */
+  readonly optional?: boolean;
   /** 可变参数槽位（必须最后）：可继续追加；点击填一个即执行一次，执行后保持可继续点 */
   readonly repeat?: boolean;
   readonly reject?: (
@@ -289,12 +302,52 @@ const rectOperation = drawOperation(
 
 /* -------- 尺寸 -------- */
 
-/** 尺寸目标槽位：点、直线、圆/弧、已有尺寸都可能是「要点」的对象 */
+/**
+ * Smart Dimension 的槽位流程（对齐 SolidWorks/Inventor 的「点目标 → 点放置」）：
+ * - 点已有尺寸：立即进入改值；
+ * - 点圆/弧：再点一下放置半径尺寸（决定引线方向）；
+ * - 点直线：可再点一条直线标夹角，或直接点空白处放置长度尺寸；
+ * - 点两个点：点放置处决定距离尺寸线偏移。
+ *
+ * 「第二条直线」是可选的：可选槽位留空时，放置点击会压缩到它的位置上（见 isComplete），
+ * execute 因此按「实际填了哪些参数」解释 values，而不是按槽位下标硬编码。
+ * 已经存在的尺寸（同一对点/同一条直线/同一对直线）走编辑分支，不再重复创建。
+ */
 const dimTargetSlot: SlotSpec = {
   key: '目标',
   prompt: '点一个点、直线、圆/弧或已有尺寸',
   accepts: (op) => acceptsDim(op) || acceptsPointLineCurve(op),
 };
+
+const dimSecondPointSlot = (): SlotSpec =>
+  createPointSlot('第二点', '点第二个点（可在空白处取点）');
+
+/** 可选「第二条直线」：填了就标角度；填不上时不影响长度尺寸的放置 */
+const dimSecondLineSlot = (): SlotSpec => ({
+  key: '第二条直线',
+  prompt: '点另一条直线标角度，或点空白处放置长度尺寸',
+  accepts: acceptsLine,
+  optional: true,
+  reject: (operand, values) => {
+    const first = values[0];
+    if (
+      first?.kind === 'entity' &&
+      operand.kind === 'entity' &&
+      first.entity.id === operand.entity.id
+    ) {
+      return '第二条直线不能和第一条相同';
+    }
+    return undefined;
+  },
+});
+
+/** 放置槽位：点击位置只作为位置参数消费，不新建点 */
+const dimPlaceSlot = (prompt: string): SlotSpec => ({
+  key: '放置',
+  prompt,
+  accepts: acceptsPosition,
+  place: 'position',
+});
 
 const dimOperation: OperationMeta = {
   id: 'dim',
@@ -303,16 +356,44 @@ const dimOperation: OperationMeta = {
   tool: 'dim',
   slots(values) {
     const first = values[0];
-    // 第一参数是点时才需要第二个点；其余目标（线长/半径/已有尺寸）一次点击就够
-    if (isPointOperand(first)) {
+    if (first === undefined || first.kind === 'dim') return [dimTargetSlot];
+
+    if (first.kind === 'point') {
+      const second = values[1];
+      // 两点之间已有距离尺寸：第二个点一填就进入改值，不再要求放置
+      if (isPointOperand(second) && findDistanceDim(first.point.id, second.point.id)) {
+        return [dimTargetSlot, dimSecondPointSlot()];
+      }
+      return [dimTargetSlot, dimSecondPointSlot(), dimPlaceSlot('点一下放置距离尺寸')];
+    }
+
+    if (first.kind !== 'entity') return [dimTargetSlot];
+    const e = first.entity;
+
+    if (e.category === 'line') {
+      const second = values[1];
+      if (
+        second?.kind === 'entity' &&
+        second.entity.category === 'line' &&
+        second.entity.id !== e.id
+      ) {
+        // 同一对直线已有角度尺寸：填完第二条直线直接改值，不再要求放置
+        if (findAngleDim(e.id, second.entity.id)) {
+          return [dimTargetSlot, dimSecondLineSlot()];
+        }
+        return [dimTargetSlot, dimSecondLineSlot(), dimPlaceSlot('点一下放置角度尺寸')];
+      }
+      // 直线始终保留「第二条直线」可选槽位：已经有一条长度尺寸时，再点另一条直线仍能改标角度
       return [
         dimTargetSlot,
-        {
-          ...createPointSlot('第二点', '点第二个点（可在空白处取点）'),
-        },
+        dimSecondLineSlot(),
+        dimPlaceSlot('点空白处放置长度尺寸，或点另一条直线标角度'),
       ];
     }
-    return [dimTargetSlot];
+
+    // 圆/弧：已有半径尺寸直接改值；否则第二击决定引线方向
+    if (findDimForEntity(e)) return [dimTargetSlot];
+    return [dimTargetSlot, dimPlaceSlot('点一下放置半径尺寸（决定引线方向）')];
   },
   execute(values, ctx) {
     const first = values[0];
@@ -320,20 +401,33 @@ const dimOperation: OperationMeta = {
     switch (first.kind) {
       case 'dim':
         return dimOut({ ok: true, con: first.con, created: false, notices: [] });
-      case 'entity':
+      case 'entity': {
+        const e = first.entity;
         // 点图元只能作为两点距离的一端，不能直接标半径/线长
-        if (first.entity.category === 'point') {
+        if (e.category === 'point') {
           return dimOut({ ok: false, reason: '点图元只能作为两点距离的一端' });
         }
-        return dimOut(dimForEntity(first.entity, ctx.zoom));
+        const second = values[1];
+        if (e.category === 'line' && second?.kind === 'entity') {
+          // values 可能形如 [直线1, 直线2, 放置位置]：存在角度尺寸时没有放置位置
+          const third = values[2];
+          const placement = third?.kind === 'position' ? third.pos : undefined;
+          return dimOut(dimForLines(e, second.entity, placement, ctx.zoom));
+        }
+        // 距离/半径：放置位置可能被压缩到 values[1]（第二条直线的可选槽位留空）
+        const placement = second?.kind === 'position' ? second.pos : undefined;
+        return dimOut(dimForEntity(e, placement));
+      }
       case 'point': {
         const second = values[1];
         if (!isPointOperand(second)) {
           return dimOut({ ok: false, reason: '还需要第二个点' });
         }
-        // 第二点的 at 是点击位置：距离尺寸的 offset 取它相对连线的法向投影
+        // 距离尺寸的 offset 取放置点相对连线的法向投影；已有尺寸时 placement 不参与
+        const third = values[2];
+        const placement = third?.kind === 'position' ? third.pos : second.at;
         return dimOut(
-          dimForPoints(first.point, second.point, second.at, ctx.owned.has(second.point.id)),
+          dimForPoints(first.point, second.point, placement, ctx.owned.has(second.point.id)),
         );
       }
       case 'position':
@@ -669,10 +763,13 @@ export const sessionSlots = (session: CommandSession): readonly SlotSpec[] =>
 const filledValues = (session: CommandSession): Operand[] =>
   session.values.filter((v): v is Operand => v !== undefined);
 
-/** 命令是否已填满全部槽位（repeat 槽位至少一个值即算填满） */
+/**
+ * 命令是否已填满全部槽位。可选槽位留空也算填满（尺寸：可选第二条直线，留空就标长度）。
+ * execute 收到的是 filledValues 压缩掉空槽后的数组，读参数时必须按实际填了什么解释。
+ */
 export function isComplete(session: CommandSession): boolean {
   const slots = sessionSlots(session);
-  return slots.length === 0 || slots.every((_, i) => session.values[i] !== undefined);
+  return slots.every((slot, i) => slot.optional === true || session.values[i] !== undefined);
 }
 
 /** 两个操作数是否指向同一个对象（同一个点不能填两个槽位） */
@@ -937,16 +1034,23 @@ function appendRepeat(
 function firstEmptySlotLabel(session: CommandSession): string {
   const slots = sessionSlots(session);
   for (let i = 0; i < slots.length; i++) {
-    if (session.values[i] === undefined) return `${slots[i]!.key}（${slots[i]!.prompt}）`;
+    // 可选槽位留空不阻塞执行，找「真正还需要」的那个槽位
+    if (session.values[i] === undefined && slots[i]!.optional !== true) {
+      return `${slots[i]!.key}（${slots[i]!.prompt}）`;
+    }
   }
   return '（无）';
 }
 
+/** 命令收集态悬停结果：点、图元或已有尺寸（尺寸工具会高亮将要编辑/作为目标的标注） */
+export interface CommandHover {
+  readonly pt?: Point;
+  readonly ent?: Entity;
+  readonly dim?: DimConstraint;
+}
+
 /** 指针悬停时该高亮的对象：只亮「点下去真的会填进某个空槽位」的对象 */
-export function commandHover(
-  session: CommandSession,
-  input: ClickInput,
-): { pt?: Point; ent?: Entity } {
+export function commandHover(session: CommandSession, input: ClickInput): CommandHover {
   const slots = sessionSlots(session);
   const cands = clickCandidates(input);
 
@@ -975,14 +1079,15 @@ export function commandHover(
   return {};
 }
 
-function highlightPoint(p: Point): { pt?: Point; ent?: Entity } {
+function highlightPoint(p: Point): CommandHover {
   const owner = pointEntityOf(p.id);
   return owner ? { ent: owner } : { pt: p };
 }
 
-function highlightOperand(op: Operand): { pt?: Point; ent?: Entity } {
+function highlightOperand(op: Operand): CommandHover {
   if (op.kind === 'point') return highlightPoint(op.point);
   if (op.kind === 'entity') return { ent: op.entity };
+  if (op.kind === 'dim') return { dim: op.con };
   return {};
 }
 
@@ -1061,7 +1166,7 @@ export function commandStatus(session: CommandSession): CommandStatusText {
     );
     segments.push(
       values.length === 0
-        ? `${slot.key}：待选（${slot.prompt}）`
+        ? `${slot.key}：${slot.optional ? '可跳过' : '待选'}（${slot.prompt}）`
         : `${slot.key}：${values.map(operandLabel).join('、')}`,
     );
   }

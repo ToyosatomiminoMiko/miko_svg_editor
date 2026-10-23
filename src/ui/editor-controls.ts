@@ -14,6 +14,7 @@
 
 import { cam } from '../camera';
 import { EXPORT_EMPTY_MESSAGE, ITER_FULL } from '../config';
+import type { DimConstraint } from '../dimensions';
 import { buildSVG } from '../export-svg';
 import { clearModel, isEmpty } from '../model';
 import {
@@ -84,6 +85,8 @@ export class EditorControls implements ToolbarHandlers {
   sync(): void {
     // 删除等路径不经过选择逻辑，这里兜底摘掉模型里已不存在的选择项
     pruneSelection();
+    // 选择工具悬停尺寸时显示可拖动光标；is-drawing 由 showTool 单独管理，两者互不覆盖
+    this.deps.canvas.classList.toggle('is-dim-hover', !state.command && state.hoverDim !== null);
     this.deps.renderer.render();
     this.selectionList.update(selectionEntries());
     const status = currentStatus();
@@ -376,6 +379,16 @@ export class EditorControls implements ToolbarHandlers {
   /** 尺寸输入框提交/取消的模型侧回调 */
   commitDimValue(con: Parameters<typeof commitDim>[0], value: number): void {
     this.apply(commitDim(con, value));
+  }
+
+  /**
+   * 单击已有尺寸：先结算正在编辑的输入框（可能正是另一条尺寸），
+   * 再打开这一条的输入框（回填当前值），最后同步画面。
+   */
+  openDimEditor(con: DimConstraint): void {
+    this.commitDimEditor();
+    this.deps.hintEditor.open(con);
+    this.sync();
   }
 
   rollbackDimValue(con: Parameters<typeof rollbackDim>[0], pointId?: number): void {

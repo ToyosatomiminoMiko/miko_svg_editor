@@ -190,6 +190,65 @@ describe('exclude 集合', () => {
   });
 });
 
+describe('角度约束', () => {
+  /** 固定一条水平线 + 一条可转动的线；angle 为度，sector 决定射线符号位 */
+  function angleFixture(
+    angle: number,
+    sector = 0,
+  ): {
+    line1: ReturnType<typeof addLine>;
+    line2: ReturnType<typeof addLine>;
+  } {
+    const line1 = addLine(addPt(0, 0, true), addPt(100, 0, true));
+    const line2 = addLine(addPt(0, 0, true), addPt(100, 100));
+    addCon('angleLineLine', { e1: line1.id, e2: line2.id, angle, angleSector: sector });
+    return { line1, line2 };
+  }
+
+  it('目标角 = 当前夹角时残差为 0（创建尺寸不扰动几何）', () => {
+    angleFixture(45);
+    const result = solveSketch();
+    expect(result.converged).toBe(true);
+    expect(result.residual).toBeLessThan(1e-9);
+    expect(result.invalidConstraints).toEqual([]);
+  });
+
+  it('把角度改成 60° 后，两条线方向夹角收敛到 60°', () => {
+    const { line1, line2 } = angleFixture(60);
+    const result = solveSketch();
+    expect(result.converged).toBe(true);
+    expect(result.residual).toBeLessThan(1e-9);
+
+    const [a1, b1] = endsOf(line1);
+    const [a2, b2] = endsOf(line2);
+    const d1 = vec.sub(b1, a1);
+    const d2 = vec.sub(b2, a2);
+    const cos = vec.dot(d1, d2) / (Math.hypot(d1.x, d1.y) * Math.hypot(d2.x, d2.y));
+    expect((Math.acos(cos) * 180) / Math.PI).toBeCloseTo(60, 3);
+  });
+
+  it('象限位翻转一条射线时目标角取补角，几何仍然收敛', () => {
+    // 同一对几何直线：sector 0 目标 45°，sector 1 目标 135° 是等价约束
+    const { line2 } = angleFixture(135, 1);
+    const result = solveSketch();
+    expect(result.converged).toBe(true);
+    const [a2, b2] = endsOf(line2);
+    const d2 = vec.sub(b2, a2);
+    const deg = (Math.atan2(d2.y, d2.x) * 180) / Math.PI;
+    expect(Math.abs(deg)).toBeCloseTo(45, 3);
+  });
+});
+
+/** 只给测试用的端点读取（solver 用例不关心 model 的级联语义） */
+function endsOf(
+  line: ReturnType<typeof addLine>,
+): [{ x: number; y: number }, { x: number; y: number }] {
+  const a = model.pts.get(line.a);
+  const b = model.pts.get(line.b);
+  if (!a || !b) throw new Error('直线端点缺失');
+  return [a, b];
+}
+
 describe('半径钳制', () => {
   it('半径约束目标为负时 r 仍 >= 0（setter 钳制），残差无法归零', () => {
     const center = addPt(0, 0);

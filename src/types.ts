@@ -28,7 +28,7 @@ export interface Point {
 
 /**
  * 约束种类。
- * distancePointPoint / radius 同时是「尺寸」；
+ * distancePointPoint / radius / angleLineLine 同时是「尺寸」；
  * 每种种类的 UI 入口见 operations.ts 的约束操作与 config/constraints-meta.ts 的 CONSTRAINT_META。
  */
 export type ConstraintKind =
@@ -46,7 +46,8 @@ export type ConstraintKind =
   | 'concentric'
   | 'equalRadius'
   | 'distancePointPoint'
-  | 'radius';
+  | 'radius'
+  | 'angleLineLine';
 
 /**
  * 约束用可选字段表达不同种类，具体哪些字段有效由 config/constraints-meta.ts 的 refs 表决定：
@@ -70,8 +71,27 @@ export interface Constraint {
   distance?: number;
   /** 半径类尺寸的目标值（世界单位），用于 radius */
   radius?: number;
-  /** 距离尺寸线相对两点的世界偏移 */
+  /**
+   * 角度类尺寸的目标值，单位是**度**（画布/输入框显示的用户单位），用于 angleLineLine。
+   * 之所以不存弧度：尺寸值要能全精度回填输入框，显示单位与存储单位必须是同一个，
+   * 否则「打开再确认」会在度/弧度换算里产生浮点尾差。残差在 constraints.ts 里换算成弧度。
+   * 取值范围 (0, 180)：两条直线之间的夹角只在这段区间里有意义。
+   */
+  angle?: number;
+  /**
+   * 尺寸标注的摆放参数（世界单位，不参与求解）：
+   * - distancePointPoint：尺寸线相对两点连线的法向偏移（带符号，决定落在哪一侧）；
+   * - angleLineLine：角度尺寸圆弧的半径；
+   * - radius 不使用它，引线方向见 leaderAngle。
+   */
   offset?: number;
+  /** 半径尺寸引线方向（世界坐标系弧度，从圆心指向圆弧上的箭头落点）；缺省按圆/圆弧自动取 */
+  leaderAngle?: number;
+  /**
+   * 角度尺寸取两条直线四个夹角中的哪一个：bit0 = 反向直线 1 的方向，bit1 = 反向直线 2 的方向。
+   * 存「象限符号位」而不是直接存射线：直线方向由求解器移动端点决定，符号位让象限保持稳定。
+   */
+  angleSector?: number;
 }
 
 export type ToolId = 'select' | 'point' | 'line' | 'circle' | 'arc' | 'rect' | 'dim' | 'erase';

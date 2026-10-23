@@ -136,6 +136,11 @@ body {
   cursor: crosshair;
 }
 
+/* 选择工具悬停尺寸标注：可拖动/单击编辑（EditorControls.sync 维护这个类） */
+.app-canvas.is-dim-hover {
+  cursor: move;
+}
+
 /* ------------------------------------------------ 顶部 dock（草图工具） */
 
 /* 库的 `.dock` 是「贴桌面上沿的通栏」：绝对定位、定高 var(--dock-reserve)。

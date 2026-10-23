@@ -9,7 +9,7 @@
  * 而不是静默返回空残差（BUG-4 / B4.1）。
  */
 
-import { CONSTRAINT_META } from './config';
+import { CONSTRAINT_META, DEG_TO_RAD } from './config';
 import type { CurveEntity, LineEntity } from './entities';
 import { curveRadius, ends, getEntity, getPoint } from './model';
 import { vec } from './vec';
@@ -36,6 +36,7 @@ export function isConstraintRefsValid(c: Constraint): boolean {
   }
   if (c.type === 'distancePointPoint') return finite(c.distance);
   if (c.type === 'radius') return finite(c.radius);
+  if (c.type === 'angleLineLine') return finite(c.angle);
   return true;
 }
 
@@ -145,5 +146,25 @@ export const RESID: Record<ConstraintKind, (c: Constraint) => number[]> = {
 
   radius(c) {
     return [curveRadius(curveOf(c.e)) - c.radius!];
+  },
+
+  /**
+   * 两直线夹角：残差 = cos(带符号夹角) - cos(目标角)。
+   * - 用 cos 而不是 atan2 差值：角度残差没有 2π 回绕，目标 (0,180)° 与 cos 一一对应；
+   * - 直线方向是 a→b，angleSector 的符号位把射线取反；只取两个符号位的乘积，
+   *   因此「象限 0」与「象限 3」（两条都反向）表达的是同一条约束；
+   * - 除以两条方向模长之积归一化，长短线在最小二乘里权重一致。
+   * cos 在 0°/180° 附近梯度趋近 0；创建入口用 MIN_ANGLE_SIN 挡掉近平行直线，避免病态。
+   */
+  angleLineLine(c) {
+    const [a1, b1] = ends(lineOf(c.e1));
+    const [a2, b2] = ends(lineOf(c.e2));
+    const d1 = vec.sub(b1, a1);
+    const d2 = vec.sub(b2, a2);
+    const sector = c.angleSector ?? 0;
+    const sign1 = (sector & 1) === 0 ? 1 : -1;
+    const sign2 = (sector & 2) === 0 ? 1 : -1;
+    const cosSigned = (sign1 * sign2 * vec.dot(d1, d2)) / (vec.safeLen(d1) * vec.safeLen(d2));
+    return [cosSigned - Math.cos(c.angle! * DEG_TO_RAD)];
   },
 };

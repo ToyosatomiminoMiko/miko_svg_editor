@@ -10,12 +10,17 @@ export const WHEEL_ZOOM_SENSITIVITY = 0.0015;
 /** 画线时自动加水平/竖直约束的角度比例阈值（|dy| < |dx| × 该值 → 水平） */
 export const AUTO_AXIS_RATIO = 0.02;
 
-/** 尺寸文字相对尺寸线的屏幕像素上移量 */
+/** 尺寸文字相对尺寸线/角度弧的屏幕像素留白 */
 export const DIM_TEXT_GAP_PX = 4;
 
-/** 半径标注文字相对圆心的屏幕像素偏移 */
-export const RADIUS_LABEL_DX_PX = 8;
-export const RADIUS_LABEL_DY_PX = -8;
+/** 半径引线箭头之后的文字留白（屏幕像素） */
+export const DIM_LEADER_GAP_PX = 8;
+
+/** 半径标注的圆心十字半臂长（屏幕像素） */
+export const DIM_CENTER_MARK_PX = 4;
+
+/** 角度尺寸圆弧、以及拖动尺寸时的最小半径（屏幕像素），避免标注塌缩到顶点上 */
+export const DIM_MIN_ARC_PX = 12;
 
 /** 文本测量不可用时的回退：按字号与每字宽度估算 */
 export const TEXT_FALLBACK_FONT_PX = 12;

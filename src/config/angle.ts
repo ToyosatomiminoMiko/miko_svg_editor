@@ -7,6 +7,12 @@
 /** 一整圈弧度 */
 export const TAU = Math.PI * 2;
 
+/** 度 → 弧度：尺寸值以度存储/显示（见 types.Constraint.angle），残差与三角函数用弧度 */
+export const DEG_TO_RAD = Math.PI / 180;
+
+/** 弧度 → 度：角度尺寸的显示与回填 */
+export const RAD_TO_DEG = 180 / Math.PI;
+
 /** 扫角小于该值视为起点终点重合 → 整圆；用于抹平浮点误差 */
 export const SWEEP_EPS = 1e-9;
 

@@ -405,7 +405,7 @@ describe('selectionEntries 行内约束', () => {
     addCon('radius', { e: c2.id, radius: 10 });
 
     selectOnly([entItem(c1.id)]);
-    expect(selectionEntries()[0]?.constraints).toEqual([{ id: r1.id, text: '半径 5' }]);
+    expect(selectionEntries()[0]?.constraints).toEqual([{ id: r1.id, text: '半径 R5' }]);
 
     selectOnly([]);
     expect(selectionEntries()).toEqual([]);
@@ -427,10 +427,25 @@ describe('selectionEntries 行内约束', () => {
 
     selectOnly([entItem(c1.id), entItem(c2.id)]);
     expect(selectionEntries().map((entry) => entry.constraints)).toEqual([
-      [{ id: r1.id, text: '半径 5' }],
-      [{ id: r2.id, text: '半径 10' }],
+      [{ id: r1.id, text: '半径 R5' }],
+      [{ id: r2.id, text: '半径 R10' }],
     ]);
     expect(r1.id).not.toBe(r2.id);
+  });
+
+  it('角度尺寸在行内显示为「角度 45°」', () => {
+    const line1 = addLine(addPt(0, 0), addPt(100, 0));
+    const line2 = addLine(addPt(0, 0), addPt(100, 100));
+    const con = addCon('angleLineLine', {
+      e1: line1.id,
+      e2: line2.id,
+      angle: 45,
+      offset: 20,
+      angleSector: 0,
+    });
+
+    selectOnly([entItem(line1.id)]);
+    expect(selectionEntries()[0]?.constraints).toEqual([{ id: con.id, text: '角度 45°' }]);
   });
 });
 

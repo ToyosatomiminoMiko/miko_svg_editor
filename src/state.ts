@@ -10,6 +10,7 @@
  */
 
 import type { CommandSession } from './operations';
+import type { DimConstraint } from './dimensions';
 import type { Entity } from './entities';
 import type {
   Marquee,
@@ -31,6 +32,8 @@ export interface EditorState {
   snapEnabled: boolean;
   hoverPt: Point | null;
   hoverEnt: Entity | null;
+  /** 指针悬停的尺寸标注；null = 没有悬停尺寸。选择工具据此高亮/可拖动，同步据此切光标 */
+  hoverDim: DimConstraint | null;
   /** 正在填参数的统一命令会话；null = 没有进行中的操作 */
   command: CommandSession | null;
   selection: Selection;
@@ -45,6 +48,7 @@ export const state: EditorState = {
   snapEnabled: true,
   hoverPt: null,
   hoverEnt: null,
+  hoverDim: null,
   command: null,
   selection: { items: [] },
   marquee: null,
@@ -67,6 +71,7 @@ export const resetInteraction = (): void => {
   state.snap = null;
   state.hoverPt = null;
   state.hoverEnt = null;
+  state.hoverDim = null;
   state.command = null;
   state.marquee = null;
   clearSelection();

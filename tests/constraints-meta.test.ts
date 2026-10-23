@@ -26,7 +26,7 @@ import {
 import { resetInteraction } from '../src/state';
 import type { ConstraintKind } from '../src/types';
 
-/** 15 种约束种类，显式列出：元数据表增删时测试需要人跟着改，防止悄悄漂移 */
+/** 16 种约束种类，显式列出：元数据表增删时测试需要人跟着改，防止悄悄漂移 */
 const ALL_KINDS: readonly ConstraintKind[] = [
   'coincident',
   'horizontal',
@@ -43,6 +43,7 @@ const ALL_KINDS: readonly ConstraintKind[] = [
   'equalRadius',
   'distancePointPoint',
   'radius',
+  'angleLineLine',
 ];
 
 beforeEach(() => {
@@ -51,9 +52,9 @@ beforeEach(() => {
 });
 
 describe('CONSTRAINT_META', () => {
-  it('恰好覆盖 15 种 ConstraintKind', () => {
+  it('恰好覆盖 16 种 ConstraintKind', () => {
     const kinds = Object.keys(CONSTRAINT_META) as ConstraintKind[];
-    expect(kinds).toHaveLength(15);
+    expect(kinds).toHaveLength(16);
     expect([...kinds].sort()).toEqual([...ALL_KINDS].sort());
   });
 
@@ -312,6 +313,10 @@ describe('constraintRefKey：无序引用去重（BUG-3 反序选择）', () => 
     );
     expect(constraintRefKey('coincident', { a: 1, b: 2 })).toBe(
       constraintRefKey('coincident', { a: 2, b: 1 }),
+    );
+    // 角度尺寸：两条直线谁作 e1/e2 都是同一个夹角
+    expect(constraintRefKey('angleLineLine', { e1: 1, e2: 2 })).toBe(
+      constraintRefKey('angleLineLine', { e1: 2, e2: 1 }),
     );
   });
 

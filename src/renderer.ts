@@ -6,7 +6,7 @@
 
 import { cam, gridSize, s2w, w2s } from './camera';
 import { TAU } from './config';
-import { dimLayout } from './dimensions';
+import { dimLayout, type DimTextLayout } from './dimensions';
 import { getPoint, model, ownedPointIds, primitiveOf } from './model';
 import { commandPreview, type PreviewShape } from './operations';
 import {
@@ -223,54 +223,72 @@ export class Renderer {
     ctx.stroke();
   }
 
-  /** 从 from 指向 to 画实心三角箭头（屏幕坐标） */
-  private arrowScreen(from: Vec, to: Vec): void {
+  /** 从箭尾指向箭尖画实心三角箭头（屏幕坐标）；dir 是单位向量 */
+  private arrowScreen(tip: Vec, dir: Vec): void {
     const { ctx, theme } = this;
-    const d = { x: from.x - to.x, y: from.y - to.y };
-    const L = Math.hypot(d.x, d.y) || 1;
-    const ux = d.x / L;
-    const uy = d.y / L;
     const size = theme.arrowSize;
-    const w = theme.arrowHalfWidth;
+    const half = theme.arrowHalfWidth;
+    // 底边中点在箭尖后退 size，底边沿 dir 的法向展开 ±half
+    const bx = tip.x - dir.x * size;
+    const by = tip.y - dir.y * size;
+    const nx = -dir.y * half;
+    const ny = dir.x * half;
     ctx.beginPath();
-    ctx.moveTo(from.x, from.y);
-    ctx.lineTo(from.x - ux * size + uy * w, from.y - uy * size - ux * w);
-    ctx.lineTo(from.x - ux * size - uy * w, from.y - uy * size + ux * w);
+    ctx.moveTo(tip.x, tip.y);
+    ctx.lineTo(bx + nx, by + ny);
+    ctx.lineTo(bx - nx, by - ny);
     ctx.closePath();
     ctx.fillStyle = ctx.strokeStyle;
     ctx.fill();
   }
 
+  /**
+   * 尺寸标注：绘制原语全部是屏幕坐标，绘制/命中/拖拽共用 dimensions.dimLayout 这一份布局。
+   * 悬停中的尺寸用选中色；save/restore 保证描边、虚线、字体不会泄漏到后续绘制。
+   */
   private drawDim(c: Constraint): void {
     const layout = dimLayout(c, cam);
     if (!layout) return;
 
     const { ctx, theme } = this;
-    ctx.strokeStyle = theme.dim;
-    ctx.fillStyle = theme.dim;
+    ctx.save();
+    ctx.strokeStyle = state.hoverDim === c ? theme.selection : theme.dim;
+    ctx.lineWidth = theme.hairlineWidth;
+    ctx.lineCap = 'butt';
 
-    if (layout.kind === 'distance') {
-      ctx.lineWidth = theme.hairlineWidth;
-      ctx.setLineDash(theme.dashDim);
-      this.lineScreen(layout.A, layout.A2);
-      this.lineScreen(layout.B, layout.B2);
-      ctx.setLineDash([]);
-      this.lineScreen(layout.A2, layout.B2);
-      this.arrowScreen(layout.A2, layout.B2);
-      this.arrowScreen(layout.B2, layout.A2);
-
-      this.drawDimText(layout.text, layout.textPos, 'center');
-    } else {
-      this.drawDimText(layout.text, layout.textPos, 'left');
+    for (const seg of layout.segments) {
+      ctx.setLineDash(seg.extension ? theme.dashDim : []);
+      this.lineScreen(seg.a, seg.b);
     }
+    ctx.setLineDash([]);
+
+    for (const arc of layout.arcs) {
+      ctx.beginPath();
+      // sweep 有符号：<0 时 canvas 从 start 逆着画到 start+sweep（counterclockwise = true）
+      ctx.arc(
+        arc.center.x,
+        arc.center.y,
+        arc.radius,
+        arc.start,
+        arc.start + arc.sweep,
+        arc.sweep < 0,
+      );
+      ctx.stroke();
+    }
+
+    for (const arrow of layout.arrows) this.arrowScreen(arrow.tip, arrow.dir);
+
+    this.drawDimText(layout.text);
+    ctx.restore();
   }
 
-  private drawDimText(text: string, pos: Vec, align: CanvasTextAlign): void {
+  private drawDimText(text: DimTextLayout): void {
     const { ctx, theme } = this;
     ctx.font = theme.dimFont;
-    ctx.textAlign = align;
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(text, pos.x, pos.y);
+    ctx.textAlign = text.align;
+    ctx.textBaseline = text.baseline;
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.fillText(text.text, text.pos.x, text.pos.y);
   }
 
   /** 命令预览：操作表给出世界坐标的几何基元，画法与实体绘制共用 strokePrimitive */

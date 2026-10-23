@@ -8,7 +8,6 @@
 import {
   ARC_ENDPOINT_RADII_REL_TOL,
   AUTO_AXIS_RATIO,
-  DIM_DEFAULT_OFFSET_PX,
   ITER_CONSTRAINT,
   ITER_DRAG,
   ITER_EDIT,
@@ -22,9 +21,16 @@ import {
   type ResolvedConstraint,
 } from './config';
 import {
-  isDimConstraint,
+  angleLineGeometry,
+  angleRadiusFromPlacement,
+  angleSectorAt,
+  angleSectorDegrees,
+  clampRadiusLeaderAngle,
+  dimValidationError,
+  findAngleDim,
   findDimForEntity,
   findDistanceDim,
+  isDimConstraint,
   setDimValue,
   type DimConstraint,
 } from './dimensions';
@@ -302,18 +308,30 @@ export type DimResult =
   | { ok: true; con: DimConstraint; created: boolean; pointId?: number; notices: Notice[] }
   | { ok: false; reason: string };
 
-/** 尺寸工具点中图元：已有尺寸则返回编辑会话，否则按图元种类建半径或长度尺寸 */
-export function dimForEntity(e: Entity, zoom: number): DimResult {
+/**
+ * 尺寸工具点中图元：已有尺寸则返回编辑会话，否则按图元种类建半径或长度尺寸。
+ *
+ * placement 是用户第二次点击的「放置点」：CAD 的 Smart Dimension 先点几何、再点一下决定
+ * 标注摆在哪。它决定距离尺寸的法向偏移与半径尺寸的引线方向；已有尺寸的编辑不需要它。
+ */
+export function dimForEntity(e: Entity, placement?: Vec): DimResult {
   const existing = findDimForEntity(e);
   if (existing) return { ok: true, con: existing, created: false, notices: [] };
 
   const target = e.dimTarget();
   // 点图元没有独立尺寸：它只作为两点距离的一端（入口在 operations.ts 的 dim 操作）
   if (!target) return { ok: false, reason: '该图元不能标注尺寸' };
+  if (!placement) return { ok: false, reason: '先在画布上点一下放置尺寸' };
+
   if (target.kind === 'radius') {
     const ent = getEntity(target.e);
     if (!isCurveEntity(ent)) return { ok: false, reason: '该图元不能标注半径' };
-    const con = addCon('radius', { e: ent.id, radius: curveRadius(ent) });
+    const center = getPoint(ent.c);
+    if (!center) return { ok: false, reason: '圆心缺失' };
+    // 引线方向 = 圆心 → 放置点；圆弧上的方向会被夹到弧段范围内
+    const raw = Math.atan2(placement.y - center.y, placement.x - center.x);
+    const leaderAngle = clampRadiusLeaderAngle(ent, raw);
+    const con = addCon('radius', { e: ent.id, radius: curveRadius(ent), leaderAngle });
     if (!isDimConstraint(con)) return { ok: false, reason: '尺寸创建失败' };
     return { ok: true, con, created: true, notices: solve(ITER_CONSTRAINT) };
   }
@@ -323,27 +341,55 @@ export function dimForEntity(e: Entity, zoom: number): DimResult {
   if (!a || !b) return { ok: false, reason: '直线端点缺失' };
   const d = vec.dist(a, b);
   if (d < MIN_DIM_DISTANCE) return { ok: false, reason: '长度太小，无法标注' };
-  // offset 是世界偏移：创建时把屏幕像素参考值按当前缩放换算一次，之后缩放不再改（BUG-8）
-  const con = addCon('distancePointPoint', {
-    a: target.a,
-    b: target.b,
-    distance: d,
-    offset: DIM_DEFAULT_OFFSET_PX / zoom,
+  // offset 是放置点相对两点连线法向的投影（世界单位，带符号表示落在哪一侧）
+  const offset = vec.dot(vec.sub(placement, a), vec.unitPerp(vec.sub(b, a)));
+  const con = addCon('distancePointPoint', { a: target.a, b: target.b, distance: d, offset });
+  if (!isDimConstraint(con)) return { ok: false, reason: '尺寸创建失败' };
+  return { ok: true, con, created: true, notices: solve(ITER_CONSTRAINT) };
+}
+
+/**
+ * 两条直线的角度尺寸：放置点决定取四个夹角中的哪一个扇形（angleSector），
+ * 也决定圆弧半径。已存在同一对直线的角度尺寸时返回编辑会话。
+ *
+ * 目标角取「放置扇形当前的实际夹角」：约束刚创建时残差为 0，用户随后改值才会驱动几何。
+ */
+export function dimForLines(
+  e1: Entity,
+  e2: Entity,
+  placement: Vec | undefined,
+  zoom: number,
+): DimResult {
+  const existing = findAngleDim(e1.id, e2.id);
+  if (existing) return { ok: true, con: existing, created: false, notices: [] };
+  if (!placement) return { ok: false, reason: '先在画布上点一下放置角度尺寸' };
+
+  const g = angleLineGeometry(e1, e2);
+  if (!g) return { ok: false, reason: '两条直线平行或夹角太小，无法标注角度' };
+  const sector = angleSectorAt(g, placement);
+  const angle = angleSectorDegrees(g, sector);
+  const offset = angleRadiusFromPlacement(g.vertex, placement, zoom);
+  const con = addCon('angleLineLine', {
+    e1: e1.id,
+    e2: e2.id,
+    angle,
+    offset,
+    angleSector: sector,
   });
   if (!isDimConstraint(con)) return { ok: false, reason: '尺寸创建失败' };
   return { ok: true, con, created: true, notices: solve(ITER_CONSTRAINT) };
 }
 
 /**
- * 两点尺寸：已有则返回编辑会话；offset 取点击位置相对连线法线的投影（世界单位）。
+ * 两点尺寸：已有则返回编辑会话；offset 取放置点相对连线法线的投影（世界单位）。
  * bCreated 表示第二点是这次操作新建的：取消编辑时它要跟着尺寸一起删。
  */
-export function dimForPoints(a: Point, b: Point, w: Vec, bCreated: boolean): DimResult {
+export function dimForPoints(a: Point, b: Point, placement: Vec, bCreated: boolean): DimResult {
   const existing = findDistanceDim(a.id, b.id);
   if (existing) return { ok: true, con: existing, created: false, notices: [] };
   const d = vec.dist(a, b);
   if (d < MIN_DIM_DISTANCE) return { ok: false, reason: '两点距离太小，无法标注' };
-  const offset = vec.dot(vec.sub(w, a), vec.unitPerp(vec.sub(b, a)));
+  const offset = vec.dot(vec.sub(placement, a), vec.unitPerp(vec.sub(b, a)));
   const con = addCon('distancePointPoint', { a: a.id, b: b.id, distance: d, offset });
   if (!isDimConstraint(con)) return { ok: false, reason: '尺寸创建失败' };
   return {
@@ -355,8 +401,10 @@ export function dimForPoints(a: Point, b: Point, w: Vec, bCreated: boolean): Dim
   };
 }
 
-/** 提交尺寸编辑：只改目标值再求解（编辑场景用 ITER_EDIT） */
+/** 提交尺寸编辑：先按种类校验输入（角度必须 < 180°），再改目标值并求解 */
 export function commitDim(con: DimConstraint, value: number): ActionResult {
+  const invalid = dimValidationError(con, value);
+  if (invalid) return actionFail(invalid);
   setDimValue(con, value);
   return actionOk(solve(ITER_EDIT));
 }

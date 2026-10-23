@@ -54,6 +54,7 @@ import {
   clickCommand,
   createSession,
   executeCommand,
+  isComplete,
   type ClickInput,
 } from '../src/operations';
 import { dimForEntity } from '../src/sketch-actions';
@@ -511,6 +512,8 @@ describe('点图元的尺寸行为', () => {
     const session = createSession('dim');
     expect(clickCommand(session, click({ x: 0, y: 0 })).filled).toBe(true);
     expect(clickCommand(session, click({ x: 100, y: 0 })).filled).toBe(true);
+    // Smart Dimension：目标点选完后还需要点一下放置
+    expect(clickCommand(session, click({ x: 50, y: 20 })).filled).toBe(true);
 
     const outcome = executeCommand(session, 1);
     expect(outcome.kind).toBe('dim');
@@ -528,16 +531,19 @@ describe('点图元的尺寸行为', () => {
     const p2 = addPt(100, 0);
     addPointEntity(p2);
 
-    const create = (): ReturnType<typeof executeCommand> => {
-      const session = createSession('dim');
-      clickCommand(session, click({ x: 0, y: 0 }));
-      clickCommand(session, click({ x: 100, y: 0 }));
-      return executeCommand(session, 1);
-    };
-
-    const first = create();
+    const firstSession = createSession('dim');
+    clickCommand(firstSession, click({ x: 0, y: 0 }));
+    clickCommand(firstSession, click({ x: 100, y: 0 }));
+    clickCommand(firstSession, click({ x: 50, y: 20 }));
+    const first = executeCommand(firstSession, 1);
     if (first.kind !== 'dim' || !first.result.ok) throw new Error('尺寸创建失败');
-    const second = create();
+
+    // 已有尺寸：两点就填满，不再要求放置，直接进入编辑
+    const secondSession = createSession('dim');
+    clickCommand(secondSession, click({ x: 0, y: 0 }));
+    clickCommand(secondSession, click({ x: 100, y: 0 }));
+    expect(isComplete(secondSession)).toBe(true);
+    const second = executeCommand(secondSession, 1);
     expect(second.kind).toBe('dim');
     if (second.kind !== 'dim' || !second.result.ok) throw new Error('应返回编辑会话');
     expect(second.result.created).toBe(false);
@@ -548,7 +554,7 @@ describe('点图元的尺寸行为', () => {
   it('dimForEntity(点图元) 失败：点图元只能作为两点距离的一端', () => {
     const e = addPointEntity(addPt(0, 0));
 
-    const result = dimForEntity(e, 1);
+    const result = dimForEntity(e);
 
     expect(result.ok).toBe(false);
     if (result.ok) return;

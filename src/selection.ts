@@ -11,14 +11,8 @@
 
 import { s2w } from './camera';
 import type { CameraView } from './camera';
-import {
-  CONSTRAINT_META,
-  DRAG_THRESHOLD_PX,
-  ENTITY_REF_KEYS,
-  POINT_REF_KEYS,
-  formatDimValue,
-} from './config';
-import { dimLabel, dimValue, isDimConstraint } from './dimensions';
+import { CONSTRAINT_META, DRAG_THRESHOLD_PX, ENTITY_REF_KEYS, POINT_REF_KEYS } from './config';
+import { dimLabel, dimText, dimValue, isDimConstraint, pickDim } from './dimensions';
 import type { Entity } from './entities';
 import {
   computeSnap,
@@ -212,7 +206,8 @@ export function pruneSelection(): void {
 function constraintText(c: Constraint): string {
   if (!isDimConstraint(c)) return CONSTRAINT_META[c.type].label;
   const value = dimValue(c);
-  return Number.isFinite(value) ? `${dimLabel(c)} ${formatDimValue(value)}` : dimLabel(c);
+  // dimText 与画布标注同源（半径带 R、角度带 °），列表里也能直接看出单位
+  return Number.isFinite(value) ? `${dimLabel(c)} ${dimText(c)}` : dimLabel(c);
 }
 
 /**
@@ -299,6 +294,7 @@ export function updateHover(w: Vec, zoom: number, command?: HoverPickContext): v
     if (!command) {
       state.hoverPt = null;
       state.hoverEnt = null;
+      state.hoverDim = null;
       return;
     }
     const hover = commandHover(state.command, {
@@ -311,6 +307,16 @@ export function updateHover(w: Vec, zoom: number, command?: HoverPickContext): v
     });
     state.hoverPt = hover.pt ?? null;
     state.hoverEnt = hover.ent ?? null;
+    state.hoverDim = hover.dim ?? null;
+    return;
+  }
+  // 选择工具：尺寸标注优先于点/图元。尺寸线常常压在图元上，先命中才能拖动/单击编辑它；
+  // 命中尺寸时清掉点/图元悬停，避免同时亮三种对象。
+  const dim = command ? pickDim(w, command.view, command.measureText, command.font) : null;
+  state.hoverDim = dim;
+  if (dim) {
+    state.hoverPt = null;
+    state.hoverEnt = null;
     return;
   }
   state.hoverPt = pickPoint(w, zoom);
@@ -332,6 +338,7 @@ export function clearHover(): void {
   state.snap = null;
   state.hoverPt = null;
   state.hoverEnt = null;
+  state.hoverDim = null;
 }
 
 /** 框选每帧更新终点与 active 阈值；世界矩形只在 applyMarquee 结算时换算一次 */

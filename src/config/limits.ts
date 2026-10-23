@@ -42,6 +42,12 @@ export const MIN_DRAW_LENGTH = 1e-6;
 /** 两点距离小于该值不创建距离尺寸 */
 export const MIN_DIM_DISTANCE = 1e-6;
 
+/**
+ * 两直线夹角的正弦绝对值下限：低于它视为平行/夹角过小，角度标注没有稳定的顶点与扇形。
+ * 取 1e-3 ≈ 0.057°，比浮点误差大、又足够容纳任何有意义的标注。
+ */
+export const MIN_ANGLE_SIN = 1e-3;
+
 /** 圆 / 圆弧的最小半径；半径小于该值不创建图元 */
 export const MIN_RADIUS = 1e-4;
 
@@ -61,5 +67,5 @@ export const INITIAL_SEQ = 1;
 
 /* ---------------- 尺寸标注 ---------------- */
 
-/** 从图元创建尺寸标注时，尺寸线相对图元的世界偏移的屏幕像素参考值（创建时按当前缩放换算一次） */
+/** 创建角度尺寸时，标注弧半径的屏幕像素下限（放置点离顶点太近时兜底） */
 export const DIM_DEFAULT_OFFSET_PX = 14;

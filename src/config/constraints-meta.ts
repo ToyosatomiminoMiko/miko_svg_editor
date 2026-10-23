@@ -134,6 +134,15 @@ export const CONSTRAINT_META: Record<ConstraintKind, ConstraintKindMeta> = {
     label: '半径',
     refs: [{ key: 'e', kind: 'entity', accepts: CURVE }],
   },
+  angleLineLine: {
+    label: '角度',
+    // 两条直线谁在前都表示同一个夹角，反序添加落到同一个去重键
+    unorderedRefs: true,
+    refs: [
+      { key: 'e1', kind: 'entity', accepts: LINE },
+      { key: 'e2', kind: 'entity', accepts: LINE },
+    ],
+  },
 };
 
 /** 待添加的一条约束：种类 + 引用/数值字段（由操作表的 execute 构造） */
