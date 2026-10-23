@@ -1,7 +1,7 @@
 /**
  * config/constraints-meta.ts 的约束元数据与 operations.ts 约束操作的对应关系。
  * 三件事必须同时成立，否则「元数据 ↔ 槽位/执行」的单一来源会漏：
- * 1) 19 种 ConstraintKind 都有元数据与引用字段（Record 穷尽在运行时也要有测试兜底）；
+ * 1) 15 种 ConstraintKind 都有元数据与引用字段（Record 穷尽在运行时也要有测试兜底）；
  * 2) 引用字段推导与去重键只由元数据决定，反序选择落到同一个键；
  * 3) operations.ts 的 10 个约束操作都能生成元数据表里的合法 kind
  *    （重合/相切是多态操作，一个按钮会落到多个 kind）。
@@ -26,7 +26,7 @@ import {
 import { resetInteraction } from '../src/state';
 import type { ConstraintKind } from '../src/types';
 
-/** 19 种约束种类，显式列出：元数据表增删时测试需要人跟着改，防止悄悄漂移 */
+/** 15 种约束种类，显式列出：元数据表增删时测试需要人跟着改，防止悄悄漂移 */
 const ALL_KINDS: readonly ConstraintKind[] = [
   'coincident',
   'horizontal',
@@ -42,11 +42,7 @@ const ALL_KINDS: readonly ConstraintKind[] = [
   'concentric',
   'equalRadius',
   'distancePointPoint',
-  'distancePointLine',
   'radius',
-  'angle',
-  'midpoint',
-  'symmetric',
 ];
 
 beforeEach(() => {
@@ -55,24 +51,23 @@ beforeEach(() => {
 });
 
 describe('CONSTRAINT_META', () => {
-  it('恰好覆盖 19 种 ConstraintKind', () => {
+  it('恰好覆盖 15 种 ConstraintKind', () => {
     const kinds = Object.keys(CONSTRAINT_META) as ConstraintKind[];
-    expect(kinds).toHaveLength(19);
+    expect(kinds).toHaveLength(15);
     expect([...kinds].sort()).toEqual([...ALL_KINDS].sort());
   });
 
-  it('每种约束都有 label、ui 标记和至少一个引用字段', () => {
+  it('每种约束都有 label 与至少一个引用字段', () => {
     for (const kind of ALL_KINDS) {
       const meta = CONSTRAINT_META[kind];
       expect(meta, kind).toBeDefined();
       expect(meta.label.length, kind).toBeGreaterThan(0);
-      expect(typeof meta.ui, kind).toBe('boolean');
       expect(meta.refs.length, kind).toBeGreaterThan(0);
     }
   });
 
   it('引用字段的 key 合法且在同一约束内不重复', () => {
-    const validKeys = new Set<string>(['e', 'e1', 'e2', 'line', 'circ', 'a', 'b', 'p', 'p1', 'p2']);
+    const validKeys = new Set<string>(['e', 'e1', 'e2', 'line', 'circ', 'a', 'b', 'p']);
     for (const kind of ALL_KINDS) {
       const keys = CONSTRAINT_META[kind].refs.map((ref) => String(ref.key));
       expect(keys.length, kind).toBe(new Set(keys).size);
@@ -106,7 +101,7 @@ describe('CONSTRAINT_META', () => {
 describe('引用字段推导', () => {
   it('ENTITY_REF_KEYS / POINT_REF_KEYS 由元数据表汇总而来', () => {
     expect(ENTITY_REF_KEYS).toEqual(['e', 'e1', 'e2', 'line', 'circ']);
-    expect(POINT_REF_KEYS).toEqual(['a', 'b', 'p', 'p1', 'p2']);
+    expect(POINT_REF_KEYS).toEqual(['a', 'b', 'p']);
   });
 
   it('每个引用键都真的被某个约束使用', () => {
@@ -234,16 +229,8 @@ describe('约束操作与元数据一致', () => {
       expect(added.length, opId).toBeGreaterThan(0);
       for (const con of added) {
         expect(ALL_KINDS, `${opId} → ${con.type}`).toContain(con.type);
-        expect(CONSTRAINT_META[con.type].ui, `${con.type} 的 ui 标记`).toBe(true);
       }
     }
-  });
-
-  it('无 UI 入口的 4 种约束只在残差层预留（ui = false）', () => {
-    const noUi = ALL_KINDS.filter((kind) => !CONSTRAINT_META[kind].ui);
-    expect([...noUi].sort()).toEqual(
-      ['angle', 'distancePointLine', 'midpoint', 'symmetric'].sort(),
-    );
   });
 });
 
@@ -285,9 +272,6 @@ describe('constraintRefKey', () => {
     );
     expect(constraintRefKey('distancePointPoint', { a: 1, b: 2, distance: 5 })).toBe(
       constraintRefKey('distancePointPoint', { a: 1, b: 2, distance: 6 }),
-    );
-    expect(constraintRefKey('distancePointLine', { e: 1, p: 2, offset: 5 })).toBe(
-      constraintRefKey('distancePointLine', { e: 1, p: 2, offset: 6 }),
     );
   });
 
@@ -334,9 +318,6 @@ describe('constraintRefKey：无序引用去重（BUG-3 反序选择）', () => 
   it('有序引用种类反序是不同的键', () => {
     expect(constraintRefKey('tangentLineCircle', { line: 1, circ: 2 })).not.toBe(
       constraintRefKey('tangentLineCircle', { line: 2, circ: 1 }),
-    );
-    expect(constraintRefKey('distancePointLine', { e: 1, p: 2 })).not.toBe(
-      constraintRefKey('distancePointLine', { e: 2, p: 1 }),
     );
   });
 });

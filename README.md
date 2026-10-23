@@ -330,8 +330,8 @@ src/
     measure-text.ts          canvas measureText 适配器（无 canvas 时回退估算）
   config/
     index.ts                 汇总出口，业务统一从 './config' 引入
-    angle.ts                 TAU / sweepOf / normalizeAngle / wrapPi / 弧段数
-    constraints-meta.ts      19 种约束元数据、去重键、引用字段推导（操作槽位/执行在 operations.ts）
+    angle.ts                 TAU / sweepOf / normalizeAngle / 弧段数
+    constraints-meta.ts      15 种约束元数据、去重键、引用字段推导（操作槽位/执行在 operations.ts）
     export.ts                导出标定：颜色/线宽/精度/文件名/虚线/点半径/空图文案
     format.ts                formatNumber / formatDimValue（显示格式，与回填全精度分开）
     layout.ts                侧栏宽度记忆键、键盘步长、布局变量读不到时的兜底值（宽度与上下限的真相在 styles.css :root）
@@ -440,7 +440,7 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
 ### 新增约束种类
 
 1. `types.ts`：`ConstraintKind` 联合 + `Constraint` 的引用字段；
-2. `config/constraints-meta.ts`：`CONSTRAINT_META` 加记录（label/ui/refs，refs 决定去重键与 model 的
+2. `config/constraints-meta.ts`：`CONSTRAINT_META` 加记录（label/refs，refs 决定去重键与 model 的
    `ENTITY_REF_KEYS`/`POINT_REF_KEYS` 推导）；
 3. `constraints.ts`：`RESID` 是 `Record<ConstraintKind, …>`，漏写会编译失败；
 4. `solver.ts` 无需改（自由度与残差表解耦）；有按钮入口时在 `operations.ts` 加一条约束操作：
@@ -483,9 +483,6 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
   `tangentLineCircle` 或 `tangentCircleCircle`；「重合」按目标对象分派到 `coincident`（点）
   与图元方法 `pointOnConstraint()`（`pointOnLine` / `pointOnCircle`）。
   另有 `distancePointPoint`（距离）与 `radius`（半径）两种尺寸类约束，入口在尺寸操作，不在约束按钮区。
-- **暂无 UI 入口但有残差/求解支持的 4 种**：`distancePointLine`（点到线距离）、`angle`（角度）、
-  `midpoint`（中点）、`symmetric`（对称）。它们可经 `model.addCon()` 在代码/测试里使用，接 UI 时在
-  `operations.ts` 加一条约束操作即可。
 - 构造线是图元属性而不是约束：由工具栏「构造」切换，只影响虚线与导出样式，不参与求解；点图元同样有
   构造属性，构造点在画布上只画虚线外环、导出为空心的虚线小圆。
 

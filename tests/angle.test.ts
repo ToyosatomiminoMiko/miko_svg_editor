@@ -14,7 +14,6 @@ import {
   isFullSweep,
   normalizeAngle,
   sweepOf,
-  wrapPi,
 } from '../src/config/angle';
 
 describe('normalizeAngle', () => {
@@ -33,27 +32,6 @@ describe('normalizeAngle', () => {
       const normalized = normalizeAngle(angle);
       expect(normalized).toBeGreaterThanOrEqual(0);
       expect(normalized).toBeLessThan(TAU);
-    }
-  });
-});
-
-describe('wrapPi', () => {
-  it('把角度归一化到 (-π, π]', () => {
-    expect(wrapPi(0)).toBe(0);
-    expect(wrapPi(Math.PI)).toBe(Math.PI);
-    // -π 经 normalizeAngle 变成 π，因此边界值取 +π（区间是左开右闭）
-    expect(wrapPi(-Math.PI)).toBe(Math.PI);
-    expect(wrapPi(TAU - 0.1)).toBeCloseTo(-0.1, 12);
-    expect(wrapPi(Math.PI + 0.1)).toBeCloseTo(-Math.PI + 0.1, 12);
-    expect(wrapPi(-Math.PI / 2)).toBeCloseTo(-Math.PI / 2, 12);
-  });
-
-  it('对任意角度，结果都落在 (-π, π]', () => {
-    const angles = [-10, -TAU, -Math.PI, -1e-12, 0, 1e-12, Math.PI, Math.PI + 1, 10, 123.456];
-    for (const angle of angles) {
-      const wrapped = wrapPi(angle);
-      expect(wrapped).toBeGreaterThan(-Math.PI);
-      expect(wrapped).toBeLessThanOrEqual(Math.PI);
     }
   });
 });

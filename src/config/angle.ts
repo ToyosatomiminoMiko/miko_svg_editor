@@ -21,13 +21,6 @@ export function normalizeAngle(angle: number): number {
   return ((angle % TAU) + TAU) % TAU;
 }
 
-/** 把角度归一化到 (-π, π]，用于角度约束残差 */
-export function wrapPi(angle: number): number {
-  let a = normalizeAngle(angle);
-  if (a > Math.PI) a -= TAU;
-  return a;
-}
-
 /**
  * 圆弧的正向扫角，范围 (0, TAU]。
  * 起终点同角（含浮点误差）返回 TAU（整圆），而不是 0：

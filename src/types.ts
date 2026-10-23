@@ -28,8 +28,8 @@ export interface Point {
 
 /**
  * 约束种类。
- * distancePointPoint / distancePointLine / radius 同时是「尺寸」；
- * 哪些种类有 UI 入口见 operations.ts 的约束操作与 config/constraints-meta.ts 的 CONSTRAINT_META。
+ * distancePointPoint / radius 同时是「尺寸」；
+ * 每种种类的 UI 入口见 operations.ts 的约束操作与 config/constraints-meta.ts 的 CONSTRAINT_META。
  */
 export type ConstraintKind =
   | 'coincident'
@@ -46,15 +46,11 @@ export type ConstraintKind =
   | 'concentric'
   | 'equalRadius'
   | 'distancePointPoint'
-  | 'distancePointLine'
-  | 'radius'
-  | 'angle'
-  | 'midpoint'
-  | 'symmetric';
+  | 'radius';
 
 /**
  * 约束用可选字段表达不同种类，具体哪些字段有效由 config/constraints-meta.ts 的 refs 表决定：
- * 图元引用字段：e / e1 / e2 / line / circ；点引用字段：a / b / p / p1 / p2。
+ * 图元引用字段：e / e1 / e2 / line / circ；点引用字段：a / b / p。
  */
 export interface Constraint {
   id: number;
@@ -69,15 +65,11 @@ export interface Constraint {
   a?: number;
   b?: number;
   p?: number;
-  p1?: number;
-  p2?: number;
   /* -------- 数值 -------- */
-  /** 距离类尺寸的目标值（世界单位），用于 distancePointPoint / distancePointLine */
+  /** 距离类尺寸的目标值（世界单位），用于 distancePointPoint */
   distance?: number;
   /** 半径类尺寸的目标值（世界单位），用于 radius */
   radius?: number;
-  /** 角度约束的目标值（弧度）；angle 暂无 UI 入口，不与点引用字段 a 复用 */
-  angle?: number;
   /** 距离尺寸线相对两点的世界偏移 */
   offset?: number;
 }

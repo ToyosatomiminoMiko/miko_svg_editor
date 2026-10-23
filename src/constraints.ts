@@ -9,7 +9,7 @@
  * 而不是静默返回空残差（BUG-4 / B4.1）。
  */
 
-import { CONSTRAINT_META, wrapPi } from './config';
+import { CONSTRAINT_META } from './config';
 import type { CurveEntity, LineEntity } from './entities';
 import { curveRadius, ends, getEntity, getPoint } from './model';
 import { vec } from './vec';
@@ -34,9 +34,8 @@ export function isConstraintRefsValid(c: Constraint): boolean {
     if (!entity) return false;
     if (ref.accepts && !ref.accepts.includes(entity.type)) return false;
   }
-  if (c.type === 'distancePointPoint' || c.type === 'distancePointLine') return finite(c.distance);
+  if (c.type === 'distancePointPoint') return finite(c.distance);
   if (c.type === 'radius') return finite(c.radius);
-  if (c.type === 'angle') return finite(c.angle);
   return true;
 }
 
@@ -144,40 +143,7 @@ export const RESID: Record<ConstraintKind, (c: Constraint) => number[]> = {
     return [vec.dist(pointOf(c.a), pointOf(c.b)) - c.distance!];
   },
 
-  distancePointLine(c) {
-    const [a, b] = ends(lineOf(c.e));
-    const p = pointOf(c.p);
-    const d = vec.sub(b, a);
-    return [Math.abs(vec.crs(vec.sub(p, a), d)) / vec.safeLen(d) - c.distance!];
-  },
-
   radius(c) {
     return [curveRadius(curveOf(c.e)) - c.radius!];
-  },
-
-  angle(c) {
-    const [a1, b1] = ends(lineOf(c.e1));
-    const [a2, b2] = ends(lineOf(c.e2));
-    const d1 = vec.sub(b1, a1);
-    const d2 = vec.sub(b2, a2);
-    return [wrapPi(Math.atan2(vec.crs(d1, d2), vec.dot(d1, d2)) - c.angle!)];
-  },
-
-  midpoint(c) {
-    const [a, b] = ends(lineOf(c.e));
-    const p = pointOf(c.p);
-    return [p.x - (a.x + b.x) / 2, p.y - (a.y + b.y) / 2];
-  },
-
-  symmetric(c) {
-    const [a, b] = ends(lineOf(c.e));
-    const p1 = pointOf(c.p1);
-    const p2 = pointOf(c.p2);
-    const d = vec.sub(b, a);
-    const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-    return [
-      vec.crs(vec.sub(mid, a), d) / vec.safeLen(d),
-      vec.dot(vec.sub(p2, p1), d) / vec.safeLen(d),
-    ];
   },
 };
