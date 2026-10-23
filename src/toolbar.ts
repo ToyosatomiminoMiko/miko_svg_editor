@@ -11,8 +11,8 @@
  * `.dock-actions` 这组 dock 词汇，宿主语义（role / aria-label）已由 app-shell 给足。
  * 两个分区一次 `replaceChildren` 写入，重复调用不会叠出第二份。
  *
- * 按钮表来自 tools.ts 的 TOOLS 与 operations.ts 的 CONSTRAINT_OPERATIONS /
- * EDIT_OPERATIONS，动作由调用方（Editor）注入。
+ * 按钮表来自 operations.ts 的 TOOLS / CONSTRAINT_OPERATIONS / EDIT_OPERATIONS，
+ * 动作由调用方（Editor）注入。
  *
  * 与命令模型的关系：工具与约束/固定/构造按钮都只是「启动一个操作」——操作把参数槽位
  * 填满后立即执行（见 operations.ts 与 ui/editor-controls.ts）。工具栏不保存任何参数，
@@ -28,8 +28,7 @@ import {
   createSwitch,
   type ButtonHandle,
 } from 'miko_ui';
-import { CONSTRAINT_OPERATIONS, EDIT_OPERATIONS, type OperationId } from './operations';
-import { TOOLS } from './tools';
+import { CONSTRAINT_OPERATIONS, EDIT_OPERATIONS, TOOLS, type OperationId } from './operations';
 import type { ToolId } from './types';
 
 export interface ToolbarHandlers {

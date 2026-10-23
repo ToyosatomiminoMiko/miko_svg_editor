@@ -14,9 +14,9 @@
  */
 
 import type { CameraView } from './camera';
-import { formatDimValue, type ResolvedConstraint } from './config';
+import { TAU, formatDimValue, sweepOf, type ResolvedConstraint } from './config';
 import { dimLabel, pickDim, type DimConstraint } from './dimensions';
-import { isCurveEntity, type Entity } from './entities';
+import { isCurveEntity, type Entity, type EntityPrimitive } from './entities';
 import { pickEntity, pickPoint, pickPointEntity } from './geometry';
 import { addPt, discardPoint, getEntity, getPoint, pointEntityOf } from './model';
 import {
@@ -61,10 +61,14 @@ const dimOperand = (con: DimConstraint): Operand => ({ kind: 'dim', con });
 
 const isPointOperand = (op: Operand | undefined): op is Extract<Operand, { kind: 'point' }> =>
   op?.kind === 'point';
-const isEntityOperand = (op: Operand | undefined): op is Extract<Operand, { kind: 'entity' }> =>
-  op?.kind === 'entity';
-const isPositionOperand = (op: Operand | undefined): op is Extract<Operand, { kind: 'position' }> =>
-  op?.kind === 'position';
+
+/** 执行函数里的类型收窄：槽位已保证类型，取不到只可能是参数缺失（正常流程不会发生） */
+const pointOf = (op: Operand | undefined): Point | undefined =>
+  op?.kind === 'point' ? op.point : undefined;
+const posOf = (op: Operand | undefined): Vec | undefined =>
+  op?.kind === 'position' ? op.pos : undefined;
+const entityOf = (op: Operand | undefined): Entity | undefined =>
+  op?.kind === 'entity' ? op.entity : undefined;
 
 /** 操作数的世界坐标（只对 point / position 有意义） */
 const operandPos = (op: Operand | undefined): Vec | undefined => {
@@ -203,97 +207,85 @@ export interface OperationMeta {
 
 /* -------- 绘图 -------- */
 
-const pointOperation: OperationMeta = {
-  id: 'point',
-  label: '点',
-  group: 'draw',
-  tool: 'point',
-  slots: () => [createPointSlot('位置', '点一个位置（可吸附已有点）')],
-  execute(values, ctx) {
-    const v = values[0];
-    if (!isPointOperand(v)) return actionOut(actionFail('缺少点参数'));
-    return actionOut(placePointEntity(v.point, ctx.owned.has(v.point.id)));
-  },
-};
+/** 绘图操作：id 与工具相同，group 固定 draw；只差槽位/执行/接续 */
+const drawOperation = (
+  id: ToolOperationId,
+  label: string,
+  slots: OperationMeta['slots'],
+  execute: OperationMeta['execute'],
+  continueWith?: OperationMeta['continueWith'],
+): OperationMeta => ({ id, label, group: 'draw', tool: id, slots, execute, continueWith });
 
-const lineOperation: OperationMeta = {
-  id: 'line',
-  label: '直线',
-  group: 'draw',
-  tool: 'line',
-  slots: () => [createPointSlot('起点', '点一个起点'), createPointSlot('终点', '点一个终点')],
-  execute(values) {
-    const a = values[0];
-    const b = values[1];
-    if (!isPointOperand(a) || !isPointOperand(b)) {
-      return actionOut(actionFail('缺少起点或终点'));
-    }
-    return actionOut(createLine(a.point, b.point));
+const pointOperation = drawOperation(
+  'point',
+  '点',
+  () => [createPointSlot('位置', '点一个位置（可吸附已有点）')],
+  (values, ctx) => {
+    const p = pointOf(values[0]);
+    if (!p) return actionOut(actionFail('缺少点参数'));
+    return actionOut(placePointEntity(p, ctx.owned.has(p.id)));
+  },
+);
+
+const lineOperation = drawOperation(
+  'line',
+  '直线',
+  () => [createPointSlot('起点', '点一个起点'), createPointSlot('终点', '点一个终点')],
+  (values) => {
+    const a = pointOf(values[0]);
+    const b = pointOf(values[1]);
+    if (!a || !b) return actionOut(actionFail('缺少起点或终点'));
+    return actionOut(createLine(a, b));
   },
   // 连续画：刚画的终点就是下一段的起点（点已并入图元，不再计入 owned）
-  continueWith(values) {
-    const b = values[1];
-    return isPointOperand(b) ? [pointOperand(b.point)] : null;
+  (values) => {
+    const b = pointOf(values[1]);
+    return b ? [pointOperand(b)] : null;
   },
-};
+);
 
-const circleOperation: OperationMeta = {
-  id: 'circle',
-  label: '圆',
-  group: 'draw',
-  tool: 'circle',
-  slots: () => [createPointSlot('圆心', '点一个圆心'), positionSlot('半径', '点一个半径位置')],
-  execute(values) {
-    const center = values[0];
-    const radius = values[1];
-    if (!isPointOperand(center) || !isPositionOperand(radius)) {
-      return actionOut(actionFail('缺少圆心或半径'));
-    }
-    return actionOut(createCircle(center.point, vec.dist(center.point, radius.pos)));
+const circleOperation = drawOperation(
+  'circle',
+  '圆',
+  () => [createPointSlot('圆心', '点一个圆心'), positionSlot('半径', '点一个半径位置')],
+  (values) => {
+    const center = pointOf(values[0]);
+    const edge = posOf(values[1]);
+    if (!center || !edge) return actionOut(actionFail('缺少圆心或半径'));
+    return actionOut(createCircle(center, vec.dist(center, edge)));
   },
-};
+);
 
-const arcOperation: OperationMeta = {
-  id: 'arc',
-  label: '圆弧',
-  group: 'draw',
-  tool: 'arc',
+const arcOperation = drawOperation(
+  'arc',
+  '圆弧',
   // 圆心/起点/终点都是真实点：空白点击会建点，吸附到已有点时复用同一个 Point
-  slots: () => [
+  () => [
     createPointSlot('圆心', '点一个圆心'),
     createPointSlot('起点', '点一个起点（决定半径与起始角）'),
     // 终点允许直接复用起点（同一个点 → a0 === a1 → 整圆），所以打开 allowDuplicate
     { ...createPointSlot('终点', '点一个终点（再点起点即整圆）'), allowDuplicate: true },
   ],
-  execute(values, ctx) {
-    const center = values[0];
-    const start = values[1];
-    const end = values[2];
-    if (!isPointOperand(center) || !isPointOperand(start) || !isPointOperand(end)) {
-      return actionOut(actionFail('缺少圆心或起终点'));
-    }
-    return actionOut(createArc(center.point, start.point, end.point, ctx.owned));
+  (values, ctx) => {
+    const center = pointOf(values[0]);
+    const start = pointOf(values[1]);
+    const end = pointOf(values[2]);
+    if (!center || !start || !end) return actionOut(actionFail('缺少圆心或起终点'));
+    return actionOut(createArc(center, start, end, ctx.owned));
   },
-};
+);
 
-const rectOperation: OperationMeta = {
-  id: 'rect',
-  label: '矩形',
-  group: 'draw',
-  tool: 'rect',
-  slots: () => [
-    positionSlot('对角点 1', '点一个对角点'),
-    positionSlot('对角点 2', '点另一个对角点'),
-  ],
-  execute(values) {
-    const a = values[0];
-    const b = values[1];
-    if (!isPositionOperand(a) || !isPositionOperand(b)) {
-      return actionOut(actionFail('缺少两个对角点'));
-    }
-    return actionOut(createRect(a.pos, b.pos));
+const rectOperation = drawOperation(
+  'rect',
+  '矩形',
+  () => [positionSlot('对角点 1', '点一个对角点'), positionSlot('对角点 2', '点另一个对角点')],
+  (values) => {
+    const a = posOf(values[0]);
+    const b = posOf(values[1]);
+    if (!a || !b) return actionOut(actionFail('缺少两个对角点'));
+    return actionOut(createRect(a, b));
   },
-};
+);
 
 /* -------- 尺寸 -------- */
 
@@ -352,59 +344,52 @@ const dimOperation: OperationMeta = {
 
 /* -------- 编辑 -------- */
 
-const eraseOperation: OperationMeta = {
-  id: 'erase',
-  label: '删除',
+/**
+ * 可重复的选择集操作（删除/固定/构造）：点一个对象立即执行、命令保持可继续点。
+ * 三个操作的差别只有「接受什么 / 交给哪个领域动作」，统一由这个工厂生成。
+ */
+const repeatSelectionOperation = (
+  id: 'erase' | 'fix' | 'construction',
+  label: string,
+  key: string,
+  prompt: string,
+  accepts: (op: Operand) => boolean,
+  run: (selection: Selection) => ActionResult,
+): OperationMeta => ({
+  id,
+  label,
   group: 'edit',
-  tool: 'erase',
-  slots: () => [
-    {
-      key: '对象',
-      prompt: '点要删除的点或图元（点一个立即删除，可继续点）',
-      accepts: acceptsPointOrEntity,
-      repeat: true,
-    },
-  ],
-  execute(values) {
-    return actionOut(deleteSelected(operandSelection(values)));
-  },
-};
+  tool: id === 'erase' ? 'erase' : null,
+  slots: () => [{ key, prompt, accepts, repeat: true }],
+  execute: (values) => actionOut(run(operandSelection(values))),
+});
 
-const fixOperation: OperationMeta = {
-  id: 'fix',
-  label: '固定',
-  group: 'edit',
-  tool: null,
-  slots: () => [
-    {
-      key: '对象',
-      prompt: '点要固定的点或图元（点一个立即生效，可继续点）',
-      accepts: acceptsPointOrEntity,
-      repeat: true,
-    },
-  ],
-  execute(values) {
-    return actionOut(toggleFixed(operandSelection(values)));
-  },
-};
+const eraseOperation = repeatSelectionOperation(
+  'erase',
+  '删除',
+  '对象',
+  '点要删除的点或图元（点一个立即删除，可继续点）',
+  acceptsPointOrEntity,
+  deleteSelected,
+);
 
-const constructionOperation: OperationMeta = {
-  id: 'construction',
-  label: '构造',
-  group: 'edit',
-  tool: null,
-  slots: () => [
-    {
-      key: '图元',
-      prompt: '点要切换构造的图元（点一个立即切换，可继续点）',
-      accepts: acceptsEntity,
-      repeat: true,
-    },
-  ],
-  execute(values) {
-    return actionOut(toggleConstruction(operandSelection(values)));
-  },
-};
+const fixOperation = repeatSelectionOperation(
+  'fix',
+  '固定',
+  '对象',
+  '点要固定的点或图元（点一个立即生效，可继续点）',
+  acceptsPointOrEntity,
+  toggleFixed,
+);
+
+const constructionOperation = repeatSelectionOperation(
+  'construction',
+  '构造',
+  '图元',
+  '点要切换构造的图元（点一个立即切换，可继续点）',
+  acceptsEntity,
+  toggleConstruction,
+);
 
 /* -------- 约束 -------- */
 
@@ -454,56 +439,42 @@ const coincidentOperation: OperationMeta = {
     },
   ],
   execute(values) {
-    const anchor = values[0];
+    const anchor = pointOf(values[0]);
     const target = values[1];
-    if (!isPointOperand(anchor) || !target) return actionOut(actionFail('缺少重合的两个对象'));
-    if (target.kind === 'point') {
+    if (!anchor || !target) return actionOut(actionFail('缺少重合的两个对象'));
+    const targetPoint = pointOf(target);
+    if (targetPoint) {
       return actionOut(
-        addConstraints([{ kind: 'coincident', props: { a: anchor.point.id, b: target.point.id } }]),
+        addConstraints([{ kind: 'coincident', props: { a: anchor.id, b: targetPoint.id } }]),
       );
     }
-    if (target.kind === 'entity') {
-      // 目标图元自己决定「点落在它上面」是哪种约束：直线 pointOnLine、圆/弧 pointOnCircle
-      const con = target.entity.pointOnConstraint(anchor.point.id);
-      if (con) return actionOut(addConstraints([con]));
-    }
+    const targetEntity = entityOf(target);
+    // 目标图元自己决定「点落在它上面」是哪种约束：直线 pointOnLine、圆/弧 pointOnCircle
+    const con = targetEntity?.pointOnConstraint(anchor.id);
+    if (con) return actionOut(addConstraints([con]));
     return actionOut(actionFail('重合的目标只能是点、直线或圆/弧'));
   },
 };
 
-/** 多选直线 → 每条一条水平/竖直约束（repeat 槽位的统一出口） */
-function lineConstraints(
-  values: readonly Operand[],
-  kind: 'horizontal' | 'vertical',
-): ResolvedConstraint[] {
-  const items: ResolvedConstraint[] = [];
-  for (const value of values) {
-    if (isEntityOperand(value)) items.push({ kind, props: { e: value.entity.id } });
-  }
-  return items;
-}
-
-const horizontalOperation: OperationMeta = {
-  id: 'horizontal',
-  label: '水平',
+/** 单条直线的水平/竖直约束：repeat 槽位逐条立即生效，只有 kind 不同 */
+const axisOperation = (id: 'horizontal' | 'vertical', label: string): OperationMeta => ({
+  id,
+  label,
   group: 'constraint',
   tool: null,
   slots: () => [lineSlot('直线', '点一条直线立即生效（可继续点）', true)],
   execute(values) {
-    return actionOut(addConstraints(lineConstraints(values, 'horizontal')));
+    const items: ResolvedConstraint[] = [];
+    for (const value of values) {
+      const line = entityOf(value);
+      if (line) items.push({ kind: id, props: { e: line.id } });
+    }
+    return actionOut(addConstraints(items));
   },
-};
+});
 
-const verticalOperation: OperationMeta = {
-  id: 'vertical',
-  label: '竖直',
-  group: 'constraint',
-  tool: null,
-  slots: () => [lineSlot('直线', '点一条直线立即生效（可继续点）', true)],
-  execute(values) {
-    return actionOut(addConstraints(lineConstraints(values, 'vertical')));
-  },
-};
+const horizontalOperation = axisOperation('horizontal', '水平');
+const verticalOperation = axisOperation('vertical', '竖直');
 
 /** 双直线约束：平行 / 垂直 / 等长 / 共线只有种类不同 */
 const twoLineOperation = (
@@ -516,10 +487,10 @@ const twoLineOperation = (
   tool: null,
   slots: () => [lineSlot('直线 1', '点第一条直线'), lineSlot('直线 2', '点第二条直线')],
   execute(values) {
-    const a = values[0];
-    const b = values[1];
-    if (!isEntityOperand(a) || !isEntityOperand(b)) return actionOut(actionFail('缺少两条直线'));
-    return actionOut(addConstraints([{ kind: id, props: { e1: a.entity.id, e2: b.entity.id } }]));
+    const a = entityOf(values[0]);
+    const b = entityOf(values[1]);
+    if (!a || !b) return actionOut(actionFail('缺少两条直线'));
+    return actionOut(addConstraints([{ kind: id, props: { e1: a.id, e2: b.id } }]));
   },
 });
 
@@ -547,11 +518,11 @@ const tangentOperation: OperationMeta = {
     ];
   },
   execute(values) {
-    const a = values[0];
-    const b = values[1];
-    if (!isEntityOperand(a) || !isEntityOperand(b)) return actionOut(actionFail('缺少两个图元'));
+    const a = entityOf(values[0]);
+    const b = entityOf(values[1]);
+    if (!a || !b) return actionOut(actionFail('缺少两个图元'));
     // 相切种类由图元多态决定（直线-圆 / 圆-圆），执行函数只负责把组合交给图元
-    const con = a.entity.tangentWith(b.entity);
+    const con = a.tangentWith(b);
     if (!con) return actionOut(actionFail('相切需要 1 条直线 + 1 个圆/弧，或 2 个圆/弧'));
     return actionOut(addConstraints([con]));
   },
@@ -564,10 +535,10 @@ const curvePairOperation = (id: 'concentric' | 'equalRadius', label: string): Op
   tool: null,
   slots: () => [curveSlot('圆/弧 1', '点第一个圆/弧'), curveSlot('圆/弧 2', '点第二个圆/弧')],
   execute(values) {
-    const a = values[0];
-    const b = values[1];
-    if (!isEntityOperand(a) || !isEntityOperand(b)) return actionOut(actionFail('缺少两个圆/弧'));
-    return actionOut(addConstraints([{ kind: id, props: { e1: a.entity.id, e2: b.entity.id } }]));
+    const a = entityOf(values[0]);
+    const b = entityOf(values[1]);
+    if (!a || !b) return actionOut(actionFail('缺少两个圆/弧'));
+    return actionOut(addConstraints([{ kind: id, props: { e1: a.id, e2: b.id } }]));
   },
 });
 
@@ -616,6 +587,53 @@ export function operationForTool(tool: Exclude<ToolId, 'select'>): OperationMeta
   if (!meta) throw new Error(`工具缺少操作: ${tool}`);
   return meta;
 }
+
+/* ======================= 工具元数据 ======================= */
+
+/** 工具栏「工具」分段的顺序、单键快捷键与提示；label 来自对应操作（选择除外），不重复维护 */
+export interface ToolMeta {
+  readonly id: ToolId;
+  readonly label: string;
+  /** 单键快捷键（小写） */
+  readonly key: string;
+  readonly hint: string;
+}
+
+/** 工具顺序（选择工具固定最前，其余与 TOOL_HINTS 的键一一对应） */
+const TOOL_ORDER = [
+  'point',
+  'line',
+  'circle',
+  'arc',
+  'rect',
+  'dim',
+  'erase',
+] as const satisfies readonly Exclude<ToolId, 'select'>[];
+
+const TOOL_HINTS: Record<(typeof TOOL_ORDER)[number], { key: string; hint: string }> = {
+  point: { key: 'p', hint: '点位置放独立点 · 吸附到已有点会把它提升为独立点' },
+  line: { key: 'l', hint: '点起点、终点自动画线 · 连续画自动接上一段终点 · Esc/右键结束' },
+  circle: { key: 'c', hint: '点圆心、半径位置自动创建' },
+  arc: { key: 'a', hint: '圆心 → 起点 → 终点自动创建' },
+  rect: { key: 'r', hint: '点两个对角点自动创建 · 自动补水平/竖直约束' },
+  dim: { key: 'd', hint: '点目标即标注 · 两点距离 / 线长 / 半径 / 改已有尺寸' },
+  erase: { key: 'e', hint: '点对象即删除 · 可继续点 · Esc/右键结束' },
+};
+
+/** 工具元数据：顺序即工具栏顺序；选择工具没有操作，文案单独给 */
+export const TOOLS: readonly ToolMeta[] = [
+  {
+    id: 'select',
+    label: '选择',
+    key: 'v',
+    hint: '点图元/点 · Shift 加选 · 空白拖框选（下→上交叉 / 上→下窗口） · Delete 删除',
+  },
+  ...TOOL_ORDER.map((id) => ({
+    id,
+    label: operationById(id).label,
+    ...TOOL_HINTS[id],
+  })),
+];
 
 /**
  * 操作是否以 repeat 槽位结尾：每点一个对象就执行一次，成功后保持会话继续点
@@ -696,24 +714,11 @@ function fillOne(session: CommandSession, operand: Operand, reasons: string[]): 
   for (let i = 0; i < slots.length; i++) {
     const slot = slots[i];
     if (!slot || session.values[i] !== undefined) continue;
-    if (!slot.accepts(operand)) continue;
-    if (!slot.allowDuplicate && isOperandUsed(session, operand)) {
-      reasons.push(slot.duplicateReason ?? '同一个对象不能重复作为参数');
-      continue;
-    }
-    const rejectReason = slot.reject?.(operand, session.values);
-    if (rejectReason !== undefined) {
-      reasons.push(rejectReason);
-      continue;
-    }
-    session.values[i] = operand;
-    return true;
+    if (tryFill(session, i, slot, operand, reasons)) return true;
   }
-  // 末位 repeat 槽位：已有一个值后继续追加
+  // 末位 repeat 槽位：已有一个值后继续追加（预填阶段不提示重复原因，避免噪声）
   const last = slots[slots.length - 1];
-  if (last?.repeat && isComplete(session)) {
-    if (!last.accepts(operand) || isOperandUsed(session, operand)) return false;
-    if (last.reject?.(operand, session.values)) return false;
+  if (last?.repeat && isComplete(session) && canFill(session, last, operand)) {
     session.values.push(operand);
     return true;
   }
@@ -832,50 +837,14 @@ export function clickCommand(session: CommandSession, input: ClickInput): FillRe
     if (!slot || session.values[i] !== undefined) continue;
 
     if (slot.place === 'point') {
-      // 先尝试已有点（普通点 / 点图元 / 吸附点）：尺寸第二点、从已有点起画都走这里
-      let filled = false;
-      for (const operand of cands.operands) {
-        if (!slot.allowDuplicate && isOperandUsed(session, operand)) {
-          if (slot.accepts(operand)) {
-            reasons.push(slot.duplicateReason ?? '同一个对象不能重复作为参数');
-          }
-          continue;
-        }
-        if (tryFill(session, i, slot, operand, reasons)) {
-          filled = true;
-          break;
-        }
-      }
-      if (filled) return afterFill();
-      if (cands.operands.some((op) => op.kind === 'point')) continue;
-
-      // 没有可复用的点：在吸附位置/指针位置新建（会话结束时未使用会被回收）
-      const point = addPt(cands.position.x, cands.position.y);
-      session.owned.add(point.id);
-      if (tryFill(session, i, slot, pointOperand(point, input.w), reasons)) {
-        return afterFill();
-      }
-      // 没填进去（上下文拒绝等）：回收临时点，避免留下孤立点
-      session.owned.delete(point.id);
-      discardPoint(point);
+      if (fillPointSlot(session, i, slot, cands, input, reasons)) return afterFill();
       continue;
     }
 
-    if (slot.place === 'position') {
-      if (tryFill(session, i, slot, positionOperand(cands.position), reasons)) {
-        return afterFill();
-      }
-      continue;
-    }
-
-    for (const operand of cands.operands) {
-      if (!slot.allowDuplicate && isOperandUsed(session, operand)) {
-        // 只对「这个槽位本来会接受它」的重复对象给提示，避免噪声
-        if (slot.accepts(operand)) {
-          reasons.push(slot.duplicateReason ?? '同一个对象不能重复作为参数');
-        }
-        continue;
-      }
+    // 位置槽位只消费落点；其余槽位消费拾取到的对象
+    const candidates =
+      slot.place === 'position' ? [positionOperand(cands.position)] : cands.operands;
+    for (const operand of candidates) {
       if (tryFill(session, i, slot, operand, reasons)) return afterFill();
     }
   }
@@ -884,6 +853,30 @@ export function clickCommand(session: CommandSession, input: ClickInput): FillRe
   return { filled: false, notices: [], reason };
 }
 
+/**
+ * 操作数能否填进槽位：类型 → 通用去重 → 上下文排除。
+ * 预填/点击/悬停/追加四条路径共用这一份判断；拒绝原因按需写进 reasons。
+ */
+function canFill(
+  session: CommandSession,
+  slot: SlotSpec,
+  operand: Operand,
+  reasons?: string[],
+): boolean {
+  if (!slot.accepts(operand)) return false;
+  if (!slot.allowDuplicate && isOperandUsed(session, operand)) {
+    reasons?.push(slot.duplicateReason ?? '同一个对象不能重复作为参数');
+    return false;
+  }
+  const rejected = slot.reject?.(operand, session.values);
+  if (rejected !== undefined) {
+    reasons?.push(rejected);
+    return false;
+  }
+  return true;
+}
+
+/** 把操作数写进第 index 个槽位；填不上时原因由 canFill 收集 */
 function tryFill(
   session: CommandSession,
   index: number,
@@ -891,14 +884,33 @@ function tryFill(
   operand: Operand,
   reasons: string[],
 ): boolean {
-  if (!slot.accepts(operand)) return false;
-  const reason = slot.reject?.(operand, session.values);
-  if (reason !== undefined) {
-    reasons.push(reason);
-    return false;
-  }
+  if (!canFill(session, slot, operand, reasons)) return false;
   session.values[index] = operand;
   return true;
+}
+
+/** 点槽位：优先复用候选点；没有可复用的点才在落点新建（失败时回收，不留孤立点） */
+function fillPointSlot(
+  session: CommandSession,
+  index: number,
+  slot: SlotSpec,
+  cands: ClickCandidates,
+  input: ClickInput,
+  reasons: string[],
+): boolean {
+  for (const operand of cands.operands) {
+    if (tryFill(session, index, slot, operand, reasons)) return true;
+  }
+  // 候选里有可复用的点但被上下文排除：保持收集态，不再新建重合点
+  if (cands.operands.some((op) => op.kind === 'point')) return false;
+
+  const point = addPt(cands.position.x, cands.position.y);
+  session.owned.add(point.id);
+  if (tryFill(session, index, slot, pointOperand(point, input.w), reasons)) return true;
+  // 没填进去（上下文拒绝等）：回收临时点，避免留下孤立点
+  session.owned.delete(point.id);
+  discardPoint(point);
+  return false;
 }
 
 /** 填槽位后的反馈：填满即由交互层立即执行，这里不再提示按键（避免成功时闪一条多余提示） */
@@ -914,11 +926,8 @@ function appendRepeat(
 ): boolean {
   const last = slots[slots.length - 1];
   if (!last?.repeat) return false;
-  const cands = clickCandidates(input);
-  for (const operand of cands.operands) {
-    if (!last.allowDuplicate && isOperandUsed(session, operand)) continue;
-    if (!last.accepts(operand)) continue;
-    if (last.reject?.(operand, session.values)) continue;
+  for (const operand of clickCandidates(input).operands) {
+    if (!canFill(session, last, operand)) continue;
     session.values.push(operand);
     return true;
   }
@@ -952,10 +961,7 @@ export function commandHover(
     if (!slot || session.values[i] !== undefined) continue;
     if (slot.place !== undefined) continue;
     for (const operand of cands.operands) {
-      if (isOperandUsed(session, operand)) continue;
-      if (!slot.accepts(operand)) continue;
-      if (slot.reject?.(operand, session.values)) continue;
-      return highlightOperand(operand);
+      if (canFill(session, slot, operand)) return highlightOperand(operand);
     }
   }
 
@@ -963,10 +969,7 @@ export function commandHover(
   const last = slots[slots.length - 1];
   if (isComplete(session) && last?.repeat) {
     for (const operand of cands.operands) {
-      if (isOperandUsed(session, operand)) continue;
-      if (last.accepts(operand) && !last.reject?.(operand, session.values)) {
-        return highlightOperand(operand);
-      }
+      if (canFill(session, last, operand)) return highlightOperand(operand);
     }
   }
   return {};
@@ -1051,21 +1054,15 @@ export function commandStatus(session: CommandSession): CommandStatusText {
   const segments: string[] = [`命令 ${op.label}`];
 
   for (let i = 0; i < slots.length; i++) {
+    // repeat 槽位从它开始收集全部值，其余槽位只有一个值；统一成「值列表」再生成文案
     const slot = slots[i]!;
-    if (slot.repeat) {
-      const values = session.values.slice(i).filter((v): v is Operand => v !== undefined);
-      segments.push(
-        values.length === 0
-          ? `${slot.key}：待选（${slot.prompt}）`
-          : `${slot.key}：${values.map(operandLabel).join('、')}`,
-      );
-      continue;
-    }
-    const value = session.values[i];
+    const values = (slot.repeat ? session.values.slice(i) : [session.values[i]]).filter(
+      (v): v is Operand => v !== undefined,
+    );
     segments.push(
-      value === undefined
+      values.length === 0
         ? `${slot.key}：待选（${slot.prompt}）`
-        : `${slot.key}：${operandLabel(value)}`,
+        : `${slot.key}：${values.map(operandLabel).join('、')}`,
     );
   }
 
@@ -1075,83 +1072,78 @@ export function commandStatus(session: CommandSession): CommandStatusText {
   return { operation: segments.join(' ▸ '), hint: actions.join(' · ') };
 }
 
-/** 画布预览形状（世界坐标）：操作自己描述预览，renderer 只负责画 */
-export type PreviewShape =
-  | { readonly kind: 'line'; readonly a: Vec; readonly b: Vec }
-  | { readonly kind: 'circle'; readonly c: Vec; readonly r: number }
-  | {
-      readonly kind: 'arc';
-      readonly c: Vec;
-      readonly r: number;
-      readonly a0: number;
-      readonly a1: number;
+/**
+ * 画布预览形状：直接复用图元几何基元（线段 / 圆弧），renderer 的画法与实体绘制共用。
+ * 矩形预览是四条闭合线段；点工具由吸附标记反馈，不需要预览基元。
+ */
+export type PreviewShape = Extract<EntityPrimitive, { kind: 'segment' } | { kind: 'circular' }>;
+
+/** 单个操作的预览构造：已填参数 + 光标位置 → 世界坐标基元 */
+type PreviewBuilder = (
+  values: readonly Operand[],
+  cursor: Vec,
+  session: CommandSession,
+) => PreviewShape[];
+
+/** 有几何预览的操作；未列出的操作（约束/删除/固定/构造/点）返回空数组 */
+const PREVIEW_BUILDERS: Partial<Record<OperationId, PreviewBuilder>> = {
+  line(values, cursor) {
+    const a = operandPos(values[0]);
+    return a ? [{ kind: 'segment', a, b: operandPos(values[1]) ?? cursor }] : [];
+  },
+  circle(values, cursor) {
+    const c = operandPos(values[0]);
+    if (!c) return [];
+    const edge = operandPos(values[1]) ?? cursor;
+    return [{ kind: 'circular', center: c, radius: vec.dist(c, edge), start: 0, sweep: TAU }];
+  },
+  arc(values, cursor) {
+    const c = operandPos(values[0]);
+    if (!c) return [];
+    const start = operandPos(values[1]);
+    if (!start) {
+      return [{ kind: 'circular', center: c, radius: vec.dist(c, cursor), start: 0, sweep: TAU }];
     }
-  | { readonly kind: 'rect'; readonly a: Vec; readonly b: Vec };
+    const end = operandPos(values[2]) ?? cursor;
+    const a0 = Math.atan2(start.y - c.y, start.x - c.x);
+    const a1 = Math.atan2(end.y - c.y, end.x - c.x);
+    return [
+      {
+        kind: 'circular',
+        center: c,
+        radius: vec.dist(c, start),
+        start: a0,
+        sweep: sweepOf(a0, a1),
+      },
+    ];
+  },
+  rect(values, cursor) {
+    const a = operandPos(values[0]);
+    if (!a) return [];
+    const b = operandPos(values[1]) ?? cursor;
+    // 矩形预览 = 四条闭合线段，与线段实体共用同一种基元画法
+    const c = { x: b.x, y: a.y };
+    const d = { x: a.x, y: b.y };
+    return [
+      { kind: 'segment', a, b: c },
+      { kind: 'segment', a: c, b },
+      { kind: 'segment', a: b, b: d },
+      { kind: 'segment', a: d, b: a },
+    ];
+  },
+  dim(values, cursor, session) {
+    // 两点距离：第一点已填、第二点未填时从它拉一条预览线（与旧尺寸工具一致）
+    const first = pointOf(values[0]);
+    if (!first) return [];
+    if (sessionSlots(session).length <= 1 || values[1] !== undefined) return [];
+    return [{ kind: 'segment', a: first, b: cursor }];
+  },
+};
 
 /** 命令预览：已填参数 + 光标位置推演「按下去会画出什么」 */
 export function commandPreview(session: CommandSession, cursor: Vec): PreviewShape[] {
-  const values = filledValues(session);
-  const op = operationById(session.opId);
-
-  switch (op.id) {
-    case 'line': {
-      const a = operandPos(values[0]);
-      if (!a) return [];
-      const b = operandPos(values[1]) ?? cursor;
-      return [{ kind: 'line', a, b }];
-    }
-    case 'circle': {
-      const c = operandPos(values[0]);
-      if (!c) return [];
-      const edge = operandPos(values[1]) ?? cursor;
-      return [{ kind: 'circle', c, r: vec.dist(c, edge) }];
-    }
-    case 'arc': {
-      const c = operandPos(values[0]);
-      if (!c) return [];
-      const start = operandPos(values[1]);
-      if (!start) return [{ kind: 'circle', c, r: vec.dist(c, cursor) }];
-      const end = operandPos(values[2]) ?? cursor;
-      return [
-        {
-          kind: 'arc',
-          c,
-          r: vec.dist(c, start),
-          a0: Math.atan2(start.y - c.y, start.x - c.x),
-          a1: Math.atan2(end.y - c.y, end.x - c.x),
-        },
-      ];
-    }
-    case 'rect': {
-      const a = operandPos(values[0]);
-      if (!a) return [];
-      const b = operandPos(values[1]) ?? cursor;
-      return [{ kind: 'rect', a, b }];
-    }
-    case 'dim': {
-      // 两点距离：第一点已填、第二点未填时从它拉一条预览线（与旧尺寸工具一致）
-      const first = values[0];
-      if (!isPointOperand(first)) return [];
-      if (sessionSlots(session).length <= 1 || values[1] !== undefined) return [];
-      return [{ kind: 'line', a: first.point, b: cursor }];
-    }
-    // 其余操作没有几何预览：约束/固定/构造/删除只改约束与属性，点工具由吸附标记反馈
-    case 'point':
-    case 'erase':
-    case 'fix':
-    case 'construction':
-    case 'coincident':
-    case 'horizontal':
-    case 'vertical':
-    case 'parallel':
-    case 'perpendicular':
-    case 'equalLength':
-    case 'collinear':
-    case 'tangent':
-    case 'concentric':
-    case 'equalRadius':
-      return [];
-  }
+  const build = PREVIEW_BUILDERS[session.opId];
+  return build ? build(filledValues(session), cursor, session) : [];
 }
 
 /** 操作数 → Selection（删除/固定/构造这些复用选择集级联逻辑的动作） */

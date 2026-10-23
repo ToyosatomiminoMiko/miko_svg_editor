@@ -37,12 +37,12 @@ import {
   operandsFromSelection,
   popCommandValue,
   cancelCommand,
+  TOOLS,
   type ClickInput,
   type CommandSession,
   type OperationId,
 } from '../src/operations';
 import { resetInteraction, state } from '../src/state';
-import { TOOLS } from '../src/tools';
 import type { Entity } from '../src/entities';
 import type { MeasureText, Point, Selection, SelectionItem, Snap, Vec } from '../src/types';
 import { vec } from '../src/vec';
@@ -663,35 +663,37 @@ describe('状态栏与预览', () => {
     const session = createSession('line');
     clickCommand(session, input({ x: 0, y: 0 }));
     const [preview] = commandPreview(session, { x: 40, y: 20 });
-    expect(preview?.kind).toBe('line');
-    if (preview?.kind === 'line') {
+    expect(preview?.kind).toBe('segment');
+    if (preview?.kind === 'segment') {
       expect(preview.a).toMatchObject({ x: 0, y: 0 });
       expect(preview.b).toEqual({ x: 40, y: 20 });
     }
 
     clickCommand(session, input({ x: 100, y: 0 }));
     const [shape] = commandPreview(session, { x: 999, y: 999 });
-    expect(shape?.kind).toBe('line');
-    if (shape?.kind === 'line') expect(shape.b).toMatchObject({ x: 100, y: 0 });
+    expect(shape?.kind).toBe('segment');
+    if (shape?.kind === 'segment') expect(shape.b).toMatchObject({ x: 100, y: 0 });
   });
 
   it('圆 / 弧 / 矩形的预览从槽位参数推出', () => {
     const circle = createSession('circle');
     clickCommand(circle, input({ x: 0, y: 0 }));
     const circleShape = commandPreview(circle, { x: 10, y: 0 })[0];
-    expect(circleShape?.kind).toBe('circle');
-    if (circleShape?.kind === 'circle') expect(circleShape.r).toBeCloseTo(10, 12);
+    expect(circleShape?.kind).toBe('circular');
+    if (circleShape?.kind === 'circular') expect(circleShape.radius).toBeCloseTo(10, 12);
 
     const arc = createSession('arc');
     clickCommand(arc, input({ x: 0, y: 0 }));
     clickCommand(arc, input({ x: 10, y: 0 }));
     const arcShape = commandPreview(arc, { x: 0, y: 10 })[0];
-    expect(arcShape?.kind).toBe('arc');
+    expect(arcShape?.kind).toBe('circular');
 
     const rect = createSession('rect');
     clickCommand(rect, input({ x: 0, y: 0 }));
     clickCommand(rect, input({ x: 10, y: 5 }));
-    expect(commandPreview(rect, { x: 0, y: 0 })[0]?.kind).toBe('rect');
+    const rectShapes = commandPreview(rect, { x: 0, y: 0 });
+    expect(rectShapes).toHaveLength(4);
+    expect(rectShapes.every((shape) => shape.kind === 'segment')).toBe(true);
   });
 
   it('尺寸两点预览：第一点已填、第二点未填时拉一条线', () => {
@@ -699,7 +701,7 @@ describe('状态栏与预览', () => {
     const session = createSession('dim');
     clickCommand(session, input({ x: 0, y: 0 }, { pos: { x: 0, y: 0 }, pt: p, d: 0, pri: 0 }));
     const [shape] = commandPreview(session, { x: 30, y: 40 });
-    expect(shape?.kind).toBe('line');
+    expect(shape?.kind).toBe('segment');
   });
 });
 

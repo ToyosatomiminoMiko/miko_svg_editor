@@ -5,10 +5,10 @@
  */
 
 import { cam, gridSize, s2w, w2s } from './camera';
-import { TAU, sweepOf } from './config';
+import { TAU } from './config';
 import { dimLayout } from './dimensions';
 import { getPoint, model, ownedPointIds, primitiveOf } from './model';
-import { commandPreview } from './operations';
+import { commandPreview, type PreviewShape } from './operations';
 import {
   isCommandEntity,
   isCommandPoint,
@@ -120,6 +120,33 @@ export class Renderer {
     return p !== undefined && (isPointSelected(p) || isCommandPoint(p));
   }
 
+  /**
+   * 用当前描边样式画一个几何基元（线段 / 圆弧）。
+   * 图元绘制与命令预览共用这一份画法；点基元有自己的外环/中心样式，由 drawEntity 单独画。
+   */
+  private strokePrimitive(prim: PreviewShape): void {
+    const { ctx } = this;
+    switch (prim.kind) {
+      case 'segment': {
+        const A = w2s(prim.a);
+        const B = w2s(prim.b);
+        ctx.beginPath();
+        ctx.moveTo(A.x, A.y);
+        ctx.lineTo(B.x, B.y);
+        ctx.stroke();
+        break;
+      }
+      case 'circular': {
+        const C = w2s(prim.center);
+        // 圆与圆弧共用同一段画法：整圆只是 sweep = TAU 的圆弧
+        ctx.beginPath();
+        ctx.arc(C.x, C.y, prim.radius * cam.z, prim.start, prim.start + prim.sweep);
+        ctx.stroke();
+        break;
+      }
+    }
+  }
+
   private drawEntity(e: Entity, selected: boolean, hovered: boolean): void {
     const { ctx, theme } = this;
     ctx.lineWidth = selected
@@ -137,46 +164,25 @@ export class Renderer {
     ctx.setLineDash(e.construction ? theme.dashConstruction : []);
     ctx.lineCap = 'round';
 
-    // 图元已多态归一到基元：这里只认线段 / 圆弧 / 点三种画法，不再按图元种类 switch
+    // 图元已多态归一到基元：线段/圆弧走公共描边，点图元画外环 + 实心中心
     const prim = primitiveOf(e);
-    if (prim) {
-      switch (prim.kind) {
-        case 'segment': {
-          const A = w2s(prim.a);
-          const B = w2s(prim.b);
-          ctx.beginPath();
-          ctx.moveTo(A.x, A.y);
-          ctx.lineTo(B.x, B.y);
-          ctx.stroke();
-          break;
-        }
-        case 'circular': {
-          const C = w2s(prim.center);
-          // 圆与圆弧共用同一段画法：整圆只是 sweep = TAU 的圆弧
-          ctx.beginPath();
-          ctx.arc(C.x, C.y, prim.radius * cam.z, prim.start, prim.start + prim.sweep);
-          ctx.stroke();
-          break;
-        }
-        case 'dot': {
-          // 点图元画成「外环 + 实心中心」，与线段端点/圆心的小圆点区分；
-          // 构造点只留外环（虚线外环），表达「不参与导出实体」的构造语义
-          const S = w2s(prim.at);
-          const p = e.ownedPointId === null ? undefined : getPoint(e.ownedPointId);
-          // 固定点与其他点一致始终显示为红色（选中/悬停也不改色，靠线宽与选择环区分）
-          if (p?.fixed) ctx.strokeStyle = theme.pointFixed;
-          ctx.beginPath();
-          ctx.arc(S.x, S.y, theme.pointGraphicRingRadius, 0, TAU);
-          ctx.stroke();
-          if (!e.construction) {
-            ctx.beginPath();
-            ctx.arc(S.x, S.y, theme.pointRadius, 0, TAU);
-            ctx.fillStyle = ctx.strokeStyle;
-            ctx.fill();
-          }
-          break;
-        }
+    if (prim?.kind === 'dot') {
+      const S = w2s(prim.at);
+      const p = e.ownedPointId === null ? undefined : getPoint(e.ownedPointId);
+      // 固定点与其他点一致始终显示为红色（选中/悬停也不改色，靠线宽与选择环区分）
+      if (p?.fixed) ctx.strokeStyle = theme.pointFixed;
+      ctx.beginPath();
+      ctx.arc(S.x, S.y, theme.pointGraphicRingRadius, 0, TAU);
+      ctx.stroke();
+      // 构造点只留外环（虚线外环），表达「不参与导出实体」的构造语义
+      if (!e.construction) {
+        ctx.beginPath();
+        ctx.arc(S.x, S.y, theme.pointRadius, 0, TAU);
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.fill();
       }
+    } else if (prim) {
+      this.strokePrimitive(prim);
     }
     ctx.setLineDash([]);
   }
@@ -206,16 +212,6 @@ export class Renderer {
       ctx.strokeStyle = theme.selection;
       ctx.stroke();
     }
-  }
-
-  /** 世界坐标线段（预览用） */
-  private lineWorld(a: Vec, b: Vec): void {
-    const A = w2s(a);
-    const B = w2s(b);
-    this.ctx.beginPath();
-    this.ctx.moveTo(A.x, A.y);
-    this.ctx.lineTo(B.x, B.y);
-    this.ctx.stroke();
   }
 
   /** 屏幕坐标线段（尺寸标注用） */
@@ -277,7 +273,7 @@ export class Renderer {
     ctx.fillText(text, pos.x, pos.y);
   }
 
-  /** 命令预览：操作表给出世界坐标形状，这里只按画布主题画（不再按 pending 类型分叉） */
+  /** 命令预览：操作表给出世界坐标的几何基元，画法与实体绘制共用 strokePrimitive */
   private drawPreview(): void {
     const command = state.command;
     if (!command) return;
@@ -290,35 +286,7 @@ export class Renderer {
     ctx.strokeStyle = theme.preview;
     ctx.lineWidth = theme.strokeWidth;
     ctx.setLineDash(theme.dashPreview);
-
-    for (const shape of shapes) {
-      switch (shape.kind) {
-        case 'line':
-          this.lineWorld(shape.a, shape.b);
-          break;
-        case 'circle': {
-          const c = w2s(shape.c);
-          ctx.beginPath();
-          ctx.arc(c.x, c.y, shape.r * cam.z, 0, TAU);
-          ctx.stroke();
-          break;
-        }
-        case 'arc': {
-          const c = w2s(shape.c);
-          ctx.beginPath();
-          // 扫角统一走 sweepOf：同角时预览也画整圆（BUG-10）
-          ctx.arc(c.x, c.y, shape.r * cam.z, shape.a0, shape.a0 + sweepOf(shape.a0, shape.a1));
-          ctx.stroke();
-          break;
-        }
-        case 'rect': {
-          const A = w2s(shape.a);
-          const B = w2s(shape.b);
-          ctx.strokeRect(A.x, A.y, B.x - A.x, B.y - A.y);
-          break;
-        }
-      }
-    }
+    for (const shape of shapes) this.strokePrimitive(shape);
     ctx.setLineDash([]);
     ctx.restore();
   }

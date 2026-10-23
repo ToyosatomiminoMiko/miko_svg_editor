@@ -294,7 +294,8 @@ src/
                              （图元是多态类，在 entities.ts）
   state.ts                   交互状态单例（工具/光标/吸附/悬停/命令会话/选择/框选）+ 有序选择集操作
   operations.ts              统一命令引擎：Operand/SlotSpec/OperationMeta、选择集预填、点击补槽位、
-                             上下文排除、命令状态栏文案、预览形状（全部操作的单一来源）
+                             上下文排除、命令状态栏文案、预览形状，以及工具元数据 TOOLS
+                             （顺序/快捷键/提示；全部操作的单一来源）
   model.ts                   点/图元/约束容器与增删查、级联清理、点图元归属/孤立点回收；
                              注入点表后的图元门面：arcGeometry / curveRadius / primitiveOf
   entities.ts                图元多态模型：EntityBase 子类各自实现 pointIds / 尺寸目标 / 几何基元 /
@@ -310,9 +311,8 @@ src/
   camera.ts                  世界 ↔ 屏幕换算、缩放范围、网格间距（纯函数）
   viewport.ts                视图交互写入口：适应视图、滚轮缩放、平移
   vec.ts                     二维向量纯函数（含 safeLen / unitPerp 的零向量约定）
-  tools.ts                   8 个工具元数据（顺序/快捷键/提示文案）；操作表在 operations.ts
   toolbar.ts                 顶部 dock 工具栏：miko_ui 的分段按钮组 / 按钮 / 开关 / 控制组 + 操作按钮高亮
-                             （两个分区 .dock-group / .dock-actions，不建面板）
+                             （两个分区 .dock-group / .dock-actions，不建面板；工具表来自 operations.TOOLS）
   selection.ts               选择语义：单击/Shift/框选方向与结果；拖拽点集、已选列表数据（含行内约束 id/文案）、
                              命令收集态的悬停候选（点图元按 ent）
   sketch-actions.ts          原子领域操作与求解（画图/批量加约束/按 id 删约束/删除/固定/构造/尺寸/拖拽），不读交互状态
@@ -462,8 +462,10 @@ vite.config.ts               base: './'；本地库存在时把它的路径加�
      成功后可给 `continueWith` 让同一操作自动接续（直线连续画就是这么做的）。
 2. `options` 里的槽位表就是适用性单一来源：工具/按钮只是 `setTool` / `armOperation` 的入口，
    不要在 UI 层再写数量/类型判断；
-3. 有几何预览就在 `commandPreview` 的 switch 里补分支；渲染器只画 `PreviewShape`，不认操作 id；
-4. `tests/operations.test.ts` 补「选择集预填 / 点击补槽位 / 上下文排除 / 执行」用例。
+3. 工具类操作还要在 `TOOL_ORDER` / `TOOL_HINTS` 里补快捷键与提示（label 自动取操作表）；
+4. 有几何预览就在 `commandPreview` 的 switch 里补分支，返回 `PreviewShape`（线段/圆弧基元），
+   渲染器与实体绘制共用同一份画法；
+5. `tests/operations.test.ts` 补「选择集预填 / 点击补槽位 / 上下文排除 / 执行」用例。
 
 ### 新增尺寸种类
 

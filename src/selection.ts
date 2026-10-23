@@ -46,7 +46,6 @@ import type {
   Marquee,
   MeasureText,
   Point,
-  Selection,
   SelectionConstraint,
   SelectionEntry,
   SelectionItem,
@@ -86,13 +85,16 @@ export function isPointSelected(p: Point): boolean {
   return false;
 }
 
+/** 选择集里某一类对象的 id（保持选中顺序） */
+const selectedIds = (kind: SelectionKind): number[] =>
+  state.selection.items.filter((item) => item.kind === kind).map((item) => item.id);
+
 /** 选择集里的图元 id（保持选中顺序） */
-export const selectedEntityIds = (selection: Selection = state.selection): number[] =>
-  selection.items.filter((item) => item.kind === 'ent').map((item) => item.id);
+export const selectedEntityIds = (): number[] => selectedIds('ent');
 
 /** 选择集里的图元对象（跳过已删除的悬空 id） */
-export const selectedEntities = (selection: Selection = state.selection): Entity[] =>
-  selectedEntityIds(selection)
+export const selectedEntities = (): Entity[] =>
+  selectedEntityIds()
     .map(getEntity)
     .filter((e): e is Entity => e !== undefined);
 
@@ -101,10 +103,9 @@ export const selectedEntities = (selection: Selection = state.selection): Entity
  * 「重合」约束以点为主，编辑器把它和 selectedEntities 一起交给约束动作；
  * 注意不含选中图元的端点/圆心——那些是隐含选中，只在渲染上高亮。
  */
-export const selectedPoints = (selection: Selection = state.selection): Point[] =>
-  selection.items
-    .filter((item) => item.kind === 'pt')
-    .map((item) => getPoint(item.id))
+export const selectedPoints = (): Point[] =>
+  selectedIds('pt')
+    .map(getPoint)
     .filter((p): p is Point => p !== undefined);
 
 /**

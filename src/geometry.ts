@@ -272,7 +272,7 @@ function primitiveSamples(prim: EntityPrimitive): Vec[] {
 }
 
 /** 基元的紧包围盒：圆弧只算弧段范围，整圆才按整圆包围盒；点基元退化为零尺寸矩形 */
-function primitiveBounds(prim: EntityPrimitive): Rect | null {
+function primitiveBounds(prim: EntityPrimitive): Rect {
   switch (prim.kind) {
     case 'segment':
       return rectOf(prim.a, prim.b);
@@ -326,8 +326,8 @@ export function sketchBounds(padRatio = BBOX_PAD_RATIO): Bounds | null {
   let maxy = -Infinity;
   for (const e of model.ents.values()) {
     const prim = primitiveOf(e);
-    const b = prim ? primitiveBounds(prim) : null;
-    if (!b) continue;
+    if (!prim) continue;
+    const b = primitiveBounds(prim);
     if (b.minx < minx) minx = b.minx;
     if (b.miny < miny) miny = b.miny;
     if (b.maxx > maxx) maxx = b.maxx;
@@ -362,7 +362,7 @@ export function entityCrossesRect(e: Entity, r: Rect): boolean {
 /** 窗口框选：图元必须完全落在矩形内 */
 export function entityInsideRect(e: Entity, r: Rect): boolean {
   const prim = primitiveOf(e);
-  const b = prim ? primitiveBounds(prim) : null;
-  if (!b) return false;
+  if (!prim) return false;
+  const b = primitiveBounds(prim);
   return b.minx >= r.minx && b.maxx <= r.maxx && b.miny >= r.miny && b.maxy <= r.maxy;
 }

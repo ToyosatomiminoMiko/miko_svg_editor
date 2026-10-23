@@ -30,7 +30,9 @@ import {
   operationForTool,
   operandsFromSelection,
   popCommandValue as popOperationValue,
+  TOOLS,
   type ClickInput,
+  type CommandSession,
   type CommandStatusText,
   type OperationId,
 } from '../operations';
@@ -46,7 +48,6 @@ import {
   type Notice,
 } from '../sketch-actions';
 import { clearSelection, deselect, resetInteraction, state } from '../state';
-import { TOOLS } from '../tools';
 import type { ToolbarHandle, ToolbarHandlers } from '../toolbar';
 import type { SelectionKind, ToolId } from '../types';
 import { fitView as fitViewport } from '../viewport';
@@ -140,20 +141,10 @@ export class EditorControls implements ToolbarHandlers {
    */
   armOperation(id: OperationId): void {
     this.commitDimEditor();
-    this.endCommand();
-
     const op = operationById(id);
-    const session = createSession(id);
+    const session = this.startSession(id);
     const operands = operandsFromSelection(state.selection);
     const fill = fillFromOperands(session, operands);
-
-    state.command = session;
-    state.tool = op.tool ?? 'select';
-    state.snap = null;
-    state.marquee = null;
-    this.deps.getToolbar()?.setActiveTool(state.tool);
-    this.deps.getToolbar()?.setActiveOperation(op.tool === null ? id : null);
-    this.updateCursor();
 
     const ignored = operands.length - fill.used;
     if (ignored > 0) notify(`已忽略 ${ignored} 个不适用于「${op.label}」的选中对象`, 'info');
@@ -165,6 +156,30 @@ export class EditorControls implements ToolbarHandlers {
       return;
     }
     this.sync();
+  }
+
+  /**
+   * 建立空会话并同步工具/操作按钮/光标三处 UI。
+   * 命令启动（armOperation）与执行后重开（repeat / 工具续接）共用这一份，避免三处 UI 各写一遍。
+   */
+  private startSession(id: OperationId): CommandSession {
+    this.endCommand();
+    const op = operationById(id);
+    const session = createSession(id);
+    state.command = session;
+    state.snap = null;
+    state.marquee = null;
+    this.showTool(op.tool ?? 'select', op.tool === null ? id : null);
+    return session;
+  }
+
+  /** 工具/操作高亮与十字光标的唯一同步入口；state.tool 也在这里写回 */
+  private showTool(tool: ToolId, activeOperation: OperationId | null): void {
+    state.tool = tool;
+    const toolbar = this.deps.getToolbar();
+    toolbar?.setActiveTool(tool);
+    toolbar?.setActiveOperation(activeOperation);
+    this.deps.canvas.classList.toggle('is-drawing', state.command !== null || tool !== 'select');
   }
 
   /** 画布点击：补当前命令的下一个参数槽位；填满立即执行 */
@@ -200,22 +215,16 @@ export class EditorControls implements ToolbarHandlers {
     }
 
     const outcome = executeOperation(session, zoom);
+    if (!outcome.result.ok) {
+      notify(outcome.result.reason, 'error');
+      this.recoverFailedCommand(session.opId, source);
+      return;
+    }
     if (outcome.kind === 'dim') {
-      if (!outcome.result.ok) {
-        notify(outcome.result.reason, 'error');
-        this.recoverFailedCommand(session.opId, source);
-        return;
-      }
       // 尺寸输入框接管后续交互；命令重新起步，便于连续标注
       this.afterSuccessfulTool(session.opId, false);
       this.deps.hintEditor.openResult(outcome.result);
       this.sync();
-      return;
-    }
-
-    if (!outcome.result.ok) {
-      notify(outcome.result.reason, 'error');
-      this.recoverFailedCommand(session.opId, source);
       return;
     }
     this.afterSuccessfulTool(session.opId, true);
@@ -238,7 +247,7 @@ export class EditorControls implements ToolbarHandlers {
       return;
     }
     if (isRepeatOperation(opId)) {
-      this.restartOperation(opId);
+      this.startSession(opId);
       this.sync();
       return;
     }
@@ -247,38 +256,19 @@ export class EditorControls implements ToolbarHandlers {
 
   /** 执行成功后的命令去向：repeat 操作继续同一模式，约束/编辑类回到选择，工具类续接 */
   private afterSuccessfulTool(opId: OperationId, allowContinuation: boolean): void {
-    const op = operationById(opId);
     if (isRepeatOperation(opId)) {
-      this.restartOperation(opId);
+      this.startSession(opId);
       return;
     }
+    const op = operationById(opId);
     if (op.tool === null) {
       state.command = null;
-      state.tool = 'select';
-      this.deps.getToolbar()?.setActiveTool('select');
-      this.deps.getToolbar()?.setActiveOperation(null);
-      this.updateCursor();
+      this.showTool('select', null);
       return;
     }
-    const session = state.command;
-    const next = allowContinuation && session ? continuationOf(session) : null;
+    const next = allowContinuation && state.command ? continuationOf(state.command) : null;
     state.command = next ?? createSession(opId);
-    state.tool = op.tool;
-    this.deps.getToolbar()?.setActiveTool(op.tool);
-    this.deps.getToolbar()?.setActiveOperation(null);
-    this.updateCursor();
-  }
-
-  /** 重开同一操作的空会话：repeat 操作连续点、工具类操作执行成功后的公共出口 */
-  private restartOperation(id: OperationId): void {
-    const op = operationById(id);
-    state.command = createSession(id);
-    state.tool = op.tool ?? 'select';
-    state.snap = null;
-    state.marquee = null;
-    this.deps.getToolbar()?.setActiveTool(state.tool);
-    this.deps.getToolbar()?.setActiveOperation(op.tool === null ? id : null);
-    this.updateCursor();
+    this.showTool(op.tool, null);
   }
 
   /** Backspace：回退当前命令最后一个参数 */
@@ -291,12 +281,9 @@ export class EditorControls implements ToolbarHandlers {
   /** Esc / 右键单击 / 切到选择工具：放弃命令并删掉会话新建的孤立点 */
   cancelCommand(): void {
     this.endCommand();
-    state.tool = 'select';
     state.snap = null;
     state.marquee = null;
-    this.deps.getToolbar()?.setActiveTool('select');
-    this.deps.getToolbar()?.setActiveOperation(null);
-    this.updateCursor();
+    this.showTool('select', null);
     this.sync();
   }
 
@@ -313,14 +300,6 @@ export class EditorControls implements ToolbarHandlers {
     if (this.deps.hintEditor.editing && !this.deps.hintEditor.commit()) {
       this.deps.hintEditor.cancel();
     }
-  }
-
-  /** 命令进行中或非选择工具时用十字光标 */
-  private updateCursor(): void {
-    this.deps.canvas.classList.toggle(
-      'is-drawing',
-      state.command !== null || state.tool !== 'select',
-    );
   }
 
   /* ======================= 其他工具栏命令 ======================= */
@@ -390,7 +369,7 @@ export class EditorControls implements ToolbarHandlers {
     this.endCommand();
     clearModel();
     resetInteraction();
-    resetToolUi(this.deps);
+    this.showTool('select', null);
     this.sync();
   }
 
@@ -415,14 +394,6 @@ function currentStatus(): CommandStatusText {
   return tool
     ? { operation: `${tool.label}（${tool.key.toUpperCase()}）`, hint: tool.hint }
     : { operation: '', hint: '' };
-}
-
-/** 清空后把工具栏与光标复位到选择工具（模型/状态已由调用方清空） */
-function resetToolUi(deps: EditorControlsDeps): void {
-  state.tool = 'select';
-  deps.getToolbar()?.setActiveTool('select');
-  deps.getToolbar()?.setActiveOperation(null);
-  deps.canvas.classList.remove('is-drawing');
 }
 
 /**

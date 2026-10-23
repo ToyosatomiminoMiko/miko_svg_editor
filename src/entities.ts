@@ -11,9 +11,9 @@
  * 避免 entities → model 的反向依赖（model 的增删查要用 pointIds）。
  */
 
-import { TAU, sweepOf } from './config';
+import { TAU, sweepOf, type ResolvedConstraint } from './config';
 import { vec } from './vec';
-import type { Constraint, ConstraintKind, Point, Vec } from './types';
+import type { Point, Vec } from './types';
 
 /** 点 id → 点对象；model.getPoint 满足这个签名 */
 export type PointLookup = (id: number) => Point | undefined;
@@ -77,16 +77,6 @@ export interface ArcGeometry {
 }
 
 /**
- * 一条待写入模型的约束（与 config 的 ResolvedConstraint 同形）。
- * 图元负责决定「它自己参与哪种约束」，所以实体层需要这个最小形状；
- * 用本地接口而不是 import config 的类型，避免实体层反向依赖约束元数据。
- */
-export interface EntityConstraint {
-  readonly kind: ConstraintKind;
-  readonly props: Omit<Constraint, 'id' | 'type'>;
-}
-
-/**
  * 图元基类：所有按种类分派的行为都是这里的可重写方法。
  * 默认实现对应「该图元没有这种能力」（返回 null / 空数组），子类只重写自己关心的部分；
  * 需要模型数据的几何方法接收 PointLookup，类本身不持有容器引用。
@@ -121,12 +111,12 @@ export abstract class EntityBase {
   }
 
   /** 「点落在该图元上」对应的约束；null = 该图元不能作为「重合」的目标 */
-  pointOnConstraint(_pointId: number): EntityConstraint | null {
+  pointOnConstraint(_pointId: number): ResolvedConstraint | null {
     return null;
   }
 
   /** 与另一个图元相切时生成的约束；null = 这个组合不支持相切 */
-  tangentWith(_other: EntityBase): EntityConstraint | null {
+  tangentWith(_other: EntityBase): ResolvedConstraint | null {
     return null;
   }
 
@@ -179,11 +169,11 @@ export class LineEntity extends EntityBase {
     return { kind: 'distance', a: this.a, b: this.b };
   }
 
-  override pointOnConstraint(pointId: number): EntityConstraint {
+  override pointOnConstraint(pointId: number): ResolvedConstraint {
     return { kind: 'pointOnLine', props: { p: pointId, e: this.id } };
   }
 
-  override tangentWith(other: EntityBase): EntityConstraint | null {
+  override tangentWith(other: EntityBase): ResolvedConstraint | null {
     if (other instanceof CurveEntityBase) {
       return { kind: 'tangentLineCircle', props: { line: this.id, circ: other.id } };
     }
@@ -207,11 +197,11 @@ export abstract class CurveEntityBase extends EntityBase {
     return pointId === this.c ? '圆心' : null;
   }
 
-  override pointOnConstraint(pointId: number): EntityConstraint {
+  override pointOnConstraint(pointId: number): ResolvedConstraint {
     return { kind: 'pointOnCircle', props: { p: pointId, e: this.id } };
   }
 
-  override tangentWith(other: EntityBase): EntityConstraint | null {
+  override tangentWith(other: EntityBase): ResolvedConstraint | null {
     if (other instanceof LineEntity) {
       return { kind: 'tangentLineCircle', props: { line: other.id, circ: this.id } };
     }

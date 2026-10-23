@@ -14,14 +14,13 @@ import { applyMarquee, clearHover, clickSelect, updateHover, updateMarquee } fro
 import { moveDrag, type DragGesture } from './sketch-actions';
 import { state } from './state';
 import type { Theme } from './theme';
-import { TOOLS } from './tools';
 import type { ToolbarHandle, ToolbarHandlers } from './toolbar';
 import type { MeasureText, Point, Vec } from './types';
 import { EditorControls, createToolbarHandlers } from './ui/editor-controls';
 import { HintEditor } from './ui/hint-editor';
 import { StatusPanel } from './ui/status-panel';
 import { applyPan, beginPan, wheelZoom, type PanAnchor } from './viewport';
-import type { ClickInput } from './operations';
+import { TOOLS, type ClickInput } from './operations';
 
 type Gesture = { kind: 'pan'; pan: PanAnchor } | { kind: 'drag'; drag: DragGesture };
 export class Editor {
