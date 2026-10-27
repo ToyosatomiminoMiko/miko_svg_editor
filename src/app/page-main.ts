@@ -2,8 +2,8 @@
  * 出版排版编辑器（map.html）的组合根。
  *
  * 是什么：建三栏外壳（顶部工具条 / 画布 / 右侧属性面板 + 底部状态行）→ 在画布里显示上传面板
- * → 用户选/拖入 `base.svg` + `geo.json`（可选 `scene.json`）后分类、读取、严格校验 → 生成
- * `PageDocument` → 为预览建 objectURL → 装配侧栏、编辑器与工具条并启动。
+ * → 用户在 SVG / JSON 两个选择栏里分别选/拖入 `base.svg` 与 `geo.json`（可选 `scene.json`）→
+ * 分类、读取、严格校验 → 生成 `PageDocument` → 为预览建 objectURL → 装配侧栏、编辑器与工具条并启动。
  * 为什么组合根只有这一份：`core`/`render`/`ui` 都不允许认识彼此的全部依赖，只有 app 层
  * 可以同时装配文件读取、SVG 预览、miko_ui 面板与交互状态机。页面是纯静态的，不认识任何 HTTP 接口。
  * 打开口径（详见 `.work/REFACTOR-SPEC.md` §1）：底图 C1–C4、UTF-8、sha256 与 `geo.base.sha256`
@@ -75,7 +75,7 @@ interface JsonUploads {
 }
 
 /** 上传说明：多处错误文案共用同一句提示 */
-const UPLOAD_HINT = '需要同名的 base.svg + geo.json（可选 scene.json）';
+const UPLOAD_HINT = '需要配套的 base.svg + geo.json（可选 scene.json）';
 
 /** 把异常转成可直接展示的一行中文 */
 function errorMessage(error: unknown): string {
@@ -372,7 +372,7 @@ function boot(): void {
     closeSession();
     panel.reset();
     panel.show();
-    notifier.setState('等待上传 base.svg 与 geo.json');
+    notifier.setState('等待选择底图 SVG 与 JSON');
     document.title = '出版排版编辑器';
   }
 

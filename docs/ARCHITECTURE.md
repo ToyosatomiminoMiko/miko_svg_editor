@@ -684,8 +684,8 @@ map.html（纯静态 Vite 站）
 ```text
 page-main.ts:
   mountShell(#page-app) → toolbar/canvas/sidebar/notices/status
-  显示 ui/page-open.ts 的上传面板
-  用户选/拖文件 → 分类（core/document.ts）→ 读字节 + 严格 UTF-8 解码
+  显示 ui/page-open.ts 的上传面板（SVG / JSON 两栏；拖放按扩展名自动落栏）
+  两栏选齐后点「打开地图」→ 分类（core/document.ts）→ 读字节 + 严格 UTF-8 解码
   → readBaseSvg（C1–C4）→ validateGeo + normalizeGeo
   → 与底图一致性校验（sha256、viewBox/尺寸容差 0.01pt）→ PageDocument
   → 有合法 scene 则 normalizeScene；否则 defaultScene（标脏）

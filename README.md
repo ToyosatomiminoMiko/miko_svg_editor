@@ -42,8 +42,9 @@ npm run preview      # 预览 dist/
 ```
 
 > **地图出版排版编辑器**（`map.html`）是**纯静态前端**：不需要 Python，也不需要任何后端服务。
-> `npm run dev` 后打开 `http://localhost:5173/map.html`，上传 Cartopy_file 产出的 `base.svg` 与
-> `geo.json`（可选 `scene.json` 恢复排版），在浏览器内排版并导出 `scene.json` / `final.svg` 两个文件。
+> `npm run dev` 后打开 `http://localhost:5173/map.html`，在 SVG / JSON 两个选择栏里分别选入
+> Cartopy_file 产出的 `base.svg` 与 `geo.json`（可选 `scene.json` 恢复排版），在浏览器内排版并
+> 导出 `scene.json` / `final.svg` 两个文件。
 > 开发端口唯一真值是 `vite.config.ts` 的 `SITE_PORT`（5173，`strictPort`）；`npm run build` 的
 > `dist/` 可直接放任意静态服务器。数据流、字段、文件 I/O 与校验口径见
 > [`docs/PAGE-EDITOR.md`](docs/PAGE-EDITOR.md)。
@@ -284,7 +285,8 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 
 **能做什么**
 
-- 打开：上传/拖入配套的 `base.svg` + `geo.json`（可再选一个 `scene.json` 恢复旧排版）；底图含文字、
+- 打开：在 SVG 栏与 JSON 栏里**分别**选择/拖入配套的 `base.svg` 与 `geo.json`（JSON 栏可再一起
+  选一个 `scene.json` 恢复旧排版），两栏选齐后点「打开地图」；底图含文字、
   sha256 与尺寸对不上、JSON 格式不对等都给中文原因。
 - 纸张：A5/A4/A3/Letter/自定义、纵横向、页边距；地图摆放（x/y/宽，高度按底图纵横比派生）。
 - 图文：标题、副标题、注释、来源、自由文字；字号/行高/旋转/颜色/对齐/斜体/加粗/白色光晕；
@@ -371,8 +373,8 @@ src/
                              引样式、读主题、组装 Editor 与工具栏
     editor.ts                草图控制器：指针/键盘事件接线 + 手势状态机（拖拽/平移/框选）+ Enter/Backspace/Esc
                              路由 + ResizeObserver 跟随布局重设画布；命令实现委托 ui/editor-controls.ts
-    page-main.ts             排版编辑器组合根：建三栏外壳 → 上传面板 → 读取/校验 base.svg + geo.json →
-                             PageDocument → defaultScene → PageEditor + 侧栏/工具条/通知 + 导出
+    page-main.ts             排版编辑器组合根：建三栏外壳 → 上传面板（SVG/JSON 两栏）→ 读取/校验
+                             base.svg + geo.json → PageDocument → defaultScene → PageEditor + 侧栏/工具条/通知 + 导出
     page-editor.ts           排版编辑器状态机：选择/拖拽/方向键/缩放/平移/脏标记；导出 JSON/SVG、destroy
   core/                      纯逻辑内核：不碰 DOM / miko_ui，node 环境可直接单测
     types.ts                 非图元的数据类型：Point/Constraint/ToolId/SelectionItem/Selection/Marquee 等
@@ -432,7 +434,7 @@ src/
     notify.ts                错误提示进 miko_ui MessageArea；info 走状态栏；确认框用 Panel + Button
     download.ts              Blob/<a download>/objectURL 下载适配器（downloadText / downloadSvg）
     measure-text.ts          canvas measureText 适配器（无 canvas 时回退估算）
-    page-open.ts             排版编辑器上传面板（选择文件/拖放区/错误文案）
+    page-open.ts             排版编辑器上传面板（SVG / JSON 两栏分别选择 + 打开按钮 + 错误文案）
     page-sidebar.ts          排版编辑器右侧属性面板（页面/地图/图框/元素列表/选中项/图例编辑）
     page-toolbar.ts          排版编辑器顶部工具条（打开…/导出 JSON/导出 SVG/添加/视图）
     page-notify.ts           排版编辑器消息区（miko_ui MessageArea + 简单确认框）

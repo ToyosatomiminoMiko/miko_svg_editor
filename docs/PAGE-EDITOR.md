@@ -516,9 +516,14 @@ interface BaseSvgInfo {
 | `<stem>.geo.json`   | 是（恰好 1） | 后缀 `.geo.json` → 快速路径；`.json` 交给 `classifyJsonFormat` 按 `format` 字段判定 |
 | `<stem>.scene.json` | 否（最多 1） | 后缀 `.scene.json` 快速路径；同样按 `format=mapdoc-page` 判定                       |
 
-- 选择框：`<input type="file" multiple accept=".svg,.json,application/json,image/svg+xml">`
-  （`PAGE_UPLOAD_ACCEPT`）；也支持把文件拖到页面任意位置。
-- 扩展名只用于快速分桶，**JSON 的内容 `format` 才是真值**（改错扩展名不会误判）；
+- 选择框：**SVG 与 JSON 分成两个独立选择框**（`ui/page-open.ts` 的两个选择栏），不再要求一次
+  全选——底图栏 `<input accept=".svg,image/svg+xml">`（单选）、JSON 栏
+  `<input multiple accept=".json,application/json">`（geo 必需，scene 可一起选）。
+  - 底图栏与 JSON 栏各自独立替换：换底图不影响已选 JSON，换 JSON 也不影响已选底图；
+  - 两栏都选齐后「打开地图」按钮才可用（面板不会在两栏未齐时自动打开）；
+  - 也支持把文件拖到页面任意位置：按扩展名自动落进对应栏，一次拖入两份会同时填好两栏；
+    只拖一种时另一栏保持原值。
+- 扩展名只用于快速分桶与分栏，**JSON 的内容 `format` 才是真值**（改错扩展名不会误判）；
   没有 `.svg`/`.json` 之外的文件时报「不识别的文件」。
 - 少于/多于一个底图、缺少/多于一个 geo、多于一个 scene、JSON 的 `format` 既不是 `mapdoc-geo`
   也不是 `mapdoc-page`：都在打开阶段拒绝并给出中文原因，不改变当前已打开的文档。
@@ -582,7 +587,7 @@ src/core/page-layout.ts         # §5 全部布局公式 + defaultScene（可选
 src/render/page-svg.ts          # 预览 SVG DOM（纸张/底图 image/图框刻度/items）
 src/render/compose-svg.ts       # 浏览器内合成 final.svg（纯函数：结构/marker/report）
 src/render/page-format.ts       # 数字格式化、颜色/转义、SVG 属性 helper
-src/ui/page-open.ts             # 上传面板（选择文件 / 拖放区 / 错误文案）
+src/ui/page-open.ts             # 上传面板（SVG / JSON 两栏各自选择 + 打开按钮 + 错误文案）
 src/ui/page-sidebar.ts          # 右侧属性面板（页面/地图/图框/元素/属性/图例编辑）
 src/ui/page-toolbar.ts          # 顶部工具条（文件/添加/视图三组）
 src/ui/page-notify.ts           # 消息区（miko_ui MessageArea + 简单确认框）
@@ -599,7 +604,8 @@ tests/render/compose-svg.test.ts # 合成结构、marker、确定性、越界 re
 
 **交互（基础可用即可，不做撤销/多文档）**
 
-- **打开**：初始显示上传面板；选/拖 `base.svg` + `geo.json`（+ 可选 `scene.json`）→ §8.2 校验 →
+- **打开**：初始显示上传面板；在 SVG 栏与 JSON 栏里分别选/拖 `base.svg`、`geo.json`（+ 可选
+  `scene.json`），选齐后点「打开地图」→ §8.2 校验 →
   生成 `PageDocument` → 装配界面。没有 scene 时用 `defaultScene` 生成初始排版（标脏）；有 scene 且
   合法则恢复（`figure` 覆盖为底图名；`base` 不一致只告警并更新）。
 - **画布**：一个 SVG（viewBox 随缩放/平移变化）。纸张白底 + 底图 `<image href=objectURL>`

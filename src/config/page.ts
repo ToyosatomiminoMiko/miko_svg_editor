@@ -25,10 +25,16 @@ export const PAGE_GEO_VERSION = 1;
 /* ---------------- 上传与下载（文件 I/O，无后端） ---------------- */
 
 /**
- * 上传文件选择框的 accept：底图 SVG 与 JSON（geo / scene）。
+ * 底图 SVG 选择框的 accept（SVG 与 JSON 是两个独立选择框，见 `ui/page-open.ts`）。
  * 只看扩展名即可：内容格式由 `core/document.ts` 按 `format` 字段再判一次。
  */
-export const PAGE_UPLOAD_ACCEPT = '.svg,.json,application/json,image/svg+xml';
+export const PAGE_UPLOAD_SVG_ACCEPT = '.svg,image/svg+xml';
+
+/**
+ * JSON 选择框的 accept：geo.json 必需、scene.json 可选，所以允许多选。
+ * 扩展名只用于分栏与快速分桶，JSON 内容的 `format` 才是真值（`core/document.ts`）。
+ */
+export const PAGE_UPLOAD_JSON_ACCEPT = '.json,application/json';
 
 /** 导出下载用 Blob objectURL 的延迟 revoke（毫秒）：给浏览器留出读取下载数据的时间 */
 export const PAGE_DOWNLOAD_REVOKE_MS = 1000;
