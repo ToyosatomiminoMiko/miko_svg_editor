@@ -269,3 +269,44 @@ class _StudioCase(unittest.TestCase):
         status, payload = self.json_request("PUT", "/api/scene", self.scene_payload())
         self.assertEqual(status, 503)
         self.assertEqual(payload["code"], "geo_missing")
+
+
+class _ConfigCase(unittest.TestCase):
+    """配置校验：站点端口只认 studio.toml，没有第二份默认值."""
+
+    def _load(self, text: str) -> studio.StudioConfig:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "studio.toml"
+        path.write_text(text, encoding="utf-8")
+        return studio.load_config(path)
+
+    def test_port_comes_from_toml(self) -> None:
+        config = self._load(
+            """\
+[studio]
+port = 12345
+open_browser = false
+web_dist = "web_dist"
+base_dir = ".build"
+
+[figures]
+volga = "figures/Volga/map.svg"
+"""
+        )
+        self.assertEqual(config.port, 12345)
+
+    def test_missing_port_is_rejected(self) -> None:
+        with self.assertRaises(studio.StudioConfigError) as context:
+            self._load(
+                """\
+[studio]
+open_browser = false
+web_dist = "web_dist"
+base_dir = ".build"
+
+[figures]
+volga = "figures/Volga/map.svg"
+"""
+            )
+        self.assertIn("studio.port", str(context.exception))

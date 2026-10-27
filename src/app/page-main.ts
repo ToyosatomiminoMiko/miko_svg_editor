@@ -105,7 +105,7 @@ function showFatal(shell: PageShell, notifier: PageNotifier, message: string): v
   const hint = create_element(
     { tag: 'p' },
     { class: 'page-fatal' },
-    '地图排版编辑器需要本地 studio 服务（默认 127.0.0.1:8791）。',
+    '地图排版编辑器需要本地 studio 服务（开发期 npm run dev 会自动拉起；单独运行请执行 python3 tools/studio.py）。',
   );
   shell.canvasHost.append(hint);
 }

@@ -380,7 +380,7 @@ title（show_title）：基线 y-4，anchor=middle，x = item.x+width_pt/2
 
 `prepare_demo.py` 产出底图后必须跑 `read_base`，失败即中止。
 
-## 8. HTTP 端点（studio，127.0.0.1:8791）
+## 8. HTTP 端点（studio，站点端口见 `tools/studio.toml`，当前 5173）
 
 - `GET /api/doc` →
   `{"figure":{"key":"volga","path":"..."},

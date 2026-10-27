@@ -42,12 +42,15 @@ npm run preview      # 预览 dist/
 ```
 
 > **地图出版排版编辑器**（`map.html`）要一个本地 Python studio（`tools/studio.py`，标准库即可）。
-> `npm run dev` / `npx vite` 启动时会顺带把它拉起来：没有实例就 `python3 tools/studio.py`，
-> 已有就直接复用，Vite 退出时一起结束；`/api`、`/base.svg`、`/final.svg`、`/geo.json`
-> 由 Vite 代理到 `127.0.0.1:8791`。首次运行先 `python3 tools/prepare_demo.py`，从 Cartopy 成品
-> 剥离纯底图并抽取 `geo.json`。开发期打开 `http://localhost:5173/map.html`，生产形态打开
-> `http://127.0.0.1:8791/`。细节（端口/解释器覆盖、单独跑后端、数据流契约）见
-> [`tools/README.md`](tools/README.md) 与 [`docs/PAGE-EDITOR.md`](docs/PAGE-EDITOR.md)。
+> 站点端口只有一个真值：`tools/studio.toml` 的 `[studio].port`（当前 5173），`vite.config.ts`
+> 与 Python 侧都读它，没有第二份端口常量。开发期 `npm run dev` / `npx vite` 监听该端口并顺带
+> 管理 studio（已有实例就复用，Vite 退出时一起结束）；studio 自己改用 Vite 在回环上现取的一个
+> 内部空闲端口，`/api`、`/base.svg`、`/final.svg`、`/geo.json` 由 Vite 代理过去。首次运行先
+> `python3 tools/prepare_demo.py`，从 Cartopy 成品剥离纯底图并抽取 `geo.json`。开发期打开
+> `http://localhost:5173/map.html`；生产形态 `python3 tools/studio.py` 直接监听同一端口，打开
+> `http://127.0.0.1:5173/`（两种形态不能同时运行）。细节（端口/解释器覆盖、单独跑后端、
+> 数据流契约）见 [`tools/README.md`](tools/README.md) 与
+> [`docs/PAGE-EDITOR.md`](docs/PAGE-EDITOR.md)。
 
 本地库默认是 `/mnt/IVSTINIANVS/__projects_web/miko_ui`，用 `MIKO_UI_DIR` 指到别的工作副本即可；
 链路本身只有三个命令：
@@ -300,8 +303,8 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 ```bash
 python3 tools/prepare_demo.py     # 从 Cartopy 成品剥离纯底图 + geo.json（首次/图变时）
 npm run dev                       # Vite + studio；打开 http://localhost:5173/map.html
-# 或生产形态：
-npm run build && python3 tools/studio.py   # 打开 http://127.0.0.1:8791/
+# 或生产形态（与 dev 二选一：站点端口只能有一个进程监听）：
+npm run build && python3 tools/studio.py   # 打开 http://127.0.0.1:5173/
 ```
 
 **已知限制**：字体不内嵌（跨机字形可能变化，印刷前转曲）；不做自动换行/字距（默认排版按宽度折好

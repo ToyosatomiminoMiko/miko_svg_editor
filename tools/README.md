@@ -17,22 +17,23 @@ python3 -m unittest discover -s tools/tests -t tools
 # 2) 契约自检（纯底图 C1–C4 + geo + 真实 compose + marker/确定性）
 python3 tools/check_contract.py
 
-# 3) 起服务（配置读 tools/studio.toml，不接受命令行参数；只监听 127.0.0.1:8791）
+# 3) 起服务（配置读 tools/studio.toml，不接受命令行参数；监听 [studio].port）
 python3 tools/studio.py
 ```
 
-浏览器打开 `http://127.0.0.1:8791/`（studio 自己服务 `dist/` 的出版排版编辑器 `map.html`），
-草图编辑器在 `http://127.0.0.1:8791/sketch`。
+浏览器打开 `http://127.0.0.1:5173/`（studio 自己服务 `dist/` 的出版排版编辑器 `map.html`），
+草图编辑器在 `http://127.0.0.1:5173/sketch`。
 
-开发期不用开两个终端：`npm run dev` / `npx vite` 启动时会先探活，已有 studio 就直接复用，
-没有就用 `python3 tools/studio.py` 拉起一个，Vite 退出时一起结束；页面在 Vite 上
-（`http://localhost:5173/map.html`），`/api`、`/base.svg`、`/final.svg`、`/geo.json`
-由 Vite 代理到 studio。`MAPDOC_PYTHON` 可以指定解释器（默认 `python3`）。
+开发期不用开两个终端：`npm run dev` / `npx vite` 监听同一个站点端口（5173，值来自
+`tools/studio.toml`，`strictPort`：被占就报错），并顺带用 `python3 tools/studio.py` 拉起 studio；
+studio 自己改用 Vite 在回环上现取的一个内部空闲端口（通过 `MAPDOC_STUDIO_PORT` 注入，不写进
+任何配置文件），`/api`、`/base.svg`、`/final.svg`、`/geo.json` 由 Vite 代理过去。页面在
+`http://localhost:5173/map.html`。`MAPDOC_PYTHON` 可以指定解释器（默认 `python3`）。
 
 两项启动期覆盖（环境变量优先于 TOML，只在进程启动时读，不是配置文件的替代）：
 
-- `MAPDOC_STUDIO_PORT`：覆盖 `[studio].port`（`0` 表示系统分配）；Vite 的代理目标也读它，
-  所以用这个改端口时前后端仍然对齐。
+- `MAPDOC_STUDIO_PORT`：覆盖 `[studio].port`（`0` 表示系统分配），只对独立运行的 studio 有意义；
+  开发期该变量由 Vite 注入内部端口，外部设置会被覆盖，否则代理目标会和后端错开。
 - `MAPDOC_OPEN_BROWSER`：`1`/`true` 或 `0`/`false` 覆盖 `[studio].open_browser`；Vite 插件会传
   `0`，避免开发期再弹一个浏览器页。
 
@@ -83,11 +84,11 @@ demo/figures/Volga/
 ## HTTP 端点速查
 
 ```bash
-curl -s 'http://127.0.0.1:8791/api/doc' | python3 -m json.tool
-curl -s 'http://127.0.0.1:8791/api/geo' | python3 -m json.tool
-curl -s 'http://127.0.0.1:8791/api/scene'
-curl -s -X POST 'http://127.0.0.1:8791/api/compose'
-curl -s 'http://127.0.0.1:8791/final.svg' | head -c 200
+curl -s 'http://127.0.0.1:5173/api/doc' | python3 -m json.tool
+curl -s 'http://127.0.0.1:5173/api/geo' | python3 -m json.tool
+curl -s 'http://127.0.0.1:5173/api/scene'
+curl -s -X POST 'http://127.0.0.1:5173/api/compose'
+curl -s 'http://127.0.0.1:5173/final.svg' | head -c 200
 ```
 
 `PUT /api/scene` 的语义体见 [`docs/PAGE-EDITOR.md`](../docs/PAGE-EDITOR.md) §4/§8；

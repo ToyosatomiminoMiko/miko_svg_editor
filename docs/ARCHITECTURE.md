@@ -718,11 +718,13 @@ final 与输入同步。
 
 ### 15.5 本地开发
 
-`npm run dev` / `npx vite` 会顺带管理 studio（`vite.config.ts` 的 `studioDevPlugin`）：启动时先探
-`127.0.0.1:8791/api/health`，已有实例直接复用；没有就 `python3 tools/studio.py` 拉一个（stdio
-继承，日志与 Vite 在同一终端），Vite 退出时一并结束。开发期打开
-`http://localhost:5173/map.html`（Vite 代理 `/api`、`/base.svg`、`/final.svg`、`/geo.json`）；
-生产形态由 studio 服务 `dist/`：`/` → `map.html`，`/sketch` → 草图页。
+站点端口的唯一真值是 `tools/studio.toml` 的 `[studio].port`（当前 5173）；`vite.config.ts` 在
+构建配置时读它，不再保留第二份端口常量。开发期 Vite 监听该端口（`strictPort`，被占直接报错），
+`studioDevPlugin` 顺带管理 studio：Vite 在回环上现取一个空闲内部端口，注入 `MAPDOC_STUDIO_PORT`
+拉起 `python3 tools/studio.py`（stdio 继承，日志与 Vite 在同一终端；配置改动重建 dev server 时
+沿用同一内部端口复用旧实例），Vite 退出时一并结束。开发期打开 `http://localhost:5173/map.html`
+（Vite 代理 `/api`、`/base.svg`、`/final.svg`、`/geo.json`）；生产形态由 studio 直接监听同一
+端口并服务 `dist/`：`/` → `map.html`，`/sketch` → 草图页，两种形态不能同时运行。
 首次运行先 `python3 tools/prepare_demo.py` 生成 `demo/` 底图与 geo。
 
 ### 15.6 已知边界（本轮）

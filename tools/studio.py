@@ -9,8 +9,8 @@ dist/assets/*)的静态服务.
 服务器校验(含底图变更政策)→ 规范化原子写 → compose, 浏览器不直接写成品.
 安全骨架沿用 label_editor.py: 只监听回环、配置未知键报错、静态白名单、请求体 ≤ 2 MB、
 拒绝 ``..``、不接受命令行参数、所有响应 Cache-Control: no-store.
-开发期(由 Vite 插件拉起)可用环境变量 MAPDOC_STUDIO_PORT / MAPDOC_OPEN_BROWSER 覆盖端口与
-自动开浏览器, 见 apply_env_overrides.
+开发期(由 Vite 插件拉起)会注入 MAPDOC_STUDIO_PORT 指向一个回环内部端口, 并用
+MAPDOC_OPEN_BROWSER=0 关掉自动开浏览器, 见 apply_env_overrides; 站点端口只认 TOML.
 元信息: 2026-10, 新数据流(纯底图 + geo + 排版层); 契约见 docs/PAGE-EDITOR.md.
 """
 
@@ -41,8 +41,8 @@ CONFIG_FILE = TOOL_DIR / "studio.toml"
 HOST = "127.0.0.1"
 # 请求体上限: 正常 scene 是几十 KB; 2 MB 足够, 同时挡住误传整张 SVG.
 MAX_BODY_BYTES = 2 * 1024 * 1024
-# 配置缺省值; 端口固定 8791 是为了 Vite 开发期代理(vite.config.ts).
-DEFAULT_PORT = 8791
+# 站点端口的唯一真值在 studio.toml 的 [studio].port: 独立运行时本服务直接监听它, 开发期由 Vite
+# 监听同一端口, 本服务改用 Vite 注入的内部端口. 因此这里不再给默认端口, 避免出现第二份真值.
 DEFAULT_OPEN_BROWSER = True
 DEFAULT_WEB_DIST = "../dist"
 DEFAULT_BASE_DIR = ".build"
@@ -80,7 +80,7 @@ _CONTENT_TYPES = {
 
 _EXAMPLE_CONFIG = """\
 [studio]
-port = 8791
+port = 5173
 open_browser = true
 web_dist = "../dist"
 base_dir = ".build"
@@ -198,7 +198,11 @@ def load_config(path: Path = CONFIG_FILE) -> StudioConfig:
             "(只支持 port / open_browser / web_dist / base_dir)"
         )
 
-    port = studio.get("port", DEFAULT_PORT)
+    port = studio.get("port")
+    if port is None:
+        raise StudioConfigError(
+            f"studio.port 缺失: {path}(端口没有默认值, 唯一真值就是这个键)"
+        )
     # bool 是 int 的子类, 必须先排除, 否则 port = true 会被当成 1.
     if isinstance(port, bool) or not isinstance(port, int):
         raise StudioConfigError(f"studio.port 必须是整数(0 表示系统分配): {path}")
@@ -946,6 +950,11 @@ def main() -> int:
         server = make_server(config)
     except OSError as exc:
         print(f"错误: 无法监听 {HOST}:{config.port}: {exc}", file=sys.stderr)
+        print(
+            "提示: 站点端口同一时间只能有一个服务. 开发期 Vite 会占用它; "
+            "若 npm run dev 正在运行, 请直接访问 Vite 打印的地址, 或先结束它再单独运行 studio.",
+            file=sys.stderr,
+        )
         return 1
 
     _startup_compose(config)
