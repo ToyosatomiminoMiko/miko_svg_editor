@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
-"""契约自检 CLI: 对 studio.toml 里配置的每张图检查底图契约与 compose 不变量.
+"""契约自检 CLI: 对 studio.toml 里配置的每张图检查「纯底图 + geo + scene → final」全链路.
 
-是什么: 读底图做 C1/C3/C6/C8 检查; 用空场景真实合成一份临时 final 验证 I2
-(除 marker 外与 base 字节一致); 若已有 final, 再验证 I1(前后缀字节不变)与 marker 解析.
-为什么: "check_contract 全绿"是本轮验收的一部分; 这里必须走真实 compose(而不是内存拼一遍),
-否则测不到锁/原子写/报告这条真实路径.
+是什么: 读底图做 C1-C4 检查(纯地图、无文字、无 marker); 读 geo 检查其 base 声明;
+若 scene.json 存在, 用真实 compose 合成到 .build 下的临时文件, 验证:
+  - final 是纸张尺寸的合法 SVG, 底图内容原样内联(矢量, 不是 <image>);
+  - final marker 的 base/geo/scene 摘要与当前输入一致;
+  - 同一输入连续合成两次字节完全相同.
+为什么: 契约是前后端共同遵守的唯一真值, 这里必须走真实 compose(锁/原子写/渲染),
+否则测不到实际保存路径. 没有 scene 时只在 [warn] 级别提示, 其余检查照跑.
 用法: python3 tools/check_contract.py   (不接受命令行参数; 退出码 0=全绿, 1=有失败)
 """
 
 from __future__ import annotations
 
+import json
+import re
 import sys
 from pathlib import Path
 
 from mapdoc import compose as compose_mod
-from mapdoc import contract, scene as scene_mod
+from mapdoc import contract, geo as geo_mod, page as page_mod
 from studio import StudioConfigError, load_config
 
 TOOL_DIR = Path(__file__).resolve().parent
@@ -23,6 +28,105 @@ TOOL_DIR = Path(__file__).resolve().parent
 def _line(ok: bool | None, message: str) -> None:
     marker = "[ok]" if ok is True else "[fail]" if ok is False else "[warn]"
     print(f"{marker} {message}")
+
+
+def _load_scene(figure) -> tuple[dict | None, str | None]:
+    """读 scene.json; 不存在返回 (None, None); 不合法返回 (None, 错误)."""
+    try:
+        raw = figure.scene_path.read_bytes()
+    except FileNotFoundError:
+        return None, None
+    except OSError as exc:
+        return None, f"读取 scene 失败: {exc}"
+    try:
+        document = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return None, f"scene.json 不是合法 JSON: {exc}"
+    if not isinstance(document, dict):
+        return None, "scene.json 顶层必须是对象"
+    errors = page_mod.validate_scene(document)
+    if errors:
+        return None, "; ".join(errors)
+    return document, None
+
+
+def _check_final_bytes(
+    base_bytes: bytes, final_bytes: bytes, scene: dict, geo_digest: str
+) -> int:
+    """检查 final 的结构; 返回失败数."""
+    failures = 0
+    if not final_bytes.startswith(b"<?xml"):
+        failures += 1
+        _line(False, "final 缺少 XML 声明")
+    if not final_bytes.rstrip().endswith(b"</svg>"):
+        failures += 1
+        _line(False, "final 没有以 </svg> 结尾")
+
+    # 底图内容必须原样内联(矢量); 出现指向底图的 <image> 引用即不合格.
+    info = contract.read_base(base_bytes)
+    inner = base_bytes[info.inner_start : info.inner_end]
+    if inner and inner not in final_bytes:
+        failures += 1
+        _line(False, "final 里找不到原样内联的底图内容")
+    else:
+        _line(True, "final 内联的是底图原始字节(矢量)")
+
+    marker = contract.read_marker(final_bytes)
+    if marker is None:
+        failures += 1
+        _line(False, "final 缺少 mapdoc-final marker")
+    else:
+        if marker.get("scene") != page_mod.scene_digest(scene):
+            failures += 1
+            _line(False, "final marker 的 scene 摘要与当前 scene 不一致")
+        else:
+            _line(True, "final marker 的 scene 摘要一致")
+        if marker.get("geo") != geo_digest:
+            failures += 1
+            _line(False, "final marker 的 geo 摘要与当前 geo.json 不一致")
+        else:
+            _line(True, "final marker 的 geo 摘要一致")
+
+    # 纸张尺寸: 根 width/height 应等于 scene.paper.
+    size = _root_size(final_bytes)
+    paper = scene.get("paper", {})
+    width = float(paper.get("width_pt", 0.0))
+    height = float(paper.get("height_pt", 0.0))
+    if size is None:
+        failures += 1
+        _line(False, "final 根 <svg> 缺少可解析的 width/height")
+    elif abs(size[0] - width) > 0.01 or abs(size[1] - height) > 0.01:
+        failures += 1
+        _line(
+            False,
+            f"final 根尺寸 {size[0]:g}×{size[1]:g} 与纸张 {width:g}×{height:g} 不一致",
+        )
+    else:
+        _line(True, f"final 是纸张尺寸 {width:g}×{height:g} pt")
+    return failures
+
+
+def _root_size(data: bytes) -> tuple[float, float] | None:
+    """从根 <svg> 起始标签解析 width/height(pt); 解析不到返回 None.
+
+    为什么不用 contract.read_base: final 里本来就有排版文字, 用底图契约去读会带一堆 C2
+    错误; 这里只关心根尺寸.
+    """
+    start = data.find(b"<svg")
+    if start < 0:
+        return None
+    end = data.find(b">", start)
+    if end < 0:
+        return None
+    tag = data[start : end + 1].decode("utf-8", "replace")
+    width = re.search(r'width\s*=\s*"([0-9.]+)pt"', tag)
+    height = re.search(r'height\s*=\s*"([0-9.]+)pt"', tag)
+    if width is None or height is None:
+        return None
+    try:
+        return float(width.group(1)), float(height.group(1))
+    except ValueError:
+        return None
 
 
 def _check_figure(key: str, figure) -> bool:
@@ -39,96 +143,89 @@ def _check_figure(key: str, figure) -> bool:
         print("   提示: 先运行 python3 tools/prepare_demo.py")
         return False
 
-    check = contract.read_base_check(base_bytes)
-    if check.errors:
-        failures += 1
-        for message in check.errors:
+    info = contract.read_base(base_bytes)
+    if info.errors:
+        for message in info.errors:
             _line(False, message)
-        # 底图不合法时后面的 I1/I2 都会因为同一原因失败, 不再重复合成.
         return False
+    base_sha = contract.sha256(base_bytes)
     _line(
         True,
-        f"C1/C3/C6/C8 通过 (viewBox {check.width_pt} x {check.height_pt} pt, "
-        f"text {check.text_count}, @font-face {check.font_face_count})",
+        f"C1-C4 通过 (纯地图, viewBox {info.view_box[2]:g}×{info.view_box[3]:g} pt, "
+        f"{len(base_bytes)} 字节)",
     )
-    for message in check.warnings:
-        _line(None, message)
-
-    base_sha = contract.sha256(base_bytes)
     print(f"   base sha256: {base_sha}")
-    base_info = scene_mod.BaseInfo(
-        path=figure.base_path,
-        sha256=base_sha,
-        width_pt=scene_mod.round3(check.width_pt),
-        height_pt=scene_mod.round3(check.height_pt),
-    )
 
-    # 读已落盘 scene(没有就是空场景); 损坏的 scene 直接算失败, 因为 compose 会拒绝它.
     try:
-        loaded = scene_mod.load(figure.scene_path)
-    except scene_mod.SceneError as exc:
-        _line(False, f"scene 文件不合法: {exc}")
+        geo = geo_mod.read_geo(figure.geo_path)
+    except FileNotFoundError:
+        _line(False, "geo.json 缺失, 请先运行 python3 tools/prepare_demo.py")
         return False
-    current = loaded or scene_mod.empty_scene(figure.figure_name, base_info)
-    if current.base.sha256 != base_sha:
-        _line(None, "scene 声明的 base sha256 与当前底图不一致(保存时需要 ack_base_change)")
+    except geo_mod.GeoError as exc:
+        _line(False, f"geo.json 不合法: {exc}")
+        return False
+    if geo.base.sha256 != base_sha:
+        failures += 1
+        _line(False, "geo.base.sha256 与当前底图不一致(需要重跑 prepare)")
+    elif (
+        abs(geo.base.width_pt - info.width_pt) > 0.01
+        or abs(geo.base.height_pt - info.height_pt) > 0.01
+    ):
+        failures += 1
+        _line(False, "geo.base 尺寸与当前底图不一致(需要重跑 prepare)")
+    else:
+        _line(
+            True,
+            f"geo.json 通过 (labels={len(geo.labels)}, "
+            f"lon={len(geo.graticule.lon)}, lat={len(geo.graticule.lat)}, "
+            f"legend={len(geo.legend.entries)})",
+        )
 
-    # I2: 用空场景真实合成到 .build 下的临时文件, 再逐字节比较"除 marker 外与 base 一致".
-    position = contract.insert_position(base_bytes)
-    empty = scene_mod.empty_scene(figure.figure_name, base_info)
+    scene, scene_error = _load_scene(figure)
+    if scene_error:
+        _line(False, f"scene.json 不合法: {scene_error}")
+        return False
+    if scene is None:
+        _line(None, "还没有 scene.json(在 map.html 里保存一次后可做完整合成自检)")
+        return failures == 0
+
     temporary = figure.base_path.with_name(figure.base_path.name + ".check-final.svg")
     try:
-        compose_mod.compose(
-            figure.base_path, empty, temporary, lock_path=figure.lock_path
+        first = compose_mod.compose(
+            scene, figure.base_path, figure.geo_path, temporary
         )
-        produced = temporary.read_bytes()
+        first_bytes = temporary.read_bytes()
+        second = compose_mod.compose(
+            scene, figure.base_path, figure.geo_path, temporary
+        )
+        second_bytes = temporary.read_bytes()
     except compose_mod.ComposeError as exc:
-        _line(False, f"I2 空场景合成失败: {exc}")
+        _line(False, f"compose 失败: {exc}")
         return False
     finally:
         temporary.unlink(missing_ok=True)
-    prefix, suffix = base_bytes[:position], base_bytes[position:]
-    if not (produced.startswith(prefix) and produced.endswith(suffix)):
-        failures += 1
-        _line(False, "I2: 空场景 final 的 base 前后缀字节被改动")
-    else:
-        inserted = produced[len(prefix) : len(produced) - len(suffix)]
-        if b"<g" in inserted:
-            failures += 1
-            _line(False, "I2: 空场景不应追加空 <g> 组")
-        elif contract.MARKER_PATTERN.fullmatch(inserted) is None:
-            failures += 1
-            _line(False, "I2: 空场景 final 里除 marker 外还插入了别的内容")
-        else:
-            _line(True, "I2 空场景 compose: 除 marker 外与 base 字节一致")
 
-    # 已有 final 时检查 I1 与 marker 语义; 不一致只是"需要合成", 不算契约失败.
+    _line(True, f"compose 成功 (items={first['counts']['total']})")
+    if first_bytes != second_bytes:
+        failures += 1
+        _line(False, "同一输入连续两次 compose 的字节不一致")
+    else:
+        _line(True, "同一 (base, geo, scene) 合成字节稳定")
+    failures += _check_final_bytes(
+        base_bytes, first_bytes, scene, geo_mod.geo_digest(geo)
+    )
+
     if not figure.final_path.is_file():
-        _line(None, "final 尚未生成(启动 studio 会自动合成)")
+        _line(None, "final 尚未生成(在 map.html 保存或 POST /api/compose)")
         return failures == 0
     final_bytes = figure.final_path.read_bytes()
-    try:
-        compose_mod.assert_invariants(base_bytes, final_bytes)
-    except AssertionError as exc:
-        failures += 1
-        _line(False, str(exc))
+    marker = contract.read_marker(final_bytes)
+    if marker is None:
+        _line(None, "已存在的 final 里没有 marker(需要重新合成)")
+    elif marker.get("scene") != page_mod.scene_digest(scene):
+        _line(None, "已存在的 final 与当前 scene 不同步(重新保存一次即可)")
     else:
-        _line(True, "I1 final 的底图前缀/后缀字节不变")
-
-    final_marker = contract.parse_marker(final_bytes)
-    if final_marker is None:
-        _line(None, "final 里还没有 marker(启动 studio 会自动合成)")
-        return failures == 0
-    final_base = contract.marker_base_sha(final_marker)
-    if final_base != base_sha:
-        _line(None, "final marker 的 base sha256 与当前底图不一致(需要重新合成)")
-    else:
-        _line(True, "final marker 的 base sha256 与底图一致")
-    scene_sha = scene_mod.digest(current)
-    if contract.marker_scene_sha(final_marker) != scene_sha:
-        _line(None, "final marker 的 scene sha256 与当前 scene 不一致(需要合成)")
-    else:
-        _line(True, "final marker 的 scene sha256 与当前 scene 一致")
+        _line(True, "已存在的 final 与当前 scene 同步")
     return failures == 0
 
 

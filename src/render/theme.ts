@@ -33,7 +33,7 @@ export interface Theme {
   hairlineWidth: number;
 
   /* 描边端点/拐角：与 SVG 侧 stroke-linecap/stroke-linejoin 同一语义。
-   * 草图用 round；地图模式由 map-theme.ts 改成 butt，与冻结底图的全局 A6 一致。 */
+   * 线帽：SVG 导出用 config 的 EXPORT_LINE_CAP，画布用这里的 token。 */
   lineCap: CanvasLineCap;
   lineJoin: CanvasLineJoin;
 

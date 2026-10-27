@@ -45,21 +45,10 @@ export interface ToolbarHandlers {
   armOperation(id: OperationId): void;
   toggleSnap(): void;
   fitView(): void;
-  /** 草图模式的本地导出；地图模式的成品由 Python 合成，工具栏不显示这个按钮 */
+  /** 本地导出当前草图 */
   exportSVG(): void;
   clearAll(): void;
-  /**
-   * 地图模式：保存 scene 并触发 compose（可选）。
-   * 为什么可选：`EditorControls implements ToolbarHandlers` 是草图模式的回调适配器，
-   * 它没有持久化职责；地图模式在 app/map-mode.ts 的处理器里补这两个函数。
-   */
-  saveScene?(): void;
-  /** 地图模式：在新标签页打开服务端合成的 final.svg（可选） */
-  openFinal?(): void;
 }
-
-/** 工具栏模式：草图（本地 SVG 导出）或地图（保存/成品走 studio） */
-export type ToolbarMode = 'sketch' | 'map';
 
 export interface ToolbarHandle {
   /** 程序化选中工具分段（不触发 onChange） */
@@ -78,38 +67,11 @@ interface ViewFileButton {
 }
 
 /**
- * 地图模式的「视图与文件」即时按钮：去掉「导出SVG」（地图成品由 Python 合成，本地导出会
- * 漏掉底图），改为保存到 studio 与打开服务端成品；「清空」保留。
- * 处理器没接入时按钮置灰而不是消失：地图模式的按钮布局是固定的，缺功能应该看得见。
- */
-const mapViewFileButtons = (handlers: ToolbarHandlers): readonly ViewFileButton[] => [
-  { text: '适应', title: '缩放显示整张底图', run: () => handlers.fitView() },
-  {
-    text: '保存',
-    title: '保存 scene.json 并合成成品（Ctrl+S）',
-    run: () => handlers.saveScene?.(),
-    disabled: handlers.saveScene === undefined,
-  },
-  {
-    text: '成品',
-    title: '在新标签页打开服务端合成的 final.svg',
-    run: () => handlers.openFinal?.(),
-    disabled: handlers.openFinal === undefined,
-  },
-  { text: '清空', title: '删除所有图元', run: () => handlers.clearAll() },
-];
-
-/**
  * 装配工具栏。
  * @param root dock 宿主（`.dock.app-dock`）
  * @param handlers 工具/约束/视图动作的回调
- * @param mode 草图（默认）或地图：只影响「视图与文件」区的即时按钮，工具与约束分组不变
  */
-export function buildToolbar(
-  root: HTMLElement,
-  handlers: ToolbarHandlers,
-  mode: ToolbarMode = 'sketch',
-): ToolbarHandle {
+export function buildToolbar(root: HTMLElement, handlers: ToolbarHandlers): ToolbarHandle {
   // 左分区：工具分段 + 约束/编辑按钮组；行容器留 .app-button-row 负责窄视口换行
   const toolZone = create_element({ tag: 'div' }, { class: 'dock-group app-dock-tools' });
 
@@ -159,15 +121,12 @@ export function buildToolbar(
   for (const op of EDIT_OPERATIONS)
     addActionButton(viewFileRow, op.id, op.label, '参数可在画布上补齐，填满立即执行');
 
-  // 即时命令表：草图模式导出本地 SVG；地图模式的成品由服务端合成（见 mapViewFileButtons）
-  const viewFileButtons: readonly ViewFileButton[] =
-    mode === 'map'
-      ? mapViewFileButtons(handlers)
-      : [
-          { text: '适应', title: '缩放显示整张草图', run: () => handlers.fitView() },
-          { text: '导出SVG', title: '下载当前草图', run: () => handlers.exportSVG() },
-          { text: '清空', title: '删除所有图元', run: () => handlers.clearAll() },
-        ];
+  // 即时命令表：适应视图 / 导出本地 SVG / 清空
+  const viewFileButtons: readonly ViewFileButton[] = [
+    { text: '适应', title: '缩放显示整张草图', run: () => handlers.fitView() },
+    { text: '导出SVG', title: '下载当前草图', run: () => handlers.exportSVG() },
+    { text: '清空', title: '删除所有图元', run: () => handlers.clearAll() },
+  ];
   for (const meta of viewFileButtons) {
     const button = createButton({
       text: meta.text,

@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""mapdoc studio: 本机只读底图 + scene 编辑保存 + compose 的 HTTP 服务.
+"""出版排版编辑器 studio: 纯底图/geo 服务 + scene 保存 + compose 的 HTTP 服务.
 
-是什么: 在 127.0.0.1 上起一个标准库 ThreadingHTTPServer, 按 tools/studio.toml 的图配置
-提供 /api/doc、/api/scene(GET/PUT)、/api/compose、/base.svg、/final.svg、/overlay.svg、
-/api/health 与前端构建产物(dist/index.html、dist/assets/*)的静态服务.
+是什么: 在 127.0.0.1 上起一个标准库 ThreadingHTTPServer, 按 tools/studio.toml 的图配置提供
+``/api/doc``、``/api/geo``、``/api/scene``(GET/PUT)、``/api/compose``、``/base.svg``、
+``/final.svg``、``/geo.json``、``/api/health`` 与前端构建产物(dist/index.html、dist/map.html、
+dist/assets/*)的静态服务.
 为什么: scene 的规范化/写盘与 final 的合成必须只有一个 Python 实现; 浏览器只提交语义体,
-服务器校验(含底图变更政策)→ 规范化原子写 → 尝试 compose, 拿到锁才算合成完成.
+服务器校验(含底图变更政策)→ 规范化原子写 → compose, 浏览器不直接写成品.
 安全骨架沿用 label_editor.py: 只监听回环、配置未知键报错、静态白名单、请求体 ≤ 2 MB、
 拒绝 ``..``、不接受命令行参数、所有响应 Cache-Control: no-store.
 开发期(由 Vite 插件拉起)可用环境变量 MAPDOC_STUDIO_PORT / MAPDOC_OPEN_BROWSER 覆盖端口与
 自动开浏览器, 见 apply_env_overrides.
-元信息: 2026-10, mapdoc 垂直切片; 契约见 docs/merge/DESIGN.md 5.5.
+元信息: 2026-10, 新数据流(纯底图 + geo + 排版层); 契约见 docs/PAGE-EDITOR.md.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from mapdoc import compose as compose_mod
-from mapdoc import contract, fsutil, scene as scene_mod
+from mapdoc import contract, fsutil, geo as geo_mod, page as page_mod
 
 # 本文件所在目录: TOML 与相对路径的解析基准, 不依赖当前工作目录.
 TOOL_DIR = Path(__file__).resolve().parent
@@ -45,6 +46,8 @@ DEFAULT_PORT = 8791
 DEFAULT_OPEN_BROWSER = True
 DEFAULT_WEB_DIST = "../dist"
 DEFAULT_BASE_DIR = ".build"
+# 画布尺寸容差(pt): 与旧实现一致, 挡住浮点回写造成的「差 1e-14 也算变了」.
+SIZE_TOLERANCE_PT = 0.01
 
 # 开发期环境变量: 只覆盖「必须在进程启动前定下」的两项, 供 Vite 插件并行拉起本服务用.
 # 其余配置(图路径/静态目录)仍只认 TOML, 避免出现两份真相.
@@ -108,12 +111,13 @@ def _error(status: HTTPStatus, code: str, message: str, **extra: Any) -> ApiErro
 
 @dataclass(frozen=True)
 class FigureConfig:
-    """一张图的全部派生路径; scene/base/final/lock 全部由 SVG 路径推导."""
+    """一张图的全部派生路径; scene/geo/base/final/lock 全部由 SVG 路径推导."""
 
     key: str
     figure_name: str
     final_path: Path
     scene_path: Path
+    geo_path: Path
     base_path: Path
     lock_path: Path
 
@@ -134,6 +138,23 @@ class StudioConfig:
         if figure is None:
             raise _error(HTTPStatus.BAD_REQUEST, "unknown_figure", f"未知图: {key}")
         return figure
+
+
+@dataclass(frozen=True)
+class BaseState:
+    """服务器侧底图声明: 只保留 doc 与 scene 复核要用到的字段."""
+
+    sha256: str
+    width_pt: float
+    height_pt: float
+    view_box: tuple[float, float, float, float]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "sha256": self.sha256,
+            "width_pt": round(self.width_pt, 3),
+            "height_pt": round(self.height_pt, 3),
+        }
 
 
 def _resolve(base: Path, value: str) -> Path:
@@ -170,9 +191,7 @@ def load_config(path: Path = CONFIG_FILE) -> StudioConfig:
     studio = data.get("studio", {})
     if not isinstance(studio, dict):
         raise StudioConfigError(f"[studio] 必须是表: {path}")
-    unknown = sorted(
-        set(studio) - {"port", "open_browser", "web_dist", "base_dir"}
-    )
+    unknown = sorted(set(studio) - {"port", "open_browser", "web_dist", "base_dir"})
     if unknown:
         raise StudioConfigError(
             f"[studio] 里有不认识的键 {', '.join(unknown)}: {path}"
@@ -220,6 +239,7 @@ def load_config(path: Path = CONFIG_FILE) -> StudioConfig:
         final_path = _resolve(config_dir, value.strip())
         stem = final_path.stem
         scene_path = final_path.with_name(stem + ".scene.json")
+        geo_path = final_path.with_name(stem + ".geo.json")
         base_dir_path = final_path.parent / base_dir
         base_path = base_dir_path / (stem + ".base.svg")
         lock_path = base_dir_path / (stem + ".lock")
@@ -233,6 +253,7 @@ def load_config(path: Path = CONFIG_FILE) -> StudioConfig:
             figure_name=figure_name,
             final_path=final_path,
             scene_path=scene_path,
+            geo_path=geo_path,
             base_path=base_path,
             lock_path=lock_path,
         )
@@ -289,62 +310,89 @@ def apply_env_overrides(config: StudioConfig) -> StudioConfig:
     return replace(config, port=port, open_browser=open_browser)
 
 
-# ---------------------------------------------------------------- 底图/scene 读取
+# ---------------------------------------------------------------- 底图 / geo / scene 读取
 
 
-def _base_state(
-    figure: FigureConfig,
-) -> tuple[scene_mod.BaseInfo | None, contract.BaseCheck | None]:
-    """读底图并做 C1/C3/C6/C8 检查; 返回 (服务器侧 base 声明, 检查结果).
+def _base_state(figure: FigureConfig) -> tuple[BaseState | None, tuple[str, ...]]:
+    """读底图并做 C1-C4 检查; 返回 (服务器侧声明, 错误).
 
-    底图缺失时两者都是 None; 存在但不合法时声明为 None、检查结果带回 errors.
+    底图缺失时返回 (None, ("底图缺失…",)); 存在但不合法时错误带回具体条目.
     """
     try:
         data = figure.base_path.read_bytes()
     except FileNotFoundError:
-        return None, None
+        return None, ("底图缺失: 请先运行 python3 tools/prepare_demo.py",)
     except OSError as exc:
-        return None, contract.BaseCheck(
-            width_pt=0.0,
-            height_pt=0.0,
-            errors=(f"读取底图失败: {exc}",),
-            warnings=(),
-            text_count=0,
-            font_face_count=0,
-            viewbox=None,
-        )
-    check = contract.read_base_check(data)
-    if check.errors:
-        return None, check
+        return None, (f"读取底图失败: {exc}",)
+    info = contract.read_base(data)
+    if info.errors:
+        return None, tuple(info.errors)
     return (
-        scene_mod.BaseInfo(
-            path=figure.base_path,
+        BaseState(
             sha256=contract.sha256(data),
-            width_pt=scene_mod.round3(check.width_pt),
-            height_pt=scene_mod.round3(check.height_pt),
+            width_pt=info.width_pt,
+            height_pt=info.height_pt,
+            view_box=info.view_box,
         ),
-        check,
+        (),
     )
 
 
-def _load_scene(
-    figure: FigureConfig, base_info: scene_mod.BaseInfo | None
-) -> tuple[scene_mod.Scene, bool, str | None]:
-    """读 scene 文件; 返回 (场景, 是否来自文件, 错误消息).
+def _read_geo(figure: FigureConfig) -> geo_mod.Geo:
+    """读 geo.json; 缺失/不合法统一转成 503, 让前端提示先跑 prepare."""
+    if not figure.geo_path.is_file():
+        raise _error(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "geo_missing",
+            "geo.json 缺失: 请先运行 python3 tools/prepare_demo.py",
+        )
+    try:
+        return geo_mod.read_geo(figure.geo_path)
+    except geo_mod.GeoError as exc:
+        raise _error(
+            HTTPStatus.SERVICE_UNAVAILABLE, "geo_invalid", f"geo.json 不合法: {exc}"
+        ) from exc
 
-    文件不存在时合成空场景(带当前底图声明), 因此 GET /api/scene 总是有内容可返回.
+
+def _load_scene(
+    figure: FigureConfig,
+) -> tuple[dict[str, Any] | None, bool, str | None]:
+    """读 scene.json; 返回 (scene, 是否来自文件, 错误).
+
+    文件不存在返回 (None, False, None) —— 前端会用 geo 生成初始排版.
+    文件存在但不是合法 JSON/结构时返回错误字符串, 由调用方决定状态码.
     """
     try:
-        loaded = scene_mod.load(figure.scene_path)
-    except scene_mod.SceneError as exc:
-        return (
-            scene_mod.empty_scene(figure.figure_name, base_info),
-            False,
-            str(exc),
-        )
-    if loaded is None:
-        return scene_mod.empty_scene(figure.figure_name, base_info), False, None
-    return loaded, True, None
+        raw = figure.scene_path.read_bytes()
+    except FileNotFoundError:
+        return None, False, None
+    except OSError as exc:
+        return None, False, f"读取 scene 失败: {exc}"
+    try:
+        document = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return None, True, f"scene.json 不是合法 JSON: {exc}"
+    if not isinstance(document, dict):
+        return None, True, "scene.json 顶层必须是对象"
+    errors = page_mod.validate_scene(document)
+    if errors:
+        return None, True, "; ".join(errors)
+    return document, True, None
+
+
+def _scene_size_changed(
+    claim: dict[str, Any], base: BaseState
+) -> bool:
+    """scene 声明的底图尺寸与当前底图是否超过容差."""
+    try:
+        width = float(claim["width_pt"])
+        height = float(claim["height_pt"])
+    except (KeyError, TypeError, ValueError):
+        return True
+    return (
+        abs(width - base.width_pt) > SIZE_TOLERANCE_PT
+        or abs(height - base.height_pt) > SIZE_TOLERANCE_PT
+    )
 
 
 # ---------------------------------------------------------------- HTTP 服务
@@ -542,6 +590,8 @@ class StudioHandler(BaseHTTPRequestHandler):
         path = self._url_path()
         if path == "/api/doc":
             self._get_doc()
+        elif path == "/api/geo":
+            self._serve_file(self._figure().geo_path, "application/json; charset=utf-8")
         elif path == "/api/scene":
             self._get_scene()
         elif path == "/api/health":
@@ -550,8 +600,12 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._serve_file(self._figure().base_path, "image/svg+xml")
         elif path == "/final.svg":
             self._serve_file(self._figure().final_path, "image/svg+xml")
-        elif path == "/overlay.svg":
-            self._get_overlay()
+        elif path == "/geo.json":
+            self._serve_file(self._figure().geo_path, "application/json; charset=utf-8")
+        elif path in ("/", "/map", "/map.html"):
+            self._serve_static("/map.html")
+        elif path == "/sketch":
+            self._serve_static("/index.html")
         else:
             self._serve_static(path)
 
@@ -560,7 +614,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             HTTPStatus.OK,
             {
                 "ok": True,
-                "version": scene_mod.VERSION,
+                "version": page_mod.VERSION,
                 "figures": sorted(self._config.figures),
                 "python": platform.python_version(),
                 "cwd": str(Path.cwd()),
@@ -569,120 +623,75 @@ class StudioHandler(BaseHTTPRequestHandler):
 
     def _get_doc(self) -> None:
         figure = self._figure()
-        base_info, base_check = _base_state(figure)
-        warnings: list[str] = []
-        if base_info is None:
-            if base_check is None:
-                warnings.append("底图缺失, 请先运行 python3 tools/prepare_demo.py")
-            else:
-                warnings.extend(base_check.errors)
+        base, base_errors = _base_state(figure)
+        warnings: list[str] = list(base_errors)
+        geo_error: str | None = None
+        geo = None
+        try:
+            geo = _read_geo(figure)
+        except ApiError as exc:
+            geo_error = str(exc.payload.get("message", "geo.json 不可用"))
+            warnings.append(geo_error)
 
-        loaded, from_file, scene_error = _load_scene(figure, base_info)
+        scene, from_file, scene_error = _load_scene(figure)
         if scene_error:
             warnings.append(f"scene 文件不合法: {scene_error}")
-        scene_sha = None if scene_error else scene_mod.digest(loaded)
+        scene_digest = page_mod.scene_digest(scene) if scene is not None else None
 
-        final_sha: str | None = None
-        marker: dict[str, Any] | None = None
+        final_marker: dict[str, Any] | None = None
         if figure.final_path.is_file():
-            final_sha = compose_mod.final_sha256(figure.final_path)
-            marker = compose_mod.marker_of(figure.final_path)
-
-        needs_render = base_info is None
-        marker_scene = contract.marker_scene_sha(marker)
-        needs_compose = (
-            final_sha is None
-            or marker is None
-            or scene_sha is None
-            or marker_scene != scene_sha
-        )
+            try:
+                final_marker = contract.read_marker(figure.final_path.read_bytes())
+            except OSError as exc:
+                warnings.append(f"读取 final 失败: {exc}")
 
         needs_ack = False
-        if from_file and base_info is not None:
-            scene_width = loaded.base.width_pt
-            scene_height = loaded.base.height_pt
-            same_canvas = (
-                abs(scene_mod.round3(scene_width) - scene_mod.round3(base_info.width_pt))
-                <= scene_mod.CANVAS_TOLERANCE_PT
-                and abs(scene_mod.round3(scene_height) - scene_mod.round3(base_info.height_pt))
-                <= scene_mod.CANVAS_TOLERANCE_PT
-            )
-            if not same_canvas:
-                warnings.append("画布尺寸已变: scene 声明的 base 尺寸与当前底图不一致, 需要刷新")
-            elif loaded.base.sha256 != base_info.sha256:
-                needs_ack = True
-                warnings.append("底图已更新: 保存时需要 ack_base_change 确认")
+        if from_file and scene is not None and base is not None:
+            claim = scene.get("base")
+            if isinstance(claim, dict):
+                if _scene_size_changed(claim, base):
+                    warnings.append("底图尺寸已变: scene 需要重新排版后保存")
+                elif claim.get("sha256") != base.sha256:
+                    needs_ack = True
+                    warnings.append("底图已更新: 保存时需要 ack_base_change 确认")
 
-        base_width = base_info.width_pt if base_info is not None else 0.0
-        base_height = base_info.height_pt if base_info is not None else 0.0
+        marker_scene = final_marker.get("scene") if isinstance(final_marker, dict) else None
         self._send_json(
             HTTPStatus.OK,
             {
                 "figure": {"key": figure.key, "path": figure.figure_name},
-                "canvas": {"width_pt": base_width, "height_pt": base_height},
                 "base": {
-                    "url": self._url_for("/base.svg", figure),
-                    "sha256": base_info.sha256 if base_info is not None else "",
-                    "width_pt": base_width,
-                    "height_pt": base_height,
+                    "url": "/base.svg",
+                    "sha256": base.sha256 if base is not None else "",
+                    "width_pt": round(base.width_pt, 3) if base is not None else 0.0,
+                    "height_pt": round(base.height_pt, 3) if base is not None else 0.0,
                 },
-                "final": {
-                    "url": self._url_for("/final.svg", figure),
-                    "sha256": final_sha,
-                    "marker": marker,
-                },
-                "scene": {"sha256": scene_sha},
+                "geo": {"url": "/geo.json"},
+                "scene": {"url": "/api/scene", "sha256": scene_digest},
+                "final": {"url": "/final.svg", "marker": final_marker},
                 "needs": {
-                    "render": needs_render,
-                    "compose": needs_compose,
+                    "base": base is None,
+                    "geo": geo is None,
+                    "compose": scene is not None and marker_scene != scene_digest,
                     "ack": needs_ack,
                 },
-                "style_defaults": scene_mod.DEFAULT_STYLE.to_dict(),
                 "warnings": warnings,
             },
         )
 
     def _get_scene(self) -> None:
-        """总是 200: 文件不存在时返回合成的空场景(带当前底图声明与默认样式)."""
+        """scene.json 原样返回; 不存在时返回 JSON null, 由前端用 geo 生成初始排版."""
         figure = self._figure()
-        base_info, _ = _base_state(figure)
-        loaded, _from_file, error = _load_scene(figure, base_info)
-        if error:
-            raise _error(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid_scene", error)
-        self._send_bytes(
-            HTTPStatus.OK,
-            scene_mod.canonical_bytes(loaded),
-            "application/json; charset=utf-8",
-        )
-
-    def _get_overlay(self) -> None:
-        figure = self._figure()
-        base_info, base_check = _base_state(figure)
-        if base_info is None:
-            detail = "; ".join(base_check.errors) if base_check is not None else "底图缺失"
-            raise _error(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "render_required",
-                f"底图不可用, 请先运行 python3 tools/prepare_demo.py: {detail}",
-            )
         try:
-            base_bytes = figure.base_path.read_bytes()
+            body = figure.scene_path.read_bytes()
+        except FileNotFoundError:
+            self._send_bytes(HTTPStatus.OK, b"null", "application/json; charset=utf-8")
+            return
         except OSError as exc:
             raise _error(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "render_required",
-                f"底图不可读, 请先运行 python3 tools/prepare_demo.py: {exc}",
+                HTTPStatus.INTERNAL_SERVER_ERROR, "internal", f"读取 scene 失败: {exc}"
             ) from exc
-        loaded, _from_file, error = _load_scene(figure, base_info)
-        if error:
-            raise _error(HTTPStatus.INTERNAL_SERVER_ERROR, "invalid_scene", error)
-        try:
-            document = compose_mod.build_overlay_document(base_bytes, loaded)
-        except compose_mod.BaseInvalid as exc:
-            raise _error(HTTPStatus.SERVICE_UNAVAILABLE, "render_required", str(exc)) from exc
-        except compose_mod.SceneInvalid as exc:
-            raise _error(HTTPStatus.BAD_REQUEST, "invalid_scene", str(exc)) from exc
-        self._send_bytes(HTTPStatus.OK, document, "image/svg+xml")
+        self._send_bytes(HTTPStatus.OK, body, "application/json; charset=utf-8")
 
     def _serve_file(self, path: Path, content_type: str) -> None:
         try:
@@ -696,7 +705,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         self._send_bytes(HTTPStatus.OK, body, content_type)
 
     def _serve_static(self, url_path: str) -> None:
-        """只服务 web_dist/index.html 与 web_dist/assets/**, 其它一律 404."""
+        """只服务 web_dist 的 index.html/map.html 与 assets/**, 其它一律 404."""
         target = _static_target(self._config.web_dist, url_path)
         if target is None:
             raise _error(HTTPStatus.NOT_FOUND, "not_found", f"没有这个资源: {url_path}")
@@ -704,7 +713,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             body = target.read_bytes()
         except FileNotFoundError as exc:
             message = f"文件不存在: {url_path}"
-            if target.name == "index.html":
+            if target.suffix == ".html":
                 message += "(前端构建产物缺失, 请先 npm run build)"
             raise _error(HTTPStatus.NOT_FOUND, "not_found", message) from exc
         except OSError as exc:
@@ -730,157 +739,133 @@ class StudioHandler(BaseHTTPRequestHandler):
         self._discard_body()
         self._post_compose()
 
+    def _compose_current(
+        self, figure: FigureConfig, scene: dict[str, Any]
+    ) -> dict[str, Any]:
+        """跑一次 compose, 把错误映射成 HTTP; 返回响应体公共字段."""
+        try:
+            report = compose_mod.compose(
+                scene, figure.base_path, figure.geo_path, figure.final_path
+            )
+        except compose_mod.RenderingBusy as exc:
+            return {
+                "ok": True,
+                "composed": False,
+                "code": "rendering",
+                "message": "合成锁被占用, scene 已保存, 稍后重试",
+            }
+        except compose_mod.BaseInvalid as exc:
+            raise _error(HTTPStatus.SERVICE_UNAVAILABLE, "base_missing", str(exc)) from exc
+        except compose_mod.GeoInvalid as exc:
+            raise _error(HTTPStatus.SERVICE_UNAVAILABLE, "geo_invalid", str(exc)) from exc
+        except compose_mod.SceneInvalid as exc:
+            raise _error(HTTPStatus.BAD_REQUEST, "invalid_scene", str(exc)) from exc
+        return {
+            "ok": True,
+            "composed": True,
+            "marker": contract.read_marker(figure.final_path.read_bytes()),
+            "report": report,
+        }
+
     def _put_scene(self) -> None:
-        """校验 → 规范化原子写 scene → 尝试 compose; 锁竞争不算保存失败."""
+        """校验 → 声明复核(auth 底图) → 规范化原子写 → compose."""
         figure = self._figure()
         body = self._read_json_body()
-        try:
-            payload = scene_mod.parse_payload(body)
-        except scene_mod.SceneError as exc:
-            raise _error(HTTPStatus.BAD_REQUEST, "invalid_scene", str(exc)) from exc
+        # ack 是保存动作的元数据, 不属于 scene 契约; 先摘掉再校验.
+        ack = body.pop("ack_base_change", False)
+        if not isinstance(ack, bool):
+            raise _error(HTTPStatus.BAD_REQUEST, "invalid_scene", "ack_base_change 必须是布尔")
+        # figure 由服务器盖章: 浏览器提交的语义体不含 figure, 校验/规范化都需要它.
+        body["figure"] = figure.figure_name
 
-        base_info, base_check = _base_state(figure)
-        if base_info is None:
-            detail = "; ".join(base_check.errors) if base_check is not None else "底图缺失"
+        base, base_errors = _base_state(figure)
+        if base is None:
             raise _error(
                 HTTPStatus.SERVICE_UNAVAILABLE,
-                "render_required",
-                f"底图不可用, 请先运行 python3 tools/prepare_demo.py: {detail}",
+                "base_missing",
+                "底图不可用: " + "; ".join(base_errors),
             )
+        try:
+            _read_geo(figure)
+        except ApiError:
+            # geo 缺失时排版层无法可靠渲染刻度/色标; 只允许在持 ack 时省略? 不, 直接拒绝.
+            raise
 
-        base_payload = base_info.to_dict()
-        canvas_changed = (
-            abs(scene_mod.round3(payload.base.width_pt) - scene_mod.round3(base_info.width_pt))
-            > scene_mod.CANVAS_TOLERANCE_PT
-            or abs(scene_mod.round3(payload.base.height_pt) - scene_mod.round3(base_info.height_pt))
-            > scene_mod.CANVAS_TOLERANCE_PT
-        )
-        if canvas_changed:
+        claim = body.get("base")
+        if not isinstance(claim, dict):
+            raise _error(HTTPStatus.BAD_REQUEST, "invalid_scene", "scene.base 必须是对象")
+        if _scene_size_changed(claim, base):
             raise ApiError(
                 HTTPStatus.CONFLICT,
                 {
                     "ok": False,
-                    "code": "canvas_changed",
-                    "message": "画布尺寸已变, 请刷新页面后重试",
-                    "base": base_payload,
+                    "code": "base_size_changed",
+                    "message": "底图尺寸已变, 请刷新页面后重新排版保存",
+                    "base": base.to_dict(),
                 },
             )
-        if payload.base.sha256 != base_info.sha256 and not payload.ack_base_change:
+        if claim.get("sha256") != base.sha256 and not ack:
             raise ApiError(
                 HTTPStatus.CONFLICT,
                 {
                     "ok": False,
                     "code": "base_changed",
-                    "message": "底图已更新, 请复查叠加层位置后带 ack_base_change 重新保存",
-                    "base": base_payload,
+                    "message": "底图已更新, 请复查排版后带 ack_base_change 重新保存",
+                    "base": base.to_dict(),
                 },
             )
 
+        # 先做结构校验再规范化: normalize 假设字段形状正确, 不能拿它当类型检查.
+        errors = page_mod.validate_scene(body)
+        if errors:
+            raise _error(HTTPStatus.BAD_REQUEST, "invalid_scene", "; ".join(errors))
         try:
-            built = scene_mod.build_scene(payload, base_info, figure.figure_name)
-            data = scene_mod.canonical_bytes(built)
-        except scene_mod.SceneError as exc:
+            normalized = page_mod.normalize_scene(
+                body, figure=figure.figure_name, base=base.to_dict()
+            )
+        except page_mod.SceneError as exc:
             raise _error(HTTPStatus.BAD_REQUEST, "invalid_scene", str(exc)) from exc
 
+        data = page_mod.canonical_bytes(normalized)
         fsutil.atomic_write_bytes(figure.scene_path, data)
-        scene_sha = contract.sha256(data)
+        scene_sha = page_mod.scene_digest(normalized)
 
-        try:
-            report = compose_mod.compose(
-                figure.base_path, built, figure.final_path, figure.lock_path
-            )
-        except compose_mod.RenderingBusy:
-            # 渲染正在写底图: scene 已落盘, 合成留到渲染结束/下次 compose.
-            self._send_json(
-                HTTPStatus.OK,
-                {
-                    "ok": True,
-                    "saved": True,
-                    "composed": False,
-                    "code": "rendering",
-                    "scene_sha": scene_sha,
-                    # 前端 SaveOutcome 里 marker/report 是非可选字段, 拿不到锁时给 null.
-                    "marker": None,
-                    "report": None,
-                },
-            )
-            return
-        except compose_mod.BaseInvalid as exc:
-            self._send_json(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                {
-                    "ok": True,
-                    "saved": True,
-                    "composed": False,
-                    "code": "render_required",
-                    "scene_sha": scene_sha,
-                    "message": str(exc),
-                    "marker": None,
-                    "report": None,
-                },
-            )
-            return
-        except compose_mod.SceneInvalid as exc:
-            # parse_payload 已校验过, 正常不可达; 仍如实报错且不写 final(I4).
-            raise _error(HTTPStatus.BAD_REQUEST, "invalid_scene", str(exc)) from exc
-
-        self._send_json(
-            HTTPStatus.OK,
-            {
-                "ok": True,
-                "saved": True,
-                "composed": True,
-                "scene_sha": scene_sha,
-                "marker": compose_mod.marker_of(figure.final_path),
-                "report": report.to_dict(),
-            },
-        )
+        result = self._compose_current(figure, normalized)
+        result.update({"saved": True, "scene_sha": scene_sha})
+        self._send_json(HTTPStatus.OK, result)
 
     def _post_compose(self) -> None:
         figure = self._figure()
-        base_info, _base_check = _base_state(figure)
-        if base_info is None:
-            raise _error(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "render_required",
-                "底图缺失或不合法, 请先运行 python3 tools/prepare_demo.py",
-            )
-        loaded, _from_file, error = _load_scene(figure, base_info)
+        scene, _from_file, error = _load_scene(figure)
         if error:
             raise _error(HTTPStatus.BAD_REQUEST, "invalid_scene", error)
-        try:
-            report = compose_mod.compose(
-                figure.base_path, loaded, figure.final_path, figure.lock_path
-            )
-        except compose_mod.RenderingBusy as exc:
+        if scene is None:
             raise _error(
-                HTTPStatus.CONFLICT, "rendering", "正在重渲染, 稍后重试"
-            ) from exc
-        except compose_mod.BaseInvalid as exc:
-            raise _error(HTTPStatus.SERVICE_UNAVAILABLE, "render_required", str(exc)) from exc
-        except compose_mod.SceneInvalid as exc:
-            raise _error(HTTPStatus.BAD_REQUEST, "invalid_scene", str(exc)) from exc
-        self._send_json(
-            HTTPStatus.OK,
-            {
-                "ok": True,
-                "composed": True,
-                "marker": compose_mod.marker_of(figure.final_path),
-                "report": report.to_dict(),
-            },
-        )
+                HTTPStatus.BAD_REQUEST, "invalid_scene", "还没有 scene.json, 请先保存排版"
+            )
+        base, base_errors = _base_state(figure)
+        if base is None:
+            raise _error(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "base_missing",
+                "底图不可用: " + "; ".join(base_errors),
+            )
+        result = self._compose_current(figure, scene)
+        self._send_json(HTTPStatus.OK, result)
 
 
 def _static_target(web_dist: Path, url_path: str) -> Path | None:
     """把 URL 路径映射到 web_dist 内的白名单文件; 不命中返回 None.
 
-    只允许 index.html 与 assets/ 子树, 并拒绝空段/./..; 最后用 resolve + relative_to
-    把符号链接逃逸也挡掉.
+    只允许 index.html / map.html 与 assets/ 子树, 并拒绝空段/./..; 最后用 resolve +
+    relative_to 把符号链接逃逸也挡掉.
     """
     if "\x00" in url_path:
         return None
     if url_path in ("/", "/index.html"):
         return web_dist / "index.html"
+    if url_path in ("/map", "/map.html"):
+        return web_dist / "map.html"
     prefix = "/assets/"
     if not url_path.startswith(prefix):
         return None
@@ -908,38 +893,34 @@ def make_server(config: StudioConfig) -> StudioServer:
 
 
 def _startup_compose(config: StudioConfig) -> None:
-    """启动时按图自动合成一次(空场景也合成, 保证 final 至少带 marker).
-
-    失败只打印提示, 不阻止服务启动: 底图缺失时仍应能打开页面看到错误徽标.
-    """
+    """启动时若有 scene 且底图/geo 就绪, 自动合成一次; 失败只打印提示不阻止启动."""
     for figure in config.figures.values():
-        base_info, base_check = _base_state(figure)
-        if base_info is None:
-            detail = "; ".join(base_check.errors) if base_check is not None else "底图缺失"
-            print(
-                f"提示: {figure.key} 跳过合成({detail}); "
-                "请先运行 python3 tools/prepare_demo.py",
-                flush=True,
-            )
+        base, base_errors = _base_state(figure)
+        if base is None:
+            print(f"提示: {figure.key} 跳过合成({'; '.join(base_errors)}); "
+                  "请先运行 python3 tools/prepare_demo.py", flush=True)
             continue
-        loaded, _from_file, error = _load_scene(figure, base_info)
+        try:
+            _read_geo(figure)
+        except ApiError as exc:
+            print(f"提示: {figure.key} 跳过合成({exc.payload.get('message')})", flush=True)
+            continue
+        scene, from_file, error = _load_scene(figure)
         if error:
             print(f"提示: {figure.key} scene 文件不合法, 跳过合成: {error}", flush=True)
             continue
+        if not from_file or scene is None:
+            print(f"提示: {figure.key} 还没有 scene.json, 跳过启动合成", flush=True)
+            continue
         try:
             report = compose_mod.compose(
-                figure.base_path, loaded, figure.final_path, figure.lock_path
+                scene, figure.base_path, figure.geo_path, figure.final_path
             )
-        except compose_mod.RenderingBusy:
-            print(f"提示: {figure.key} 合成锁被占用, 跳过", flush=True)
-            continue
         except compose_mod.ComposeError as exc:
             print(f"提示: {figure.key} 合成失败: {exc}", flush=True)
             continue
         print(
-            f"已合成 {figure.final_path} "
-            f"(points={report.counts['points']}, entities={report.counts['entities']}, "
-            f"constraints={report.counts['constraints']})",
+            f"已合成 {figure.final_path} (items={report['counts']['total']})",
             flush=True,
         )
 

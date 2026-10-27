@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="200pt" height="100pt" viewBox="0 0 200 100" version="1.1" stroke-linejoin="round" stroke-linecap="butt">
+ <defs>
+  <clipPath id="pyrender-clip"><rect x="0" y="0" width="200" height="100"/></clipPath>
+  <style type="text/css"><![CDATA[*{stroke-linejoin:round;stroke-linecap:butt}]]></style>
+ </defs>
+ <g clip-path="url(#pyrender-clip)">
+  <rect x="0" y="0" width="200" height="100" fill="#dfe9f3"/>
+  <path d="M0 80 C40 60 80 90 120 70 S180 50 200 60 L200 100 L0 100 Z" fill="#c8d8e8" stroke="#7a9ab8" stroke-width="0.5"/>
+ </g>
+</svg>

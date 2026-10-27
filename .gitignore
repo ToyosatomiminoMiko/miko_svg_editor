@@ -1,4 +1,6 @@
-docs/
+docs/*
+!docs/ARCHITECTURE.md
+!docs/PAGE-EDITOR.md
 node_modules/
 dist/
 .npm-cache/

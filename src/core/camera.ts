@@ -35,29 +35,8 @@ export const cam: Camera = {
   viewportH: 0,
 };
 
-/**
- * 当前生效的缩放上下限。
- * 为什么是可改的单例而不是参数：`zoomAt`/`fitView`/`fitBounds` 都会经由 `clampZoom`
- * 收口，多传一个参数会扩散到所有调用点；地图模式与草图模式是两种「同时只存在一个」的
- * 编辑会话（单图单文档），在组合根里切换一次范围即可，无需逐调用传参。
- */
-let zoomMin = ZOOM_MIN;
-let zoomMax = ZOOM_MAX;
-
-/** 设置缩放上下限（地图模式用 MAPDOC_ZOOM_MIN/MAX；参数非法时忽略） */
-export const setZoomRange = (min: number, max: number): void => {
-  if (!(min > 0) || !(max >= min)) return;
-  zoomMin = min;
-  zoomMax = max;
-};
-
-/** 恢复草图模式的默认缩放上下限 */
-export const resetZoomRange = (): void => {
-  zoomMin = ZOOM_MIN;
-  zoomMax = ZOOM_MAX;
-};
-
-export const clampZoom = (zoom: number): number => Math.min(zoomMax, Math.max(zoomMin, zoom));
+/** 缩放上下限来自 config；草图模式只有这一组范围 */
+export const clampZoom = (zoom: number): number => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
 
 /** 世界坐标 → 屏幕坐标 */
 export const w2s = (p: Vec, view: CameraView = cam): Vec => ({

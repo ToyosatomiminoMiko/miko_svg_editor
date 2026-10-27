@@ -1,0 +1,295 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="260pt" height="170pt" viewBox="0 0 260 170" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>matplotlib fixture for extract tests</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css"><![CDATA[
+/* 测试用: 内嵌字体子集, extract 应整块删掉. */
+@font-face { font-family: "Test Mono"; src: url("data:font/woff;base64,AAAA") format("woff"); }
+]]></style>
+
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 170 
+L 260 170 
+L 260 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 10.5 10 
+L 10.5 140 
+L 190.2 140 
+L 190.2 10 
+z
+" style="fill: #a2d0ee"/>
+   </g>
+   <g clip-path="url(#clipmap)">
+    <image xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAMAAAADCAYAAABWKLW/AAAALElEQVR42gXBIQIAAAQEQc+RZVmW5cuy368Zc3cigszEqoruZmYwSewud8cDLBgRaB4Yl4cAAAAASUVORK5CYII=" x="10.5" y="10" width="179.7" height="130"/>
+   </g>
+   <g id="FeatureArtist_1">
+    <path d="M 20 30 
+L 40 30 
+L 40 50 
+L 20 50 
+z
+" clip-path="url(#clipmap)" style="fill: #3f8fc4; fill-opacity: 0.15"/>
+   </g>
+   <g id="LineCollection_1">
+    <path d="M 10.5 75 
+L 190.2 75 
+" clip-path="url(#clipmap)" style="fill: none; stroke-dasharray: 0.5,0.825; stroke-dashoffset: 0; stroke: #808080; stroke-opacity: 0.4; stroke-width: 0.5"/>
+   </g>
+   <g id="text_1">
+    <text style="font-size: 7px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: middle; fill: #444444" x="40" y="144.2" transform="rotate(-0 40 144.2)">35°E</text>
+   </g>
+   <g id="text_2">
+    <text style="font-size: 7px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: middle; fill: #444444" x="130" y="144.2" transform="rotate(-0 130 144.2)">40°E</text>
+   </g>
+   <g id="text_3">
+    <text style="font-size: 7px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: end; fill: #444444" x="5.5" y="110" transform="rotate(-0 5.5 110)">46°N</text>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 7px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: end; fill: #444444" x="5.5" y="60" transform="rotate(-0 5.5 60)">48°N</text>
+   </g>
+   <g id="patch_3">
+    <path d="M 10.5 10 
+L 10.5 140 
+L 190.2 140 
+L 190.2 10 
+z
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="label-country-俄罗斯">
+    <text style="font-size: 10px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: middle; fill: #3a3a3a; stroke: #ffffff; stroke-width: 2.5; paint-order: stroke" x="120" y="90" transform="rotate(-0 120 90)">俄罗斯</text>
+   </g>
+   <g id="label-river-伏尔加河">
+    <text style="font-style: italic; font-size: 8px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: middle; fill: #2d6ea6; stroke: #ffffff; stroke-width: 2.5; paint-order: stroke" x="70" y="70" transform="rotate(-350.5 70 70)">伏尔加河</text>
+   </g>
+   <g id="label-city-莫斯科">
+    <text style="font-size: 8px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: start; stroke: #ffffff; stroke-width: 2.5; paint-order: stroke" x="60" y="80" transform="rotate(-0 60 80)">莫斯科</text>
+   </g>
+   <g id="line2d_1">
+    <path d="M 60 80 
+" clip-path="url(#clipmap)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
+    <defs>
+     <path id="m1122334455" d="M 0 -5 
+L -1.5 -2 
+L -5 -2 
+L -2 0 
+L -3 3 
+L 0 1.5 
+L 3 3 
+L 2 0 
+L 5 -2 
+L 1.5 -2 
+z
+" style="stroke: #000000; stroke-width: 0.8; stroke-linejoin: bevel"/>
+    </defs>
+    <g clip-path="url(#clipmap)">
+     <use xlink:href="#m1122334455" x="60" y="80" style="fill: #ffd200; stroke: #000000; stroke-width: 0.8; stroke-linejoin: bevel"/>
+    </g>
+   </g>
+  </g>
+  <g id="axes_2">
+   <g id="legend_1">
+    <g id="patch_4">
+     <path d="M 196 84 
+L 252 84 
+L 252 12 
+L 196 12 
+z
+" style="fill: #ffffff; opacity: 0.94; stroke: #bbbbbb; stroke-width: 0.8"/>
+    </g>
+    <g id="text_15">
+     <text style="font-size: 11px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: start; fill: #222222" x="206" y="22" transform="rotate(-0 206 22)">图例</text>
+    </g>
+    <g id="patch_5">
+     <path d="M 198 31 
+L 216 31 
+L 216 26 
+L 198 26 
+z
+" style="fill: #3f8fc4; opacity: 0.45; stroke: #1b5c8c; stroke-width: 1.5"/>
+    </g>
+    <g id="text_16">
+     <text style="font-size: 8px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: start" x="220" y="31" transform="rotate(-0 220 31)">伏尔加河流域</text>
+    </g>
+    <g id="line2d_24">
+     <path d="M 198 38 
+L 216 38 
+" style="fill: none; stroke: #4a4a4a; stroke-width: 1.4; stroke-linecap: square"/>
+    </g>
+    <g id="text_17">
+     <text style="font-size: 8px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: start" x="220" y="40" transform="rotate(-0 220 40)">国界</text>
+    </g>
+    <g id="line2d_25">
+     <path d="M 198 48 
+L 216 48 
+" style="fill: none; stroke: #000000; stroke-opacity: 0; stroke-width: 1.5; stroke-linecap: square"/>
+     <defs>
+      <path id="m0aa11bb22" d="M 0 -4 
+L -1.2 -1.6 
+L -4 -1.6 
+L -1.6 0 
+L -2.4 2.4 
+L 0 1.2 
+L 2.4 2.4 
+L 1.6 0 
+L 4 -1.6 
+L 1.2 -1.6 
+z
+" style="stroke: #000000; stroke-linejoin: bevel"/>
+     </defs>
+     <g>
+      <use xlink:href="#m0aa11bb22" x="207" y="48" style="fill: #ffd200; stroke: #000000; stroke-linejoin: bevel"/>
+     </g>
+    </g>
+    <g id="text_18">
+     <text style="font-size: 8px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: start" x="220" y="50" transform="rotate(-0 220 50)">首都</text>
+    </g>
+    <g id="line2d_26">
+     <path d="M 198 58 
+L 216 58 
+" style="fill: none; stroke: #000000; stroke-opacity: 0; stroke-width: 1.5; stroke-linecap: square"/>
+     <defs>
+      <path id="m0cc33dd44" d="M -3 3 
+L 3 3 
+L 3 -3 
+L -3 -3 
+z
+" style="stroke: #000000; stroke-linejoin: miter"/>
+     </defs>
+     <g>
+      <use xlink:href="#m0cc33dd44" x="207" y="58" style="fill: #ffffff; stroke: #000000; stroke-linejoin: miter"/>
+     </g>
+    </g>
+    <g id="text_19">
+     <text style="font-size: 8px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: start" x="220" y="60" transform="rotate(-0 220 60)">共和国首府</text>
+    </g>
+    <g id="line2d_27">
+     <path d="M 198 68 
+L 216 68 
+" style="fill: none; stroke: #000000; stroke-opacity: 0; stroke-width: 1.5; stroke-linecap: square"/>
+     <defs>
+      <path id="m0ee55ff66" d="M 0 3 
+C 1.66 3 3 1.66 3 0 
+C 3 -1.66 1.66 -3 0 -3 
+C -1.66 -3 -3 -1.66 -3 0 
+C -3 1.66 -1.66 3 0 3 
+z
+" style="stroke: #000000"/>
+     </defs>
+     <g>
+      <use xlink:href="#m0ee55ff66" x="207" y="68" style="fill: #ffffff; stroke: #000000"/>
+     </g>
+    </g>
+    <g id="text_20">
+     <text style="font-size: 8px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: start" x="220" y="70" transform="rotate(-0 220 70)">城市</text>
+    </g>
+   </g>
+  </g>
+  <g id="axes_3">
+   <g id="patch_7">
+    <path d="M 214 160 
+L 232 160 
+L 232 90 
+L 214 90 
+z
+" style="fill: #ffffff"/>
+   </g>
+   <image xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAABACAYAAAA9ONYEAAABGElEQVR42l3UkUIDAABF0QvBYDAIBoPBYBIMgiAIgkEwGAyCwWAwCIIgCQbBIBgMBkEQBMFgMBgEg2ASBMFgMAiCILjpKzi/cAD9Y48fEwW+TRT5MlHi08Q+OxNltiYqbExU+TBR491EnTcTB6xNNHg1ccjKxBEvJo5ZmjhhYeKUuYkmMxNnPJto8WSizaOJDg8mzrk30WVqosfERJ+xiQF3Ji4Ymbjk1sQVQxPX3Ji44drEkCsTt1yaGHFh4o6BiTF9ExN6JqZ0TdxzbuKBjolH2iaeaJl45szEjKaJOacmFpyYWHJs4oUjEysOTbzSMLHmwMQbdRPv1Ex8UDWxoWJiS9nEjn0Tn5RMfFE08U3BxA97Jvz3xS8Etf4QmAwi8wAAAABJRU5ErkJggg==" id="image8fa8f2cbb2" transform="scale(1 -1) translate(0 -70)" x="214.2" y="-89.5" width="17.5" height="70"/>
+   <g id="matplotlib.axis_1"/>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_30">
+      <defs>
+       <path id="mfd5687cd73" d="M 0 0 
+L 3 0 
+" style="stroke: #000000; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#mfd5687cd73" x="232" y="160" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_24">
+      <text style="font-size: 7px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: start" x="235" y="162" transform="rotate(-0 235 162)">-100</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_31">
+      <g>
+       <use xlink:href="#mfd5687cd73" x="232" y="125" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_25">
+      <text style="font-size: 7px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: start" x="235" y="127" transform="rotate(-0 235 127)">0</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_32">
+      <g>
+       <use xlink:href="#mfd5687cd73" x="232" y="90" style="stroke: #000000; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_26">
+      <text style="font-size: 7px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: start" x="235" y="92" transform="rotate(-0 235 92)">100</text>
+     </g>
+    </g>
+   </g>
+   <g id="LineCollection_3"/>
+   <g id="patch_8">
+    <path d="M 214 160 
+L 232 160 
+L 232 90 
+L 214 90 
+z
+" style="fill: none; stroke: #000000; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="text_31">
+    <text style="font-size: 7px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: middle" x="223" y="86" transform="rotate(-0 223 86)">高程 / 水深 (m)</text>
+   </g>
+  </g>
+  <g id="text_32">
+   <text style="font-size: 14px; font-family: 'Test Mono', 'DejaVu Sans'" transform="translate(70 8)">测试地形图</text>
+   <text style="font-size: 9px; font-family: 'Test Mono', 'DejaVu Sans'" transform="translate(55 19)">副标题 | 数据源</text>
+  </g>
+  <g id="label-area-流域">
+   <text style="font-style: italic; font-size: 10px; font-family: 'Test Mono', 'DejaVu Sans'; fill: #1b5c8c; stroke: #ffffff; stroke-width: 2.5; paint-order: stroke" transform="translate(196 96)">测试流域</text>
+   <text style="font-style: italic; font-size: 10px; font-family: 'Test Mono', 'DejaVu Sans'; fill: #1b5c8c; stroke: #ffffff; stroke-width: 2.5; paint-order: stroke" transform="translate(196 106)">约 100 万 km²</text>
+  </g>
+  <g id="text_33">
+   <text style="font-size: 6px; font-family: 'Test Mono', 'DejaVu Sans'; fill: #333333" transform="translate(196 120)">注 1：测试注记第一行</text>
+   <text style="font-size: 6px; font-family: 'Test Mono', 'DejaVu Sans'; fill: #333333" transform="translate(196 128)">注 2：测试注记第二行</text>
+  </g>
+  <g id="text_34">
+   <text style="font-size: 7px; font-family: 'Test Mono', 'DejaVu Sans'; text-anchor: middle; fill: #666666" x="100" y="158" transform="rotate(-0 100 158)">来源: 测试数据</text>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="clipmap">
+   <path d="M 190.2 10 
+L 190.2 140 
+L 10.5 140 
+L 10.5 10 
+z
+"/>
+  </clipPath>
+ </defs>
+</svg>

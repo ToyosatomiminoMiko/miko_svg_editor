@@ -23,12 +23,6 @@ export interface AppShellHandle {
   readonly sidebarRoot: HTMLElement;
   /** 顶部 dock 宿主（`.dock.app-dock`）：toolbar.ts 往里建工具按钮 */
   readonly dockRoot: HTMLElement;
-  /**
-   * 底图宿主（`.app-map-host`）：ui/base-layer.ts 往里建 `.app-map-base`。
-   * 与 canvas 同一网格格（第 3 列第 2 行）、排在 canvas 之前，天然垫在叠加层下面；
-   * 宿主 pointer-events:none（见 styles.css），所有交互仍落在 canvas 上。
-   */
-  readonly mapHost: HTMLElement;
   /** 画布节点（`.app-canvas`）：Editor 的事件与渲染目标 */
   readonly canvas: HTMLCanvasElement;
   /** 通知区宿主（`.app-notices`）：ui/notify.ts 往里建消息区 */
@@ -61,10 +55,6 @@ export function mountAppShell(app: HTMLElement): AppShellHandle {
     { class: 'dock app-dock', role: 'toolbar', 'aria-label': '草图工具' },
   );
 
-  const mapHost = create_element({ tag: 'div', into: app }, { class: 'app-map-host' });
-
-  // 底图宿主必须排在 canvas 之前：同一网格格里靠 DOM 顺序垫在下面（canvas 另有 z-index:1），
-  // 草图模式没人往里建东西，空 div 不影响布局。
   const canvas = create_element(
     { tag: 'canvas', into: app },
     { id: 'canvas', class: 'app-canvas', 'aria-label': 'SVG 草图编辑画布' },
@@ -74,5 +64,5 @@ export function mountAppShell(app: HTMLElement): AppShellHandle {
 
   bindSidebarResizer(app, separator);
 
-  return { sidebarRoot, dockRoot, mapHost, canvas, noticesRoot };
+  return { sidebarRoot, dockRoot, canvas, noticesRoot };
 }

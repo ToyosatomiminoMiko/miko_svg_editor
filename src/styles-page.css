@@ -1,0 +1,379 @@
+/*
+ * 出版排版编辑器（map.html）的页面样式。
+ *
+ * 边界：只写 `.page-*` 消费者类名；token、控件外观（按钮/面板/分段/开关/数字框/消息区）
+ * 全部来自 miko_ui/styles.css，画布主题变量来自 src/styles.css 的 :root。
+ * 布局只有三行：工具条（auto）| 画布 + 侧栏（1fr）| 状态行（auto）；侧栏固定 340px，
+ * 画布吃掉剩余宽度。SVG 内部元素（纸面/图框/文字/选中框）也在这里收口，避免进入 app 逻辑。
+ */
+
+.page-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--color-bg-app);
+  color: var(--color-text);
+}
+
+/* ---------------- 顶部工具条 ---------------- */
+
+/* 库的 .dock 是绝对定位的任务栏；这里把它交还给网格并允许换行 */
+.page-topbar.dock {
+  position: relative;
+  top: auto;
+  left: auto;
+  right: auto;
+  height: auto;
+  min-height: 0;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 8px 12px;
+}
+
+.page-topbar .control-group {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  border-top: none;
+  padding-top: 0;
+}
+
+.page-topbar .control-title {
+  white-space: nowrap;
+}
+
+.page-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ---------------- 画布与侧栏 ---------------- */
+
+.page-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  min-height: 0;
+}
+
+.page-canvas-host {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--color-bg-desktop);
+}
+
+.page-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  user-select: none;
+  cursor: default;
+  outline: none;
+}
+
+.page-canvas:focus-visible {
+  outline: 1px solid var(--color-accent-border);
+  outline-offset: -1px;
+}
+
+.page-canvas.is-pan-ready {
+  cursor: grab;
+}
+
+.page-canvas.is-panning {
+  cursor: grabbing;
+}
+
+.page-canvas.is-dragging {
+  cursor: move;
+}
+
+.page-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  background: var(--color-bg-panel);
+  border-left: 1px solid var(--color-border-panel);
+}
+
+.page-sidebar-panel .ui-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.page-field-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.page-segmented-row {
+  display: flex;
+}
+
+.page-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-text-meta);
+}
+
+.page-fatal {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-error);
+}
+
+/* ---------------- 输入控件（颜色/文本） ---------------- */
+
+.page-color-input {
+  width: 36px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+}
+
+.page-text-input,
+.page-textarea,
+.page-legend-label {
+  flex: 1;
+  min-width: 0;
+  background: var(--color-bg-sunken);
+  color: var(--color-text-strong);
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  font: inherit;
+}
+
+.page-textarea {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.page-text-row {
+  align-items: flex-start;
+}
+
+.page-wide-button {
+  width: 100%;
+}
+
+/* ---------------- 元素列表 ---------------- */
+
+.page-element-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.page-element-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 1px solid var(--color-border-faint);
+  border-radius: var(--radius-sm);
+  background: var(--color-fill-row);
+  cursor: pointer;
+}
+
+.page-element-row:hover {
+  border-color: var(--color-accent-border);
+}
+
+.page-element-row.is-active {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-active-bg);
+  color: var(--color-text-active);
+}
+
+.page-element-kind {
+  flex: none;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.page-element-row.is-active .page-element-kind {
+  color: var(--color-text-active);
+}
+
+.page-element-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.page-icon-button {
+  flex: none;
+  padding: 0 6px;
+  min-width: 22px;
+}
+
+/* ---------------- 图例条目 ---------------- */
+
+.page-legend-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.page-legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.page-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.page-legend-row.is-hidden {
+  opacity: 0.6;
+}
+
+.page-legend-shape {
+  flex: none;
+  width: 18px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.page-legend-label {
+  flex: 1;
+}
+
+/* ---------------- 状态栏与消息区 ---------------- */
+
+.page-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 12px;
+  border-top: 1px solid var(--color-border-panel);
+  background: var(--color-bg-header);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.page-status {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--color-success);
+}
+
+.page-status.is-flash {
+  animation: page-status-flash 120ms ease-out;
+}
+
+.page-state {
+  flex: none;
+  color: var(--color-text-meta);
+}
+
+@keyframes page-status-flash {
+  from {
+    opacity: 0.4;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.page-notices {
+  position: fixed;
+  right: 16px;
+  bottom: 40px;
+  z-index: 40;
+  width: min(380px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.page-notice-list {
+  pointer-events: auto;
+}
+
+/* ---------------- 确认框 ---------------- */
+
+.page-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 7, 16, 0.62);
+}
+
+.page-confirm-panel {
+  width: min(380px, calc(100vw - 32px));
+}
+
+.page-confirm-text {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.page-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.page-confirm-primary {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-active-bg);
+  color: var(--color-text-active);
+}
+
+/* ---------------- SVG 预览内部 ---------------- */
+
+.page-paper {
+  filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.45));
+}
+
+.page-item {
+  cursor: move;
+}
+
+.page-selection-box {
+  stroke: var(--color-accent);
+  stroke-width: 1;
+  fill: none;
+  pointer-events: none;
+}
+
+.page-frame-tick-label {
+  user-select: none;
+}

@@ -1,25 +1,23 @@
 /**
- * 入口：装配应用外壳（左侧状态栏 / 顶部 dock / 画布 / 通知区），读主题与文本测量适配器，
- * 然后按模式装配编辑器。
+ * 草图编辑器入口：装配应用外壳（左侧状态栏 / 顶部 dock / 画布 / 通知区），读主题与文本
+ * 测量适配器，然后装配草图编辑器。
  *
- * 是什么：`?mode=sketch` 强制草图模式；否则先探测 studio（`/api/doc`），可用就走地图模式
- * （app/map-mode.ts），不可用回退今天的草图 demo。
- * 为什么模式路由放在入口而不是各自判断：`model`/`state`/`cam` 是模块级单例，
- * 一次只允许装配一种模式；路由在唯一的装配点做分支，避免两套初始化互相踩。
+ * 是什么：`index.html` 唯一入口，只装配约束草图编辑器。
+ * 为什么地图出版排版编辑器不在这里：它是一条平行的产品线（`map.html` →
+ * `src/app/page-main.ts`），有独立的纸张/文字/图例数据流（见 docs/PAGE-EDITOR.md），
+ * 与草图内核不共享模块级单例，因此入口、外壳与样式都独立装配。
  * 外壳的网格与宿主由 ui/app-shell.ts 建；样式加载顺序是契约：先引库的 token + 字体 +
  * 控件 + 反馈样式，再引应用自己的页面与布局样式。
  */
 
 import 'miko_ui/styles.css';
 import '../styles.css';
-import { resetZoomRange } from '../core/camera';
 import { readTheme } from '../render/theme';
 import { mountAppShell } from '../ui/app-shell';
 import { createTextMeasurer } from '../ui/measure-text';
 import { buildToolbar } from '../ui/toolbar';
 import { initNotifications } from '../ui/notify';
 import { Editor } from './editor';
-import { startMapMode } from './map-mode';
 
 const found = document.getElementById('app');
 if (!found) throw new Error('index.html 缺少 #app');
@@ -33,10 +31,8 @@ const shell = mountAppShell(appRoot);
 const theme = readTheme();
 const measureText = createTextMeasurer();
 
-/** 草图模式装配（与引入地图模式之前的行为完全一致） */
+/** 草图编辑器装配 */
 function startSketchMode(): void {
-  // 地图模式若先设过缩放范围也不影响这里：草图模式显式恢复默认上下限
-  resetZoomRange();
   const editor = new Editor(shell.canvas, shell.sidebarRoot, theme, measureText);
   // info 级提示走状态行闪示，error 级进 miko_ui 的消息区（见 ui/notify.ts）
   initNotifications(shell.noticesRoot, (message) => editor.flashInfo(message));
@@ -44,14 +40,4 @@ function startSketchMode(): void {
   editor.bindToolbar(toolbar);
 }
 
-async function boot(): Promise<void> {
-  const forced = new URLSearchParams(window.location.search).get('mode');
-  if (forced === 'sketch') {
-    startSketchMode();
-    return;
-  }
-  const started = await startMapMode({ root: appRoot, shell, theme, measureText });
-  if (!started) startSketchMode();
-}
-
-void boot();
+startSketchMode();

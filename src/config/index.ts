@@ -9,7 +9,6 @@ export * from './export';
 export * from './format';
 export * from './layout';
 export * from './limits';
-export * from './mapdoc';
 export * from './solver';
 export * from './tolerances';
 export * from './ui';

@@ -1,21 +1,22 @@
 /**
- * Vite 配置：基础产物路径 + 本地库联调时的文件服务白名单 + 地图模式 studio 的代理与自动启动。
+ * Vite 配置：多页入口 + 本地库联调白名单 + 出版排版编辑器（map.html）studio 的代理与自动启动。
  *
  * 是什么：
+ *   - 两个 HTML 入口：`index.html`（约束草图编辑器）与 `map.html`（地图出版排版编辑器）；
  *   - base 固定为 './'，产物可放到任意静态目录预览；
  *   - 本地库（默认 /mnt/IVSTINIANVS/__projects_web/miko_ui，MIKO_UI_DIR 可覆盖）可用时，
  *     把它的真实路径加入 server.fs.allow：软链后的 miko_ui 位于项目根之外，
  *     Vite dev 默认只允许工作区根，会以 403 拒绝服务；
  *   - resolve.dedupe 固定 @preact/signals-core，避免根 node_modules 与链接库各解析出一份
  *     signals 实例（signal 身份不一致会让响应式失效）；
- *   - server.proxy 把 `/api`、`/base.svg`、`/final.svg`、`/overlay.svg` 代理到 studio
+ *   - server.proxy 把 `/api`、`/base.svg`、`/final.svg`、`/geo.json` 代理到 studio
  *     （Python 侧 127.0.0.1:8791，MAPDOC_STUDIO_PORT 可覆盖）；
  *   - studioDevPlugin 在 dev server 启动时顺带拉起 `python3 tools/studio.py`，Vite 退出时
  *     一起结束，省掉「再开第二个终端跑后端」。
  *
  * 为什么需要 studio 代理：`npm run dev` 时页面在 Vite dev server 上，studio 在另一个端口；
- * scene-file 用的是同源相对 URL（`/api/doc`、`/base.svg`…），浏览器直连会跨域被打断，
- * 代理后开发期与「studio 直接服务 dist」的生产形态走同一批相对路径。
+ * 排版编辑器用的是同源相对 URL（`/api/doc`、`/base.svg`、`/api/scene`…），浏览器直连会跨域
+ * 被打断，代理后开发期与「studio 直接服务 dist」的生产形态走同一批相对路径。
  * 为什么端口读 process 而不是写死 8791：端口是 tools/studio.toml 的配置项；studio.py 启动时
  * 也读同名环境变量 MAPDOC_STUDIO_PORT，所以代理目标与自动拉起的后端永远一致，测试同时起
  * 多个 studio 时不会互相抢端口。
@@ -24,8 +25,8 @@
  * 环境里默认写 MAPDOC_OPEN_BROWSER=0（外部显式设过就尊重外部值）。
  * 为什么启动前先探活：studio 可能已经在另一个终端里跑着（手工调试 / 多实例），复用比再起一个
  * （会因端口占用直接退出）更符合直觉。
- * 为什么自动拉起失败只告警不退出：前端草图模式不依赖 studio，拉不起来时页面仍可开发
- * （地图模式会回退草图模式），把原因打在 Vite 日志里比让 dev server 起不来更有用。
+ * 为什么自动拉起失败只告警不退出：草图页不依赖 studio，拉不起来时仍可开发，把原因打在
+ * Vite 日志里比让 dev server 起不来更有用；排版编辑器页会显示后端不可用的提示。
  * 为什么改 vite.config.ts 时 studio 不跟着重启：dev server 重建是「先建新实例、再关旧实例」，
  * 新实例探活会接管旧实例拉起的进程，旧实例关闭时发现世代已被接管就不再结束它（见 StudioDevState）。
  *
@@ -38,6 +39,7 @@
  * 元信息：作者 deps-plumber，2026-10-22 加入本地库联调支持；线上 / CI 仍走 npm 发布版。
  *         作者 fe-render-ui，2026-10-27 加入地图模式 studio 代理（impl-contract.md §6）、
  *         studio 自动启动与跨 dev server 重启的进程接管（studioDevPlugin）。
+ *         作者 lead，2026-10-27 改为出版排版编辑器（docs/PAGE-EDITOR.md）多页入口与 geo 代理。
  */
 import { defineConfig, searchForWorkspaceRoot } from 'vite';
 import type { Plugin, ViteDevServer } from 'vite';
@@ -231,7 +233,7 @@ async function ensureStudio(server: ViteDevServer): Promise<void> {
       });
     } catch (error) {
       logger.warn(
-        `[mapdoc] 无法启动 studio（${pythonCommand}）：${String(error)}；地图模式会回退草图模式`,
+        `[mapdoc] 无法启动 studio（${pythonCommand}）：${String(error)}；排版编辑器会提示后端不可用`,
       );
       return;
     }
@@ -265,7 +267,7 @@ async function ensureStudio(server: ViteDevServer): Promise<void> {
   if (!closed) {
     logger.warn(
       `[mapdoc] studio 未能就绪（${studioOrigin}）：单独运行 ${pythonCommand} tools/studio.py ` +
-        '可看到完整报错；地图模式会回退草图模式',
+        '可看到完整报错；排版编辑器会提示后端不可用',
     );
   }
 }
@@ -292,6 +294,16 @@ export default defineConfig({
 
   plugins: [studioDevPlugin()],
 
+  build: {
+    // 两个独立 HTML 入口：草图编辑器与地图出版排版编辑器，互不共享运行时状态。
+    rollupOptions: {
+      input: {
+        main: path.resolve(nodeProcess.cwd(), 'index.html'),
+        map: path.resolve(nodeProcess.cwd(), 'map.html'),
+      },
+    },
+  },
+
   server: {
     fs: {
       // 只在本地库存在时覆盖默认白名单；不存在时保持 undefined，行为与不配置时完全一致。
@@ -305,7 +317,7 @@ export default defineConfig({
       '/api': studioOrigin,
       '/base.svg': studioOrigin,
       '/final.svg': studioOrigin,
-      '/overlay.svg': studioOrigin,
+      '/geo.json': studioOrigin,
     },
   },
 

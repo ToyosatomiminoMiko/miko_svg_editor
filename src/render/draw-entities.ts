@@ -53,7 +53,7 @@ export function drawEntity(
         ? theme.construction
         : theme.geom;
   ctx.setLineDash(e.construction ? theme.dashConstruction : []);
-  // 线帽/线接读主题：草图圆头，地图模式由 map-theme.ts 改成 butt 与底图 A6 一致
+  // 线帽/线接读主题 token（样式表 :root 是唯一来源）
   ctx.lineCap = theme.lineCap;
   ctx.lineJoin = theme.lineJoin;
 

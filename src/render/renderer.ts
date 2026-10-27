@@ -3,13 +3,9 @@
  * 具体画法拆在 draw-* 模块，本类把当前相机、主题与交互状态显式传给它们，自身不持有绘制逻辑；
  * 外观（颜色/线宽/虚线/箭头/像素对齐/线帽）全部来自构造时注入的 Theme，
  * 主题单一来源是应用样式 src/styles.css 的 :root（theme.ts 只负责读取一次）。
- *
- * 地图模式的差异全部收在可选的 RendererOptions 里（透明底、不画网格、帧尾回调），
- * 缺省值就是草图模式现状，草图模式零回归。
  */
 
 import { cam } from '../core/camera';
-import type { CameraView } from '../core/camera';
 import { model, ownedPointIds } from '../core/model';
 import { isCommandPoint, isPointSelected } from '../core/selection';
 import { state } from '../core/state';
@@ -19,40 +15,17 @@ import { drawGrid } from './draw-grid';
 import { drawMarquee, drawPreview, drawSnapMarker } from './draw-overlays';
 import type { Theme } from './theme';
 
-/**
- * 一帧绘制的开关与帧尾钩子。
- * 三项都可省略：省略即草图模式现状（填底色、画网格、不回调）。
- */
-export interface RendererOptions {
-  /** 是否铺主题底色。地图模式为 false：底图 `<img>` 在 canvas 下面，canvas 必须保持透明 */
-  readonly paintBackground?: boolean;
-  /** 是否画世界网格。地图模式为 false：底图自己就是背景，网格会盖住地图内容 */
-  readonly paintGrid?: boolean;
-  /**
-   * 一帧绘制结束后的回调（传入当前相机）。
-   * 为什么必须有它：底图 `<img>` 的 transform 与 canvas 必须在同一帧内由同一处更新，
-   * 否则拖拽/缩放时两张图层会错位；调用方（app/map-mode.ts）把 BaseLayer.sync 注进来。
-   */
-  readonly onFrame?: (view: CameraView) => void;
-}
-
 export class Renderer {
   readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly theme: Theme;
-  private readonly paintBackground: boolean;
-  private readonly paintGrid: boolean;
-  private readonly onFrame: ((view: CameraView) => void) | null;
 
-  constructor(canvas: HTMLCanvasElement, theme: Theme, options: RendererOptions = {}) {
+  constructor(canvas: HTMLCanvasElement, theme: Theme) {
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('浏览器不支持 canvas 2d');
     this.canvas = canvas;
     this.ctx = ctx;
     this.theme = theme;
-    this.paintBackground = options.paintBackground ?? true;
-    this.paintGrid = options.paintGrid ?? true;
-    this.onFrame = options.onFrame ?? null;
   }
 
   resize(): void {
@@ -64,7 +37,7 @@ export class Renderer {
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // resize 也走 render：视口尺寸一落定就触发 onFrame，底图第一帧就被摆到正确位置
+    // resize 也走 render：视口尺寸变化后立刻按新尺寸重画
     this.render();
   }
 
@@ -72,14 +45,10 @@ export class Renderer {
     const { ctx, theme } = this;
     const W = cam.viewportW;
     const H = cam.viewportH;
-    // 先清成透明：地图模式不铺底色，只清不填（底图 <img> 从 canvas 下面透出来）
     ctx.clearRect(0, 0, W, H);
-    if (this.paintBackground) {
-      ctx.fillStyle = theme.bg;
-      ctx.fillRect(0, 0, W, H);
-    }
-
-    if (this.paintGrid) drawGrid(ctx, theme, cam);
+    ctx.fillStyle = theme.bg;
+    ctx.fillRect(0, 0, W, H);
+    drawGrid(ctx, theme, cam);
 
     for (const e of model.ents.values()) {
       drawEntity(ctx, theme, e, isSelectedForRender(e), state.hoverEnt === e, cam);
@@ -97,8 +66,5 @@ export class Renderer {
     drawPreview(ctx, theme, state.command, cur, cam);
     drawMarquee(ctx, theme, state.marquee);
     drawSnapMarker(ctx, theme, state.snap, cam);
-
-    // 帧尾：底图与叠加层同帧同步（回调里读到的是本帧绘制用的同一个 cam）
-    this.onFrame?.(cam);
   }
 }

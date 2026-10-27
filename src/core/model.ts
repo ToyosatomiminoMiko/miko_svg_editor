@@ -254,25 +254,3 @@ export function clearModel(): void {
   model.cons.clear();
   model.seq = INITIAL_SEQ;
 }
-
-/**
- * 用**显式 id** 重建三个容器（scene 载入用）。
- * 为什么单独一个入口而不是让调用方往容器里塞：id 分配、级联清理、prune 都只应发生在
- * 交互路径上；载入是「按文档搬运事实」，不分配新 id、不做级联（引用完整性由
- * core/scene.ts 的 validateScene 保证），seq 取文档给的下一个可用 id，保证之后的新对象
- * 不会与载入的 id 撞车。
- */
-export function restoreModel(
-  points: readonly Point[],
-  ents: readonly Entity[],
-  cons: readonly Constraint[],
-  seq: number,
-): void {
-  model.pts.clear();
-  model.ents.clear();
-  model.cons.clear();
-  for (const p of points) model.pts.set(p.id, p);
-  for (const e of ents) model.ents.set(e.id, e);
-  for (const c of cons) model.cons.set(c.id, c);
-  model.seq = seq;
-}
