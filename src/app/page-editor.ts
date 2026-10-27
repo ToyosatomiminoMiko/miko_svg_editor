@@ -46,7 +46,7 @@ import { defaultScene, mapTransform, type DefaultSceneOptions } from '../core/pa
 import { formatPageNumber } from '../render/page-format';
 import { composeFinalSvg, type ComposeReport } from '../render/compose-svg';
 import { renderPageSvg } from '../render/page-svg';
-import type { MeasureText } from '../core/types';
+import type { TextMeasure } from '../core/types';
 import { downloadText } from '../ui/download';
 import { isEditableTarget, type PageSidebar } from '../ui/page-sidebar';
 import type { PageNotifier } from '../ui/page-notify';
@@ -102,8 +102,8 @@ export interface PageEditorDeps {
   readonly svg: SVGSVGElement;
   readonly sidebar: PageSidebar;
   readonly notifier: PageNotifier;
-  /** 文本测量器（canvas measureText 适配器） */
-  readonly measureText: MeasureText;
+  /** 文本度量（宽度 + 字体行盒；canvas measureText/fontBoundingBox 适配器） */
+  readonly measureText: TextMeasure;
   /** 打开的上传文档（底图字节/契约解析结果/规范化 geo） */
   readonly document: PageDocument;
   /** 底图预览的 objectURL（由组合根创建并在关闭时 revoke） */
@@ -118,7 +118,7 @@ export class PageEditor {
   private readonly svg: SVGSVGElement;
   private readonly sidebar: PageSidebar;
   private readonly notifier: PageNotifier;
-  private readonly measureText: MeasureText;
+  private readonly measureText: TextMeasure;
   private readonly document: PageDocument;
   private readonly baseUrl: string;
   private readonly geo: Geo;
@@ -402,7 +402,7 @@ export class PageEditor {
       figure: this.scene.figure,
       margin_pt: marginPt,
       paper: { ...this.scene.paper },
-      measureText: this.measureText,
+      measureText: this.measureText.width,
     };
     this.scene = defaultScene(this.geo, sceneBaseOf(this.document), options);
     this.selectedId = null;

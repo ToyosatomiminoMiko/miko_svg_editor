@@ -390,6 +390,33 @@ title（show_title）：基线 y-4，anchor=middle，x = item.x+width_pt/2
     三块都没有时整栏/整排不存在，地图用满内容宽。
 - 返回完整合法 scene（`seq` > 所有 item id），由调用方标记为「未导出」。
 
+### 5.7 item 几何框（选中框 / 命中盒，`itemBoundsPt`）
+
+预览里的**选中框**与**点击命中盒**必须是同一个可核对的几何量，不允许手写虚框，也不允许从
+DOM `getBBox()` 外扩：`getBBox()` 不含元素自身的 transform（旋转文字会画在锚点附近而错位），
+且会把透明命中盒一起算进包围盒，使框变成没有依据的外扩装饰。
+
+`itemBoundsPt(item, scene, geo, measure)` 从 scene.json + 本节 §5 公式推出纸张坐标里的
+**未旋转声明框**（预览、导出、命中判定共用同一批函数）：
+
+```
+text:    水平 = 锚点 anchor + 各行前进宽度（measureText；CSS font = font_size_pt/font-family）
+         垂直 = 首行基线 − ascent .. 末行基线 + descent
+                ascent/descent 是 CSS font 的字体行盒：浏览器取 canvas
+                fontBoundingBoxAscent/Descent；无 canvas（node 单测）按 0.8em/0.2em 回退
+                （config PAGE_TEXT_FALLBACK_ASCENT_RATIO / DESCENT_RATIO）
+         旋转 = §5.3 的 rotate(rotation_deg px py)，pivot = 首行锚点 (px, py)
+legend:  rect(x, y, width_pt × s, legendLayout().height)          // §5.4
+colorbar:rect(x, y, width_pt × s, height_pt × s)                  // §5.5
+```
+
+- 图例/色标的 `s` = map 空间缩放比（§5.1）；page 空间 `s = 1`。text 在 map 空间只换坐标
+  （§5.1），字号与前进宽度**不**乘 `s`（§5.3）。
+- **命中盒** = 声明框四周加 `PAGE_HIT_TOLERANCE_PT`（指针精度容差，只决定点击范围）；
+  **选中框** = 声明框原样，虚线/颜色/线宽只写在 `styles-page.css` 的 `.page-selection-box`。
+- 两者都只在预览层出现，不进入成品；旋转 item 的框按同一 `rotate` 变换绘制，因此始终贴住
+  文字块。
+
 ## 6. 最终 SVG（`render/compose-svg.ts` 输出）
 
 ```
@@ -578,7 +605,8 @@ tests/render/compose-svg.test.ts # 合成结构、marker、确定性、越界 re
 - **画布**：一个 SVG（viewBox 随缩放/平移变化）。纸张白底 + 底图 `<image href=objectURL>`
   （放在 map 矩形）+ 图框/刻度 + items。滚轮以指针为中心缩放、空格/中键拖动平移、
   「适应页面」/「1:1」按钮。
-- **选择与编辑**：点 item 选中（高亮虚线框）；拖拽移动（map 空间 item 写回底图坐标，page 空间写回 pt）；
+- **选择与编辑**：点 item 选中（选中框 = §5.7 的声明几何框，随 `rotation_deg` 旋转；外观在
+  `styles-page.css`）；拖拽移动（map 空间 item 写回底图坐标，page 空间写回 pt）；
   方向键 1pt 微移（Shift 10pt）；Delete 删除（title 等也允许删）；双击文字 item → 侧栏内容框聚焦；
   侧栏改内容/字号/颜色/对齐/旋转/行高/斜体/加粗/光晕；图例条目可改名/显隐/增删。
 - **工具条**：文件（打开… / 导出 JSON / 导出 SVG）、添加（文字 / 标题 / 图例 / 色标）、

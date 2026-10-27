@@ -170,3 +170,19 @@ export interface Marquee {
  * 由 main.ts 用 canvas 2d 上下文实现并注入，纯模块不直接依赖 DOM。
  */
 export type MeasureText = (text: string, font: string) => number;
+
+/**
+ * 带字体行盒的文本度量（字体一律用 CSS font 简写描述）。
+ *
+ * 是什么：`width` 与 `MeasureText` 同口径（前进宽度）；`ascent` / `descent` 是该字体
+ * 基线上下的行盒高度（浏览器取 canvas 的 `fontBoundingBoxAscent/Descent`，即 CSS font
+ * 的实际字体度量；无 canvas 时按字号比例回退）。
+ * 为什么需要它：文本 item 的几何框 = §5.3 的行基线 + 字体行盒高度；宽度可由前进宽度得到，
+ * 高度只能来自字体度量。有了它，选中框/命中盒就能从 scene.json + CSS 字体确定地推出，
+ * 而不是依赖 DOM `getBBox()`（它不含元素自身的 transform，旋转文字会画错位）。
+ */
+export interface TextMeasure {
+  readonly width: MeasureText;
+  readonly ascent: (font: string) => number;
+  readonly descent: (font: string) => number;
+}

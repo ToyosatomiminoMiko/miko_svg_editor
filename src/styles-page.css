@@ -463,11 +463,23 @@
   cursor: move;
 }
 
+/* 选中框：几何由 core/page-layout.ts 的 §5.7 item 几何框算出（画的是声明框本身）；
+   这里只管外观——颜色/线宽/虚线都在 CSS 里，不再有 TS 侧的装饰性常量。 */
 .page-selection-box {
   stroke: var(--color-accent);
   stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
   fill: none;
   pointer-events: none;
+}
+
+/* 命中盒：几何 = 同一 §5.7 框 + config PAGE_HIT_TOLERANCE_PT 的指针容差；
+   透明、只吃指针事件，不参与任何视觉。 */
+.page-hit-box {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
 }
 
 .page-frame-tick-label {

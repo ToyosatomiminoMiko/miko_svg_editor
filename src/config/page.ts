@@ -223,9 +223,20 @@ export const PAGE_FIT_PADDING_RATIO = 0.04;
 export const PAGE_KEY_MOVE_PT = 1;
 export const PAGE_KEY_MOVE_LARGE_PT = 10;
 
-/** 拖拽/选中相关：选中框虚线、命中矩形外扩（pt） */
-export const PAGE_SELECTION_PAD_PT = 2;
-export const PAGE_SELECTION_DASH = '4 3';
+/**
+ * 命中盒在 item 声明几何框外的容差（pt）：只服务指针精度，不是视觉框的一部分。
+ * 为什么单独一个量：选中框必须原样等于 item 的声明几何框（§5.7），容差只让细小的文字/
+ * 图例更容易点中；把容差混进选中框，框就会变成没有依据的外扩装饰。
+ */
+export const PAGE_HIT_TOLERANCE_PT = 2;
+
+/**
+ * 无 canvas 时的字体行盒回退比例（相对字号）：上伸 0.8em、下伸 0.2em。
+ * 只在 node 单测/无 DOM 环境使用；浏览器路径取 canvas `fontBoundingBoxAscent/Descent`
+ * （CSS font 的实测行盒），所以选中框/命中盒在浏览器里是字体度量值，不是常量。
+ */
+export const PAGE_TEXT_FALLBACK_ASCENT_RATIO = 0.8;
+export const PAGE_TEXT_FALLBACK_DESCENT_RATIO = 0.2;
 
 /** 新建元素的默认尺寸/位置偏移 */
 export const PAGE_NEW_COLORBAR_WIDTH_PT = 14;

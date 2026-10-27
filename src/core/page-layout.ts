@@ -44,11 +44,13 @@ import {
   PAGE_SOURCE_SIZE_PT,
   PAGE_SUBTITLE_BASELINE_OFFSET_PT,
   PAGE_SUBTITLE_SIZE_PT,
+  PAGE_TEXT_FALLBACK_ASCENT_RATIO,
+  PAGE_TEXT_FALLBACK_DESCENT_RATIO,
   PAGE_TEXT_LINE_HEIGHT,
   PAGE_TITLE_BASELINE_OFFSET_PT,
   PAGE_TITLE_SIZE_PT,
 } from '../config/page';
-import type { MeasureText } from './types';
+import type { MeasureText, TextMeasure } from './types';
 import type {
   ColorbarItem,
   Geo,
@@ -57,6 +59,7 @@ import type {
   GeoRelief,
   GraticuleSide,
   Halo,
+  ItemSpace,
   LegendEntry,
   LegendItem,
   MapPlacement,
@@ -157,6 +160,16 @@ export function estimateTextWidth(text: string, font: string): number {
 
 /** 没有注入测量器时使用的默认测量（导出给单测与侧栏估算用） */
 export const fallbackMeasureText: MeasureText = (text, font) => estimateTextWidth(text, font);
+
+/**
+ * 没有注入测量器时的行盒回退：按 config 的 0.8em / 0.2em 比例（相对字号）。
+ * 只有 node 单测与无 canvas 环境会走到；浏览器用 canvas `fontBoundingBox*` 实测字体行盒。
+ */
+export const fallbackTextMeasure: TextMeasure = {
+  width: fallbackMeasureText,
+  ascent: (font) => fontSizeOf(font) * PAGE_TEXT_FALLBACK_ASCENT_RATIO,
+  descent: (font) => fontSizeOf(font) * PAGE_TEXT_FALLBACK_DESCENT_RATIO,
+};
 
 /** 逐词切分：CJK 单字成词，拉丁词按空格断；空白串单独保留（折行时用来定位断点） */
 function tokenizeForWrap(text: string): string[] {
@@ -272,9 +285,17 @@ export function wrapParagraphs(
   return limited;
 }
 
-/** 文字块宽度（多行取最宽）：预览命中矩形与选中框估算用 */
-export function textBlockWidth(item: TextItem, measure: MeasureText = fallbackMeasureText): number {
-  const font = fontShorthand(item.font_size_pt, item.font_family ?? PAGE_DEFAULT_FONT_FAMILY);
+/**
+ * 文字块宽度（多行取最宽）：选中框/命中盒与导出越界估算共用。
+ * `fontFamily` 是 `item.font_family` 为空时的回退字体（调用方传 `scene.style.font_family`，
+ * 与 §5.3 渲染同一口径）；缺省用默认字体栈，只服务没有 scene 的独立调用。
+ */
+export function textBlockWidth(
+  item: TextItem,
+  measure: MeasureText = fallbackMeasureText,
+  fontFamily: string = PAGE_DEFAULT_FONT_FAMILY,
+): number {
+  const font = fontShorthand(item.font_size_pt, item.font_family ?? fontFamily);
   let width = 0;
   for (const line of item.lines) width = Math.max(width, measure(line, font));
   return width;
@@ -520,6 +541,115 @@ export function colorbarLayout(
     titleText: colorbarTitleText(item),
     ticks,
   };
+}
+
+/* =========================== item 几何框（§5.7，选中框/命中盒） =========================== */
+
+/** 图例/色标在纸张坐标里的摆放；`scale` 只作用于图例/色标的尺寸（字号保持 pt） */
+export interface ItemPlacement {
+  readonly x: number;
+  readonly y: number;
+  readonly scale: number;
+}
+
+/**
+ * 图例/色标的摆放公式（§5.4/§5.5 的共同入口）。
+ * 为什么抽出来：预览（page-svg）、成品（compose）与选中框（itemBoundsPt）三处都需要同一份
+ * 坐标换算；各写一份会漂移，契约 §5 也要求几何只在 page-layout 实现一次。
+ */
+export function itemPlacement(
+  item: { readonly x: number; readonly y: number; readonly space: ItemSpace },
+  scene: Scene,
+  geo: Geo,
+): ItemPlacement {
+  if (item.space !== 'map') return { x: item.x, y: item.y, scale: 1 };
+  const transform = mapTransform(geo, scene.map);
+  const origin = mapPointToPage(transform, item);
+  return { x: origin.x, y: origin.y, scale: transform.s };
+}
+
+/** item 在纸张坐标里的未旋转几何框 + 旋转参数（选中框与命中盒的唯一来源） */
+export interface ItemBounds {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  /** 绕 (rotationX, rotationY) 旋转的度数；0 = 不旋转（legend/colorbar 恒为 0） */
+  readonly rotation_deg: number;
+  readonly rotationX: number;
+  readonly rotationY: number;
+}
+
+/**
+ * §5.7：item 的声明几何框（纸张坐标，未旋转）。
+ *
+ * - text：水平 = 锚点 + 各行前进宽度（measureText，字体来自 CSS font 简写）；
+ *   垂直 = 首行基线 − ascent .. 末行基线 + descent（ascent/descent 是 CSS font 的行盒度量）；
+ *   旋转 = §5.3 规定的 `rotate(rotation_deg px py)`；
+ * - legend：`rect(x, y, width_pt*s, legendLayout().height)`（§5.4 的声明框）；
+ * - colorbar：`rect(x, y, width_pt*s, height_pt*s)`（§5.5 的声明框）。
+ *
+ * 为什么不用 DOM `getBBox()`：它不含元素自身的 transform（旋转文字会画在锚点附近而错位），
+ * 还会把透明命中盒算进包围盒（框因此变成外扩容差）；这里是纯函数，公式来自 §5，
+ * 单测可断言，且预览/导出/选中框用同一批函数。
+ */
+export function itemBoundsPt(
+  item: PageItem,
+  scene: Scene,
+  geo: Geo,
+  measure: TextMeasure = fallbackTextMeasure,
+): ItemBounds {
+  switch (item.kind) {
+    case 'text': {
+      const layout = textLayout(item, geo, scene);
+      const font = fontShorthand(item.font_size_pt, item.font_family ?? scene.style.font_family);
+      const width = textBlockWidth(item, measure.width, scene.style.font_family);
+      const step = item.font_size_pt * item.line_height;
+      const top = layout.py - measure.ascent(font);
+      const bottom = layout.py + (item.lines.length - 1) * step + measure.descent(font);
+      const left =
+        item.anchor === 'start'
+          ? layout.px
+          : item.anchor === 'end'
+            ? layout.px - width
+            : layout.px - width / 2;
+      return {
+        x: left,
+        y: top,
+        width,
+        height: bottom - top,
+        rotation_deg: item.rotation_deg,
+        rotationX: layout.px,
+        rotationY: layout.py,
+      };
+    }
+    case 'legend': {
+      const placement = itemPlacement(item, scene, geo);
+      const effective: LegendItem = { ...item, x: placement.x, y: placement.y };
+      const layout = legendLayout(effective, placement.scale);
+      return {
+        x: placement.x,
+        y: placement.y,
+        width: item.width_pt * placement.scale,
+        height: layout.height,
+        rotation_deg: 0,
+        rotationX: placement.x,
+        rotationY: placement.y,
+      };
+    }
+    case 'colorbar': {
+      const placement = itemPlacement(item, scene, geo);
+      return {
+        x: placement.x,
+        y: placement.y,
+        width: item.width_pt * placement.scale,
+        height: item.height_pt * placement.scale,
+        rotation_deg: 0,
+        rotationX: placement.x,
+        rotationY: placement.y,
+      };
+    }
+  }
 }
 
 /* =========================== 默认排版 =========================== */

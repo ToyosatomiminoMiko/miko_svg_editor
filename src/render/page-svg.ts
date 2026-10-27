@@ -7,11 +7,12 @@
  * 为什么用 `document.createElementNS` 而不是拼字符串 / `innerHTML`：文本来自用户输入，
  * 只有文本节点（`textContent`）与属性写入两条路，天然不存在标签注入；同时保留
  * 底图 `<image>` 的惰性加载（重绘时复用同一个 image 节点，不闪烁）。
- * 预览与成品的差异只在「交互辅助」：命中矩形、选中虚线框只在预览出现，不参与成品。
+ * 预览与成品的差异只在「交互辅助」：命中盒、选中框只在预览出现，不参与成品；两者的几何
+ * 都来自 `core/page-layout.ts` 的 §5.7 item 几何框（不是 DOM getBBox，也不是外扩装饰）。
  * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地。
  */
 
-import { PAGE_SELECTION_DASH, PAGE_SELECTION_PAD_PT } from '../config/page';
+import { PAGE_HIT_TOLERANCE_PT } from '../config/page';
 import type {
   ColorbarItem,
   Geo,
@@ -23,15 +24,16 @@ import type {
 } from '../core/page';
 import {
   colorbarLayout,
+  fallbackTextMeasure,
   frameTickLayout,
-  fontShorthand,
+  itemBoundsPt,
+  itemPlacement,
   legendLayout,
   mapHeightPt,
-  mapPointToPage,
-  mapTransform,
   textLayout,
 } from '../core/page-layout';
-import type { MeasureText } from '../core/types';
+import type { ItemBounds } from '../core/page-layout';
+import type { TextMeasure } from '../core/types';
 import {
   colorbarGradientId,
   colorValue,
@@ -49,8 +51,8 @@ export interface PageSvgOptions {
   readonly baseUrl: string;
   /** 当前选中元素 id；null = 无选中 */
   readonly selectedId: number | null;
-  /** 文本测量器：只用于预览命中矩形（不改变视觉） */
-  readonly measureText?: MeasureText;
+  /** 文本度量（宽度 + 字体行盒）：命中盒与选中框的几何依据；缺省用无 DOM 回退 */
+  readonly measureText?: TextMeasure;
   /** 是否给元素挂命中标记；导出/静态预览可关掉 */
   readonly interactive?: boolean;
 }
@@ -140,36 +142,17 @@ function createTextLines(
   });
 }
 
-/** 文字命中矩形：只用于预览点选（不参与成品） */
-function createTextHitBox(
-  item: TextItem,
-  layout: ReturnType<typeof textLayout>,
-  measure: MeasureText,
-  fontFamily: string,
-): SVGRectElement {
-  const width = Math.max(
-    1,
-    ...item.lines.map((line) =>
-      measure(line, fontShorthand(item.font_size_pt, item.font_family ?? fontFamily)),
-    ),
-  );
-  const step = item.font_size_pt * item.line_height;
-  const top = layout.py - item.font_size_pt * 0.8;
-  const bottom = layout.py + (item.lines.length - 1) * step + item.font_size_pt * 0.25;
-  const left =
-    item.anchor === 'start'
-      ? layout.px
-      : item.anchor === 'end'
-        ? layout.px - width
-        : layout.px - width / 2;
+/**
+ * 命中盒：item 声明几何框（§5.7）四周加 `PAGE_HIT_TOLERANCE_PT` 的指针容差。
+ * 透明、只吃指针事件；容差只是交互精度，不进入选中框（选中框画原样的声明框）。
+ */
+function createHitBox(bounds: ItemBounds): SVGRectElement {
   return svg('rect', {
-    x: formatPageNumber(left - PAGE_SELECTION_PAD_PT),
-    y: formatPageNumber(top - PAGE_SELECTION_PAD_PT),
-    width: formatPageNumber(width + PAGE_SELECTION_PAD_PT * 2),
-    height: formatPageNumber(bottom - top + PAGE_SELECTION_PAD_PT * 2),
-    fill: 'transparent',
-    stroke: 'none',
-    'pointer-events': 'all',
+    class: 'page-hit-box',
+    x: formatPageNumber(bounds.x - PAGE_HIT_TOLERANCE_PT),
+    y: formatPageNumber(bounds.y - PAGE_HIT_TOLERANCE_PT),
+    width: formatPageNumber(bounds.width + PAGE_HIT_TOLERANCE_PT * 2),
+    height: formatPageNumber(bounds.height + PAGE_HIT_TOLERANCE_PT * 2),
   });
 }
 
@@ -191,9 +174,6 @@ function renderTextItem(
       `rotate(${formatPageNumber(item.rotation_deg)} ${formatPageNumber(layout.px)} ${formatPageNumber(layout.py)})`,
     );
   }
-  if (options.interactive !== false && options.measureText) {
-    group.append(createTextHitBox(item, layout, options.measureText, scene.style.font_family));
-  }
   const style = { anchor: item.anchor, color: item.color };
   if (item.halo) {
     const haloGroup = svg('g', { class: 'page-text-halo' });
@@ -213,6 +193,13 @@ function renderTextItem(
     fillGroup.append(line);
   }
   group.append(fillGroup);
+  // 命中盒放在最后（最上层）：文字/光晕自身也是可见绘制，避免命中时被字形边缘挡掉。
+  // 它画在组的坐标系里，因此与文字共用同一个 rotate transform（旋转文字的命中区不会错位）。
+  if (options.interactive !== false) {
+    group.append(
+      createHitBox(itemBoundsPt(item, scene, geo, options.measureText ?? fallbackTextMeasure)),
+    );
+  }
   return group;
 }
 
@@ -309,12 +296,10 @@ function renderLegendItem(
   geo: Geo,
   options: PageSvgOptions,
 ): SVGGElement {
-  const transform = mapTransform(geo, scene.map);
-  const sizeScale = item.space === 'map' ? transform.s : 1;
-  const origin = item.space === 'map' ? mapPointToPage(transform, item) : { x: 0, y: 0 };
-  const effective: LegendItem = item.space === 'map' ? { ...item, x: origin.x, y: origin.y } : item;
-  const layout = legendLayout(effective, sizeScale);
-  const width = item.width_pt * sizeScale;
+  const placement = itemPlacement(item, scene, geo);
+  const effective: LegendItem = { ...item, x: placement.x, y: placement.y };
+  const layout = legendLayout(effective, placement.scale);
+  const width = item.width_pt * placement.scale;
 
   const group = svg('g', {
     class: 'page-item page-item-legend',
@@ -375,18 +360,10 @@ function renderLegendItem(
       ),
     );
   });
-  // 预览命中区：图例通常只有描边，直接点空白列也要能选中
+  // 预览命中区：图例通常只有描边，直接点空白列也要能选中；几何 = §5.7 声明框 + 指针容差
   if (options.interactive !== false) {
     group.append(
-      svg('rect', {
-        x: formatPageNumber(effective.x),
-        y: formatPageNumber(effective.y),
-        width: formatPageNumber(width),
-        height: formatPageNumber(layout.height),
-        fill: 'transparent',
-        stroke: 'none',
-        'pointer-events': 'all',
-      }),
+      createHitBox(itemBoundsPt(item, scene, geo, options.measureText ?? fallbackTextMeasure)),
     );
   }
   return group;
@@ -401,11 +378,8 @@ function renderColorbarItem(
   geo: Geo,
   options: PageSvgOptions,
 ): SVGGElement {
-  const transform = mapTransform(geo, scene.map);
-  const sizeScale = item.space === 'map' ? transform.s : 1;
-  const origin = item.space === 'map' ? mapPointToPage(transform, item) : { x: 0, y: 0 };
-  const effective: ColorbarItem =
-    item.space === 'map' ? { ...item, x: origin.x, y: origin.y } : item;
+  const placement = itemPlacement(item, scene, geo);
+  const effective: ColorbarItem = { ...item, x: placement.x, y: placement.y };
 
   const group = svg('g', {
     class: 'page-item page-item-colorbar',
@@ -415,7 +389,7 @@ function renderColorbarItem(
   // 直接跳过该元素而不是让预览崩溃（导出 composeFinalSvg 会给出明确错误）。
   const relief = geo.relief;
   if (relief === null) return group;
-  const layout = colorbarLayout(effective, relief, sizeScale);
+  const layout = colorbarLayout(effective, relief, placement.scale);
 
   group.append(
     svg('rect', {
@@ -470,15 +444,7 @@ function renderColorbarItem(
   }
   if (options.interactive !== false) {
     group.append(
-      svg('rect', {
-        x: formatPageNumber(effective.x),
-        y: formatPageNumber(effective.y),
-        width: formatPageNumber(layout.width),
-        height: formatPageNumber(layout.height),
-        fill: 'transparent',
-        stroke: 'none',
-        'pointer-events': 'all',
-      }),
+      createHitBox(itemBoundsPt(item, scene, geo, options.measureText ?? fallbackTextMeasure)),
     );
   }
   return group;
@@ -571,33 +537,46 @@ function renderGradientDefs(defs: SVGDefsElement, scene: Scene, geo: Geo): void 
   defs.replaceChildren(...gradients);
 }
 
-/* =========================== 选中框 =========================== */
+/* =========================== 选中框（§5.7） =========================== */
 
-/** 选中元素的虚线外框：读实际渲染包围盒，避免为每种 kind 再写一份包围盒公式 */
-function renderSelection(layer: SVGGElement, selectedId: number | null): void {
+/**
+ * 选中框 = 该项的声明几何框 `itemBoundsPt()`（纸张坐标、未旋转）。
+ * 为什么不用 getBBox：它不含元素自身的 transform（旋转文字会画在锚点附近而错位），还会把
+ * 命中盒一起算进包围盒（于是框变成外扩容差）；声明框由 scene.json + §5 公式 + CSS 字体
+ * 度量推出，与预览/导出同源，且能单测。
+ * 旋转项按 §5.3 的 `rotate(rotation_deg px py)` 施加到框本身，所以虚线框始终贴着文字块。
+ */
+function renderSelection(
+  layer: SVGGElement,
+  scene: Scene,
+  geo: Geo,
+  selectedId: number | null,
+  measure: TextMeasure,
+): void {
   layer.replaceChildren();
   if (selectedId === null) return;
-  const root = layer.parentElement;
-  const target = root?.querySelector<SVGGElement>(`[data-page-item="${selectedId}"]`);
-  if (target === null || target === undefined) return;
-  let box: DOMRect;
-  try {
-    box = target.getBBox();
-  } catch {
-    // 元素尚未布局（隐藏/未挂载）时没有包围盒：静默跳过选中框，不影响内容
+  const item = scene.items.find((candidate) => candidate.id === selectedId);
+  if (!item) return;
+  const bounds = itemBoundsPt(item, scene, geo, measure);
+  const box = svg('rect', {
+    class: 'page-selection-box',
+    x: formatPageNumber(bounds.x),
+    y: formatPageNumber(bounds.y),
+    width: formatPageNumber(bounds.width),
+    height: formatPageNumber(bounds.height),
+  });
+  if (bounds.rotation_deg === 0) {
+    layer.append(box);
     return;
   }
   layer.append(
-    svg('rect', {
-      class: 'page-selection-box',
-      x: formatPageNumber(box.x - PAGE_SELECTION_PAD_PT),
-      y: formatPageNumber(box.y - PAGE_SELECTION_PAD_PT),
-      width: formatPageNumber(box.width + PAGE_SELECTION_PAD_PT * 2),
-      height: formatPageNumber(box.height + PAGE_SELECTION_PAD_PT * 2),
-      fill: 'none',
-      'stroke-dasharray': PAGE_SELECTION_DASH,
-      'vector-effect': 'non-scaling-stroke',
-    }),
+    svg(
+      'g',
+      {
+        transform: `rotate(${formatPageNumber(bounds.rotation_deg)} ${formatPageNumber(bounds.rotationX)} ${formatPageNumber(bounds.rotationY)})`,
+      },
+      box,
+    ),
   );
 }
 
@@ -645,17 +624,12 @@ export function renderPageSvg(
   });
   layers.overlay.replaceChildren(...items);
 
-  // 选中框必须挂查在 overlay 之后：此时 item 组已布局，getBBox 才有值
-  renderSelection(layers.selection, options.selectedId);
-}
-
-/** 供编辑器/调试使用：拿到当前根节点的最内层元素组（不含命中矩形） */
-export function pageSelectionBox(root: SVGSVGElement, id: number): DOMRect | null {
-  const target = root.querySelector<SVGGElement>(`[data-page-item="${id}"]`);
-  if (!target) return null;
-  try {
-    return target.getBBox();
-  } catch {
-    return null;
-  }
+  // 选中框：几何来自 scene + 文本度量，不依赖 DOM 布局（重复渲染/缩放都同一条公式）
+  renderSelection(
+    layers.selection,
+    scene,
+    geo,
+    options.selectedId,
+    options.measureText ?? fallbackTextMeasure,
+  );
 }

@@ -692,6 +692,7 @@ page-main.ts:
   → URL.createObjectURL(baseBytes) 建预览地址 → 建 sidebar/editor/toolbar → start
 交互：
   点击 = data-page-item 命中 → select（侧栏属性面板跟随）
+  选中框/命中盒 = §5.7 item 几何框（scene.json + §5 公式 + 字体行盒），不是 DOM getBBox
   拖拽 = page 空间 item 写回 pt；map 空间 item 写回底图坐标（§5.1 反变换）
   方向键 = 1pt 微移（Shift 10pt）；滚轮 = 以指针为中心缩放；空格/中键 = 平移
   双击文字 = 侧栏内容框聚焦

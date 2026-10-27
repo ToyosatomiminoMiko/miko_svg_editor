@@ -35,8 +35,8 @@ import {
 } from '../core/page';
 import { defaultScene } from '../core/page-layout';
 import { PAGE_BASE_SIZE_TOLERANCE_PT } from '../config/page';
-import type { MeasureText } from '../core/types';
-import { createTextMeasurer } from '../ui/measure-text';
+import type { MeasureText, TextMeasure } from '../core/types';
+import { createTextMeasure } from '../ui/measure-text';
 import { createPageOpenPanel } from '../ui/page-open';
 import { PageNotifier } from '../ui/page-notify';
 import { PageSidebar } from '../ui/page-sidebar';
@@ -340,7 +340,9 @@ function boot(): void {
     messageEl: shell.statusMessage,
     stateEl: shell.statusState,
   });
-  const measureText = createTextMeasurer();
+  // 地图排版要两种口径：宽度（默认版式折行/图例宽度）+ 字体行盒（选中框/命中盒的高度依据）。
+  // 同一个适配器同时提供 width，传给只关心宽度的 defaultScene。
+  const measureText: TextMeasure = createTextMeasure();
 
   /** 当前打开的编辑器与预览 objectURL（同一时刻最多一份） */
   let editor: PageEditor | null = null;
@@ -398,7 +400,7 @@ function boot(): void {
     panel.setBusy(true);
     panel.setError(null);
     try {
-      const opened = await readOpenedMap(files, measureText);
+      const opened = await readOpenedMap(files, measureText.width);
       const pageDocument = opened.document;
       closeSession();
       // 预览用 objectURL：Blob 接收 ArrayBuffer 支持的视图，这里复制一份到普通 ArrayBuffer

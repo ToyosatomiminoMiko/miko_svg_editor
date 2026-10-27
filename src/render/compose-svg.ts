@@ -32,9 +32,9 @@ import {
 import {
   colorbarLayout,
   frameTickLayout,
+  itemPlacement,
   legendLayout,
   mapHeightPt,
-  mapPointToPage,
   mapTransform,
   textLayout,
 } from '../core/page-layout';
@@ -183,18 +183,6 @@ function renderTextItem(item: TextItem, scene: Scene, geo: Geo): string[] {
 
 /* =========================== legend（§5.4） =========================== */
 
-/** 图例 item 在纸张坐标里的原点与长度缩放（map 空间 origin 走 §5.1，只有宽度乘 s） */
-function legendPlacement(
-  item: LegendItem,
-  scene: Scene,
-  geo: Geo,
-): { readonly x: number; readonly y: number; readonly scale: number } {
-  if (item.space !== 'map') return { x: item.x, y: item.y, scale: 1 };
-  const transform = mapTransform(geo, scene.map);
-  const origin = mapPointToPage(transform, item);
-  return { x: origin.x, y: origin.y, scale: transform.s };
-}
-
 /** 图例线/矩形共用的描边属性（stroke/dash 为 null 时不写属性，与旧 compose 一致） */
 function legendStrokeAttributes(entry: LegendEntry): string[] {
   const attributes: string[] = [];
@@ -248,7 +236,7 @@ function pointMarker(entry: LegendEntry, cx: number, cy: number, fontSize: numbe
 
 /** 一个 legend item：底板、标题、逐行 swatch+label；高度由 §5.4 公式派生（不落 scene） */
 function renderLegendItem(item: LegendItem, scene: Scene, geo: Geo): string[] {
-  const placement = legendPlacement(item, scene, geo);
+  const placement = itemPlacement(item, scene, geo);
   // 只有宽度随 map 空间缩放；字号/行高/padding 是 pt，不随底图缩放（legendLayout 同口径）。
   const effective: LegendItem = { ...item, x: placement.x, y: placement.y };
   const layout = legendLayout(effective, placement.scale);
@@ -331,18 +319,6 @@ function renderLegendItem(item: LegendItem, scene: Scene, geo: Geo): string[] {
 
 /* =========================== colorbar（§5.5） =========================== */
 
-/** colorbar item 的原点与长度缩放（map 空间 origin 走 §5.1，宽高乘 s） */
-function colorbarPlacement(
-  item: ColorbarItem,
-  scene: Scene,
-  geo: Geo,
-): { readonly x: number; readonly y: number; readonly scale: number } {
-  if (item.space !== 'map') return { x: item.x, y: item.y, scale: 1 };
-  const transform = mapTransform(geo, scene.map);
-  const origin = mapPointToPage(transform, item);
-  return { x: origin.x, y: origin.y, scale: transform.s };
-}
-
 /**
  * 一个 colorbar item：渐变矩形 + 标题 + 右侧刻度短线与标签。
  * 标题只在 show_title 且标题非空时画（§5.5「title（show_title）」）；单位后缀由
@@ -354,7 +330,7 @@ function renderColorbarItem(
   geo: Geo,
   relief: GeoRelief,
 ): string[] {
-  const placement = colorbarPlacement(item, scene, geo);
+  const placement = itemPlacement(item, scene, geo);
   const effective: ColorbarItem = { ...item, x: placement.x, y: placement.y };
   const layout = colorbarLayout(effective, relief, placement.scale);
   const children: string[] = [];
@@ -485,13 +461,13 @@ function itemBBox(
       return [layout.px, layout.py, layout.px, layout.py];
     }
     case 'legend': {
-      const placement = legendPlacement(item, scene, geo);
+      const placement = itemPlacement(item, scene, geo);
       const layout = legendLayout({ ...item, x: placement.x, y: placement.y }, placement.scale);
       const width = item.width_pt * placement.scale;
       return [placement.x, placement.y, placement.x + width, placement.y + layout.height];
     }
     case 'colorbar': {
-      const placement = colorbarPlacement(item, scene, geo);
+      const placement = itemPlacement(item, scene, geo);
       return [
         placement.x,
         placement.y,
