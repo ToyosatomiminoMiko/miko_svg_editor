@@ -11,7 +11,7 @@
 import { cam, s2w } from '../core/camera';
 import { DRAG_THRESHOLD_PX } from '../config';
 import { applyDimDrag, pickDim, type DimConstraint } from '../core/dimensions';
-import { Renderer } from '../render/renderer';
+import { Renderer, type RendererOptions } from '../render/renderer';
 import {
   applyMarquee,
   clearHover,
@@ -45,6 +45,17 @@ type Gesture =
   | { kind: 'pan'; pan: PanAnchor }
   | { kind: 'drag'; drag: DragGesture }
   | { kind: 'dim'; dim: DimGesture };
+
+/**
+ * Editor 的可选装配参数。
+ * 为什么用可选对象而不是继续加必填位参：草图模式的行为必须保持字节级不变（零回归），
+ * 只有地图模式需要「透明画布 / 不画网格 / 每帧同步底图」这三件事，缺省值即现状。
+ */
+export interface EditorOptions {
+  /** 传给 Renderer 的绘制选项；缺省 = 草图模式现状（底色 + 网格 + 无帧回调） */
+  readonly renderer?: RendererOptions;
+}
+
 export class Editor {
   private readonly canvas: HTMLCanvasElement;
   private readonly hintEditor: HintEditor;
@@ -60,19 +71,21 @@ export class Editor {
   /**
    * @param canvas 画布节点（右侧网格里的画布格）
    * @param sidebarRoot 左侧状态栏宿主；已选择列表与状态/尺寸输入合并在这一栏里
-   * @param theme 画布主题（线宽/颜色 token）
+   * @param theme 画布主题（线宽/颜色 token）；地图模式由 app/map-mode.ts 换成 mapTheme
    * @param measureText 文本测量适配器（尺寸标注布局用）
+   * @param options 地图模式的渲染选项（缺省 = 草图模式现状）
    */
   constructor(
     canvas: HTMLCanvasElement,
     sidebarRoot: HTMLElement,
     theme: Theme,
     measureText: MeasureText,
+    options: EditorOptions = {},
   ) {
     this.canvas = canvas;
     this.measureText = measureText;
     this.dimFont = theme.dimFont;
-    const renderer = new Renderer(canvas, theme);
+    const renderer = new Renderer(canvas, theme, options.renderer);
     const statusPanel = new StatusPanel(sidebarRoot);
     this.hintEditor = new HintEditor(statusPanel.statusSlot, {
       onCommit: (con, value) => this.controls.commitDimValue(con, value),
@@ -103,6 +116,14 @@ export class Editor {
   /** info 级提示：由 main.ts 接到 ui/notify 的 initNotifications 上，闪示在状态栏 */
   flashInfo(message: string): void {
     this.hintEditor.flashInfo(message);
+  }
+
+  /**
+   * 运行期重绘：载入 scene / 适应底图之后调用（构造期之外唯一需要「强制同步」的入口）。
+   * 内部走与交互路径相同的 EditorControls.sync()，保证选择列表/状态栏/画布三处一致。
+   */
+  refresh(): void {
+    this.controls.sync();
   }
 
   /** 工具栏构建完成后回填引用，并设置默认工具 */

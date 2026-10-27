@@ -25,6 +25,22 @@ export function fitView(): void {
 }
 
 /**
+ * 适应给定世界矩形（地图模式用底图文档尺寸 `[0,W]×[0,H]`）。
+ *
+ * 与 fitView 的区别只在适配目标：草图适应「图形包围盒」，地图适应「底图整幅」——
+ * 底图是只读的，视口必须对齐它的用户单位坐标，否则叠加层与底图会错开。
+ * 顺序约束：必须在 Editor 构造之后调用（构造器里的 renderer.resize() 才把
+ * cam.viewportW/H 从 0 写成真实值），否则这里会因视口为 0 直接返回。
+ */
+export function fitBounds(width: number, height: number): void {
+  if (!(width > 0) || !(height > 0)) return;
+  if (cam.viewportW <= 0 || cam.viewportH <= 0) return;
+  cam.z = clampZoom(Math.min(cam.viewportW / width, cam.viewportH / height) * FIT_VIEW_FILL);
+  cam.x = width / 2;
+  cam.y = height / 2;
+}
+
+/**
  * 滚轮缩放：以指针所在屏幕点为锚点。
  * 缩放会改变指针下的世界坐标，必须同步 state.cursorWorld，
  * 否则预览会停在旧世界点直到下次 pointermove（P3）。

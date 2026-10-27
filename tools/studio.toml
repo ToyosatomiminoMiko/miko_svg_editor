@@ -1,0 +1,11 @@
+# mapdoc studio 配置(路径相对本文件所在目录 tools/).
+# 端口固定 8791 以便 Vite 开发期代理; base_dir 相对每张图所在目录.
+
+[studio]
+port = 8791
+open_browser = true
+web_dist = "../dist"
+base_dir = ".build"
+
+[figures]
+volga = "../demo/figures/Volga/volga_basin_topography_etopo2022_lambert_conformal.svg"

@@ -13,3 +13,7 @@ package-lock.json
 
 # 测试覆盖率产物
 coverage/
+
+# 运行期工作区：浏览器 profile/日志（有头浏览器验收用）、脚本生成的 demo 产物
+.work/
+demo/

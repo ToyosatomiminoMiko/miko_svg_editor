@@ -32,6 +32,11 @@ export interface Theme {
   /** 网格/尺寸线/选中环等 1px 发丝线 */
   hairlineWidth: number;
 
+  /* 描边端点/拐角：与 SVG 侧 stroke-linecap/stroke-linejoin 同一语义。
+   * 草图用 round；地图模式由 map-theme.ts 改成 butt，与冻结底图的全局 A6 一致。 */
+  lineCap: CanvasLineCap;
+  lineJoin: CanvasLineJoin;
+
   /* 点半径（屏幕像素） */
   pointRadius: number;
   pointRadiusHot: number;
@@ -79,6 +84,8 @@ const DEFAULT_STROKE_WIDTH = 1.5;
 const DEFAULT_STROKE_WIDTH_HOT = 2.4;
 const DEFAULT_SELECTION_WIDTH = 2.6;
 const DEFAULT_HAIRLINE_WIDTH = 1;
+const DEFAULT_LINE_CAP: CanvasLineCap = 'round';
+const DEFAULT_LINE_JOIN: CanvasLineJoin = 'round';
 const DEFAULT_POINT_RADIUS = 2.6;
 const DEFAULT_POINT_RADIUS_HOT = 4.5;
 const DEFAULT_POINT_SELECTED_RADIUS = 5.4;
@@ -164,6 +171,18 @@ export function readTheme(style?: CSSStyleDeclaration): Theme {
     return parsed;
   };
 
+  /**
+   * 读取描边端点/拐角 token：只接受 canvas 的合法枚举值。
+   * 为什么在这里校验而不是直接 str()：非法值会让整个路径静默消失（canvas 忽略 set 的非法
+   * lineCap 之前保留旧值），比缺 token 更难排查，所以按「缺 token」回退并进告警。
+   */
+  const strokeCap = <T extends string>(name: string, allowed: readonly T[], fallback: T): T => {
+    const v = source?.getPropertyValue(name).trim() ?? '';
+    if (allowed.includes(v as T)) return v as T;
+    if (source) missing.add(name);
+    return fallback;
+  };
+
   const theme: Theme = {
     bg: str('--canvas-bg', DEFAULT_BG),
     grid: str('--canvas-grid', DEFAULT_GRID),
@@ -184,6 +203,9 @@ export function readTheme(style?: CSSStyleDeclaration): Theme {
     strokeWidthHot: num('--stroke-width-hot', DEFAULT_STROKE_WIDTH_HOT),
     selectionWidth: num('--selection-width', DEFAULT_SELECTION_WIDTH),
     hairlineWidth: num('--hairline-width', DEFAULT_HAIRLINE_WIDTH),
+
+    lineCap: strokeCap('--line-cap', ['butt', 'round', 'square'], DEFAULT_LINE_CAP),
+    lineJoin: strokeCap('--line-join', ['bevel', 'round', 'miter'], DEFAULT_LINE_JOIN),
 
     pointRadius: num('--point-radius', DEFAULT_POINT_RADIUS),
     pointRadiusHot: num('--point-radius-hot', DEFAULT_POINT_RADIUS_HOT),

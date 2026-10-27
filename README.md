@@ -41,6 +41,12 @@ npm run build        # tsc --noEmit && vite build，产物在 dist/
 npm run preview      # 预览 dist/
 ```
 
+> 地图模式要一个本地 Python studio（`tools/studio.py`，标准库即可）。`npm run dev` / `npx vite`
+> 启动时会顺带把它拉起来：没有实例就 `python3 tools/studio.py`，已有就直接复用，Vite 退出时
+> 一起结束；`/api`、`/base.svg`、`/final.svg`、`/overlay.svg` 由 Vite 代理到
+> `127.0.0.1:8791`。首次运行先 `python3 tools/prepare_demo.py` 生成 `demo/` 底图。
+> 细节（端口/解释器覆盖、单独跑后端）见 [`tools/README.md`](tools/README.md)。
+
 本地库默认是 `/mnt/IVSTINIANVS/__projects_web/miko_ui`，用 `MIKO_UI_DIR` 指到别的工作副本即可；
 链路本身只有三个命令：
 
@@ -268,21 +274,21 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 
 ## 运行与质量门
 
-| 命令                   | 作用                                                                |
-| ---------------------- | ------------------------------------------------------------------- |
-| `npm run dev`          | `predev` 自动链接本地库（若可用）+ Vite 开发服务器                  |
-| `npm run build`        | `tsc --noEmit && vite build`，产物到 `dist/`                        |
-| `npm run preview`      | 预览 `dist/`                                                        |
-| `npm run typecheck`    | `tsc --noEmit`（strict + `noUncheckedIndexedAccess`）               |
-| `npm run lint`         | `eslint .`（含按目录的依赖分层规则）                                |
-| `npm run arch`         | 依赖分层 + 运行期循环依赖检查（`scripts/check_architecture.mjs`）   |
-| `npm run format`       | `prettier --write .`                                                |
-| `npm run format:check` | `prettier --check .`                                                |
-| `npm run test`         | `vitest run`（node 环境，`tests/**/*.test.ts`）                     |
-| `npm run check`        | typecheck → lint → arch → format:check → test → build，一次跑全部门 |
-| `npm run ui:link`      | 把 `node_modules/miko_ui` 链到本地库工作副本                        |
-| `npm run ui:unlink`    | 移除本地库软链（之后 `npm ci` 还原 npm 版）                         |
-| `npm run ui:status`    | 打印当前 miko_ui 解析来源（本地库 / npm 版）与版本                  |
+| 命令                   | 作用                                                                        |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `npm run dev`          | `predev` 自动链接本地库（若可用）+ Vite 开发服务器 + 自动拉起 mapdoc studio |
+| `npm run build`        | `tsc --noEmit && vite build`，产物到 `dist/`                                |
+| `npm run preview`      | 预览 `dist/`                                                                |
+| `npm run typecheck`    | `tsc --noEmit`（strict + `noUncheckedIndexedAccess`）                       |
+| `npm run lint`         | `eslint .`（含按目录的依赖分层规则）                                        |
+| `npm run arch`         | 依赖分层 + 运行期循环依赖检查（`scripts/check_architecture.mjs`）           |
+| `npm run format`       | `prettier --write .`                                                        |
+| `npm run format:check` | `prettier --check .`                                                        |
+| `npm run test`         | `vitest run`（node 环境，`tests/**/*.test.ts`）                             |
+| `npm run check`        | typecheck → lint → arch → format:check → test → build，一次跑全部门         |
+| `npm run ui:link`      | 把 `node_modules/miko_ui` 链到本地库工作副本                                |
+| `npm run ui:unlink`    | 移除本地库软链（之后 `npm ci` 还原 npm 版）                                 |
+| `npm run ui:status`    | 打印当前 miko_ui 解析来源（本地库 / npm 版）与版本                          |
 
 **TypeScript 7 与 eslint 的由来**：项目用 TypeScript 7（原生 Go 版编译器），它不再导出 JS 编译器 API，
 上游 `typescript-eslint`（peer `<6.1.0`）在 import 时会直接拒绝 TS 7。因此 devDependencies 用

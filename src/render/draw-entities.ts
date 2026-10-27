@@ -53,7 +53,9 @@ export function drawEntity(
         ? theme.construction
         : theme.geom;
   ctx.setLineDash(e.construction ? theme.dashConstruction : []);
-  ctx.lineCap = 'round';
+  // 线帽/线接读主题：草图圆头，地图模式由 map-theme.ts 改成 butt 与底图 A6 一致
+  ctx.lineCap = theme.lineCap;
+  ctx.lineJoin = theme.lineJoin;
 
   // 图元已多态归一到基元：线段/圆弧走公共描边，点图元画外环 + 实心中心
   const prim = primitiveOf(e);

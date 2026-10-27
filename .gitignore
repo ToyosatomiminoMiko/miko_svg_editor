@@ -4,3 +4,7 @@ dist/
 .npm-cache/
 coverage/
 *.local
+demo/
+__pycache__/
+*.pyc
+/.work/

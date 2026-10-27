@@ -51,7 +51,7 @@ flowchart TB
 | `src/styles.css`                      | 页面网格、`.app-*` 消费者类、canvas 绘制 token（`:root` 是主题单一来源）          |
 | `eslint.config.js`                    | 分层 import 禁令 + 通用规则（见 §8）                                              |
 | `tsconfig.json`                       | strict + `noUncheckedIndexedAccess` + `verbatimModuleSyntax` 等编译口径           |
-| `vite.config.ts` / `vitest.config.ts` | Vite 构建（本地库联调白名单）/ node 环境单测（`tests/**/*.test.ts`）              |
+| `vite.config.ts` / `vitest.config.ts` | Vite 构建（本地库白名单 / studio 代理 + 自动拉起）/ node 环境单测（`tests/**/*.test.ts`） |
 | `scripts/dev_ui_link.mjs`             | 本地 miko_ui 工作副本 ↔ npm 版的 link/unlink/status/auto 切换                     |
 | `scripts/check_architecture.mjs`      | `npm run arch`：src 运行期依赖只能向下 + 无环检查（见 §8.3）                      |
 
@@ -628,3 +628,70 @@ const input = (w: Vec, snap: Snap | null = null): ClickInput => ({
 | 新增/变更测试约定（环境、fixture、命令引擎测试写法）                            | §11                                                                                                            |
 
 最后：**文档里引用的函数名如果对不上，以源码为准，并把本文修正**——这份文档的价值就在于它和代码同步。
+
+## 15. 地图模式（mapdoc）：冻结底图 + 叠加层
+
+> 状态：**竖切片已实现（P0–P2 的一部分）**，文字注记/字体（P3）、撤销、样式面板未做。
+> 设计依据 `docs/merge/DESIGN.md`；本轮冻结的实现契约见 `docs/merge/.work/impl-contract.md`。
+
+### 15.1 边界（为什么底图进不了编辑器）
+
+底图 = Python(cartopy) 渲染出的整幅 SVG（含边界/晕渲/标注/图例/色标）。它在浏览器里**只作为
+`<img>` 显示**：不解析、不持有它的 SVG DOM、不回写。因此「编辑器无法修改底图」是**结构保证**
+而不是约定（设计 D3）。可变的只有叠加层：点/线/圆/圆弧/矩形 + 约束 + 文字（文字未做）。
+三级产物：`base.svg`（render 产物）→ `scene.json`（叠加层真值）→ `final.svg`（Python 合成交付物）；
+浏览器只读写 `scene.json`（设计 D2/D4）。
+
+### 15.2 分层落点（五层不变，`npm run arch` 零 allowlist 改动）
+
+| 层 | 地图模式新增/改动 | 职责 |
+| --- | --- | --- |
+| `config/` | `mapdoc.ts`（新） | `MAPDOC_*` 缩放上下限、scene 默认样式、URL、上限、请求超时 |
+| `core/` | `scene.ts`（新）：类型 + `serializeScene/applyScene/validateScene/sceneCounts/mapStyle` | scene.json 纯 codec 与结构校验（不读 DOM/网络，node 可测） |
+| | `model.ts` 加 `restoreModel` | 用**显式 id** 重建三容器（载入不重新分配 id、不做级联） |
+| | `camera.ts` 加 `setZoomRange/resetZoomRange` | 缩放上下限可按模式切换（地图 0.1–8，草图 0.02–80） |
+| | `viewport.ts` 加 `fitBounds(w,h)` | 适配底图整幅 `[0,W]×[0,H]`（与 `fitView` 适配包围盒区分） |
+| `render/` | `map-theme.ts`（新）、`theme.ts` 加 `lineCap/lineJoin`、`renderer.ts` 加 `RendererOptions`、`draw-entities.ts` 读主题 | 透明画布/不画网格/帧尾回调（同步底图）/线帽 butt/几何配色取 `mapStyle` |
+| `ui/` | `base-layer.ts`（新） | **唯一**持有底图 DOM 的模块：`<img>` + `translate/scale` 相机同步 |
+| | `scene-file.ts`（新） | `/api/doc`、`/api/scene` GET/PUT、`/api/compose` 的传输层；失败归一成 `SaveOutcome` |
+| | `app-shell.ts` 加 `mapHost`；`toolbar.ts` 加 `mode` 参数 | 底图宿主与 canvas 同一网格格；地图模式工具栏 = 适应/保存/成品/清空 |
+| `app/` | `map-mode.ts`（新）、`main.ts` 模式路由、`editor.ts` 加 `EditorOptions`/`refresh()` | 组合根：探测 → 载 scene → 建 Editor → fitBounds → 保存/快捷键/未保存保护 |
+
+### 15.3 装配顺序与关键调用链
+
+```
+main.ts: mountAppShell → readTheme → boot()
+  boot(): ?mode=sketch → 草图；否则 startMapMode()
+  startMapMode(): GET /api/doc（失败 → 回退草图）
+    → GET /api/scene → validateScene → applyScene（显式 id 重建）
+    → setZoomRange(MAPDOC_ZOOM_MIN, MAPDOC_ZOOM_MAX)
+    → new BaseLayer(mapHost).setBase({url,width_pt,height_pt})
+    → new Editor(canvas, sidebar, mapTheme(theme, mapStyle), measureText,
+                 {renderer:{paintBackground:false, paintGrid:false, onFrame: baseLayer.sync}})
+    → fitBounds(W,H) → editor.refresh()   // 必须在 Editor 之后：构造器里 resize 才写视口尺寸
+  Ctrl+S → serializeScene() + 记住的 base 声明 → PUT /api/scene
+    → 409 base_changed → 确认框 → 带 ack_base_change 重提；409 canvas_changed → 要求刷新
+    → 200 composed:true → final.svg 已更新；composed:false(rendering) → 「合成排队中」
+```
+
+底图与叠加层的对齐由**同一份 cam 快照**保证：`BaseLayer.sync` 用 `translate(w2s(0,0)) scale(cam.z)`
+（`transform-origin:0 0`），canvas 的 `w2s` 是同一个函数；`Renderer` 每帧末尾回调 `onFrame`，
+所以拖拽/缩放/`ResizeObserver` 触发的重绘都会同帧摆正底图。
+
+### 15.4 本地开发
+
+`npm run dev` / `npx vite` 会顺带管理 studio（`vite.config.ts` 的 `studioDevPlugin`）：启动时先探
+`127.0.0.1:8791/api/health`，已有实例直接复用；没有就 `python3 tools/studio.py` 拉一个（stdio
+继承，日志与 Vite 在同一终端），Vite 退出时一并结束。子进程环境里固定
+`MAPDOC_OPEN_BROWSER=0`，避免 `studio.toml` 的 `open_browser = true` 再弹一个旧 `dist` 页。
+端口统一读 `MAPDOC_STUDIO_PORT`（studio.py 启动时也读它覆盖 TOML），代理目标与后端不会错位。
+前端入口先 `GET /api/doc` 探测：可用走地图模式，不可用回退草图模式（`?mode=sketch` 强制草图）。
+首次运行先 `python3 tools/prepare_demo.py` 生成 `demo/`。
+
+### 15.5 已知边界（本轮）
+
+- 文字注记/字体子集未做（本机无 fontTools）；scene 里 `type:"text"` 前后端都拒绝。
+- 线宽/点半径在预览里按用户单位 1:1 当屏幕像素，**没有乘 `cam.z`**；高倍放大时成品线更粗（P3）。
+- 地图模式缩放到 z=8：底图是 SVG，文字/边界仍矢量清晰；内嵌栅格明显放大（已知限制，成品不受影响）。
+- 单图单文档（`model/state/cam` 单例）；切图 = 刷新页面。
+- 预览与成品只有颜色/线帽同源，没有像素级对照测试（设计 §4.7 的口径）。

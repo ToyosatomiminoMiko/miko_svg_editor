@@ -43,6 +43,10 @@
   --selection-width: 2.6;
   /* 网格/尺寸线/选中环等 1px 发丝线 */
   --hairline-width: 1;
+  /* 描边端点/拐角（canvas lineCap/lineJoin 读取）：草图用圆头；
+   * 地图模式由 src/render/map-theme.ts 改成 butt，与冻结底图的全局 stroke-linecap 一致 */
+  --line-cap: round;
+  --line-join: round;
   --point-radius: 2.6;
   --point-radius-hot: 4.5;
   --point-selected-radius: 5.4;
@@ -117,9 +121,36 @@ body {
 
 /* ------------------------------------------------ 画布（右侧网格） */
 
+/* 地图模式的底图宿主：与 canvas 同一网格格（第 3 列第 2 行），DOM 顺序在 canvas 之前，
+ * 所以天然垫在叠加层下面（canvas 另有 z-index:1）。
+ * pointer-events:none 是硬边界：底图不可选中/不可拖拽，所有交互都落在上层 canvas。
+ * overflow:hidden 把平移/缩放后的底图裁在这一格里，不会盖到 dock 或左侧状态栏上。 */
+.app-map-host {
+  grid-column: 3;
+  grid-row: 2;
+  position: relative;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* 底图图片：CSS 宽高 = 底图用户单位（1u = 1px @z=1），transform 由 ui/base-layer.ts
+ * 每帧写成 translate(w2s(0,0)) scale(cam.z)。
+ * transform-origin 必须是 0 0：底图与 canvas 共用左上原点，绕图片中心缩放会整体漂移。 */
+.app-map-base {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  user-select: none;
+  pointer-events: none;
+}
+
 .app-canvas {
   grid-column: 3;
   grid-row: 2;
+  /* 叠在底图宿主之上：两层在同一网格格，靠 z-index 决定谁在上 */
+  position: relative;
+  z-index: 1;
   display: block;
   width: 100%;
   height: 100%;
@@ -129,6 +160,11 @@ body {
   cursor: default;
   /* 自绘之前的第一帧底色；绘制仍由 Renderer 负责 */
   background: var(--canvas-bg);
+}
+
+/* 地图模式：底图就是背景，canvas 保持透明才能透出底图（Renderer 也不再铺底色） */
+#app.is-map .app-canvas {
+  background: transparent;
 }
 
 /* 非选择工具时用十字光标（Editor 负责切换这个类） */
