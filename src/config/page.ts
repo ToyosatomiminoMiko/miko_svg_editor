@@ -1,9 +1,9 @@
 /**
  * 出版排版编辑器（map.html）的常量与默认值。
  *
- * 是什么：`scene.json`（format `mapdoc-page`）的格式标识、HTTP 端点、纸张预设、
+ * 是什么：`scene.json`（format `mapdoc-page`）的格式标识、上传/下载参数、纸张预设、
  * 默认页边距/字号/图框/图例/色标参数、校验上下限与交互缩放系数。
- * 为什么集中在这里：预览（浏览器）与成品（`tools/mapdoc/render.py`）必须共享同一套
+ * 为什么集中在这里：预览（浏览器 DOM）与成品（浏览器内 `render/compose-svg.ts`）必须共享同一套
  * 默认值；把它们放在 config 层，core/render/ui/app 只读不写，避免「预览与成品标定不一致」。
  * 数字口径：全部是 pt（1 用户单位 = 1pt），写进 SVG 时最多 3 位小数、去尾零（见
  * `render/page-format.ts` 与 `docs/PAGE-EDITOR.md` §5）。
@@ -22,15 +22,22 @@ export const PAGE_SCENE_VERSION = 1;
 export const PAGE_GEO_FORMAT = 'mapdoc-geo';
 export const PAGE_GEO_VERSION = 1;
 
-/* ---------------- HTTP 端点（契约 §8） ---------------- */
+/* ---------------- 上传与下载（文件 I/O，无后端） ---------------- */
 
-export const PAGE_DOC_URL = '/api/doc';
-export const PAGE_GEO_URL = '/api/geo';
-export const PAGE_SCENE_URL = '/api/scene';
-export const PAGE_COMPOSE_URL = '/api/compose';
+/**
+ * 上传文件选择框的 accept：底图 SVG 与 JSON（geo / scene）。
+ * 只看扩展名即可：内容格式由 `core/document.ts` 按 `format` 字段再判一次。
+ */
+export const PAGE_UPLOAD_ACCEPT = '.svg,.json,application/json,image/svg+xml';
 
-/** 请求超时（毫秒）：PUT 会顺带合成，比 GET 多给一点；仍按同一预算处理 */
-export const PAGE_REQUEST_TIMEOUT_MS = 20000;
+/** 导出下载用 Blob objectURL 的延迟 revoke（毫秒）：给浏览器留出读取下载数据的时间 */
+export const PAGE_DOWNLOAD_REVOKE_MS = 1000;
+
+/**
+ * 打开校验的尺寸容差（pt）：`geo.base` 的 viewBox/width/height 与底图根标签的
+ * 对应值比较时允许的最大偏差。Cartopy 落盘会做 3 位小数规范化，0.01pt 足够容下。
+ */
+export const PAGE_BASE_SIZE_TOLERANCE_PT = 0.01;
 
 /* ---------------- 数值口径与上限（契约 §4） ---------------- */
 

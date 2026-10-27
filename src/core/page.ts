@@ -2,12 +2,12 @@
  * `scene.json` / `geo.json` 的类型、校验、规范化、序列化与摘要（纯逻辑，不碰 DOM）。
  *
  * 是什么：`docs/PAGE-EDITOR.md` §3/§4 的数据契约在 TS 侧的唯一实现——`Scene` 联合类型、
- * `validateScene`（与 `tools/mapdoc/page.py` 同一套约束）、`normalizeScene`（3 位小数）、
+ * `validateScene`（契约 §4 的约束）、`normalizeScene`（3 位小数）、
  * `serializeScene`（键排序、无空白，供签名/摘要）、`sceneDigest`（SHA-256）。
- * 为什么放在 core 且不碰 DOM：浏览器预览与 Python 合成必须对同一份 scene 得出同一份语义；
- * 浏览器只提交语义值，规范化与校验在两侧各有一份实现，所以必须能在 node 里单测。
- * 注意：`sceneDigest` 用纯 TS SHA-256 实现（不依赖 Web Crypto / node:crypto），
- * 服务器最终写进 marker 的 digest 仍以 Python 侧为准；前端只用它做本地签名比较。
+ * 为什么放在 core 且不碰 DOM：预览与成品合成必须对同一份 scene 得出同一份语义；
+ * 校验/规范化/摘要都要能在 node 里单测，且浏览器与导出共用同一实现。
+ * 注意：摘要用纯 TS SHA-256 实现（不依赖 Web Crypto / node:crypto），只用于本地签名与
+ * 成品 marker（`render/compose-svg.ts` 的 `makeMarker`）。
  * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地。
  */
 
@@ -119,7 +119,7 @@ export interface LegendItem extends ItemBase {
 /** 色标元素：配色/刻度来自 geo.relief，scene 只存摆放与文字 */
 export interface ColorbarItem extends ItemBase {
   kind: 'colorbar';
-  /** 同 LegendItem.space：Python 合成侧支持 map 空间缩放 */
+  /** 同 LegendItem.space：map 空间时成品合成按地图缩放比缩放宽高 */
   space: ItemSpace;
   x: number;
   y: number;
@@ -169,7 +169,7 @@ export interface PageStyle {
   color: string;
 }
 
-/** scene 里声明的底图身份（服务器用真实底图复核） */
+/** scene 里声明的底图身份（打开时与上传底图的 sha256/尺寸对照，只告警并更新） */
 export interface SceneBase {
   sha256: string;
   width_pt: number;
@@ -291,7 +291,12 @@ export interface Geo {
   base: GeoBase;
   graticule: GeoGraticule;
   labels: GeoLabel[];
-  relief: GeoRelief;
+  /**
+   * 高程/水深色标数据；Cartopy 不画色标时整个键缺省，`normalizeGeo` 补成 null。
+   * 为什么允许 null：默认排版与 compose 的 colorbar 都依赖它，缺省时必须能降级
+   * （不生成色标）而不是崩。
+   */
+  relief: GeoRelief | null;
   legend: GeoLegend;
   suggestions: GeoSuggestions;
 }
@@ -304,9 +309,8 @@ const finiteOrZero = (value: number): number => (Number.isFinite(value) ? value 
 /**
  * 四舍五入到 `PAGE_DECIMALS` 位小数并归一负零。
  *
- * 为什么是 `Math.round(v*1000)/1000`：Python 合成侧（`tools/mapdoc/render.py`）用
- * `floor(v*1000 + 0.5)/1000` 复刻 JS 语义，避免两侧在 `.xxx5` 边界（如 0.3125）上
- * 得到不同的 3 位小数；这也是「预览与成品同一字节」的硬要求。
+ * 为什么是 `Math.round(v*1000)/1000`：预览、scene 摘要与导出的 final.svg 必须共用同一套
+ * 舍入（否则同一 scene 会得到不同字节）；`.xxx5` 边界按 JS `Math.round` 语义处理。
  */
 export function roundToPageDecimals(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -351,17 +355,38 @@ function canonicalValue(value: unknown): unknown {
 }
 
 /**
+ * 任意值 → 键排序、无空白、数字 3 位小数的 canonical JSON 串（geo digest / marker 用）。
+ * 复用 scene 的 `canonicalValue`，保证 scene 与 geo 两种文档只有一套规范化口径。
+ */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(canonicalValue(value)) ?? 'null';
+}
+
+/**
  * 规范化 scene → 键排序、无空白的 JSON 串。
- * 服务器用同一份语义做 sha256；前端用它做「打开后是否改过」的签名比较，
- * 因此必须确定性（键序、数字精度都固定）。
+ * 签名/摘要用它做「打开后是否改过」的比较，因此必须确定性（键序、数字精度都固定）。
  */
 export function serializeScene(scene: Scene): string {
   return JSON.stringify(canonicalValue(normalizeScene(scene)));
 }
 
+/**
+ * 导出 scene.json 的文本：规范化 + 2 空格缩进 + 末尾一个换行。
+ * 为什么不用 `serializeScene`：那是签名用的紧凑串（无空白、不可读）；落盘的文件要可
+ * diff，所以单独一份。JSON.stringify 的键序由 canonicalValue 固定，因此确定性成立。
+ */
+export function serializeSceneFile(scene: Scene): string {
+  return `${JSON.stringify(canonicalValue(normalizeScene(scene)), null, 2)}\n`;
+}
+
 /** scene 签名：摘要用 3 位小数规范化后的 canonical JSON */
 export function sceneDigest(scene: Scene): string {
   return sha256Hex(serializeScene(scene));
+}
+
+/** geo 签名（写进 final marker 的 "geo" 字段）：规范化 geo 的 canonical JSON 的 sha256 */
+export function geoDigest(geo: Geo): string {
+  return sha256Hex(canonicalJson(geo));
 }
 
 /* =========================== SHA-256（纯 TS） =========================== */
@@ -398,12 +423,11 @@ const add32 = (...values: readonly number[]): number => {
 const at = (values: readonly number[], index: number): number => values[index] ?? 0;
 
 /**
- * UTF-8 文本的 SHA-256（十六进制小写）。
+ * bytes 的 SHA-256（十六进制小写）。
  * 为什么自己写：core 不能依赖 DOM（Web Crypto 是异步且部分环境不可用），
  * 也不能依赖 node:crypto（浏览器包里不存在）；这个实现只服务本地签名比较。
  */
-export function sha256Hex(text: string): string {
-  const bytes = new TextEncoder().encode(text);
+export function sha256OfBytes(bytes: Uint8Array): string {
   const bitLength = bytes.length * 8;
   const paddedLength = Math.ceil((bytes.length + 9) / 64) * 64;
   const data = new Uint8Array(paddedLength);
@@ -462,6 +486,11 @@ export function sha256Hex(text: string): string {
   }
 
   return hash.map((word) => (word >>> 0).toString(16).padStart(8, '0')).join('');
+}
+
+/** UTF-8 文本的 SHA-256（十六进制小写）；对底图原文/规范化 JSON 求摘要都走这里 */
+export function sha256Hex(text: string): string {
+  return sha256OfBytes(new TextEncoder().encode(text));
 }
 
 /* =========================== 校验 =========================== */
@@ -679,7 +708,7 @@ function validateColorbarItem(item: Record<string, unknown>, path: string, error
 /**
  * 校验 scene（结构与取值范围，按契约 §4）。
  *
- * @param value 来自服务器/本地构造的未知 JSON
+ * @param value 来自上传文件/本地构造的未知 JSON
  * @param geo 可选：提供时补一条「地图是否完整落在纸张内」的告警（越界只告警不报错）
  */
 export function validateScene(value: unknown, geo?: Geo | null): SceneValidation {
@@ -830,7 +859,11 @@ function baseRatio(geo: Geo | null | undefined, base: unknown): number | null {
   return null;
 }
 
-/** 轻量校验 geo：只查前端渲染默认排版必需的字段，返回错误清单（空 = 可用） */
+/**
+ * 轻量校验 geo：只查前端渲染默认排版必需的字段，返回错误清单（空 = 可用）。
+ * relief/legend/suggestions 是可选块（Cartopy 不画就没有对应的键）：缺省合法，
+ * 存在时只做基础结构检查；归一化默认值由 `normalizeGeo` 负责。
+ */
 export function validateGeo(value: unknown): string[] {
   const errors: string[] = [];
   if (!isObject(value)) return ['geo: 顶层必须是 JSON 对象'];
@@ -877,12 +910,199 @@ export function validateGeo(value: unknown): string[] {
         }
       });
     }
+    // graticule.style 允许缺省（Cartopy 未来可能不写）；存在但类型不对才算错误。
+    if (graticule.style !== undefined && graticule.style !== null && !isObject(graticule.style)) {
+      errors.push('geo.graticule.style: 必须是对象或 null');
+    }
   }
   if (!Array.isArray(value.labels)) errors.push('geo.labels: 必须是数组');
-  if (!isObject(value.relief)) errors.push('geo.relief: 必须是对象');
-  if (!isObject(value.legend)) errors.push('geo.legend: 必须是对象');
-  if (!isObject(value.suggestions)) errors.push('geo.suggestions: 必须是对象');
+
+  // relief / legend / suggestions 是 Cartopy 的可选块：整块缺省合法；块内字段也可能缺省
+  // （Cartopy 的 set_suggestions 只写调用方给出的字段，notes/area_annotation 等可能根本没有键），
+  // 所以这里只校验「存在但类型不对」的字段，缺省交给 normalizeGeo 补默认值。
+  const relief = value.relief;
+  if (relief !== undefined && relief !== null) {
+    if (!isObject(relief)) {
+      errors.push('geo.relief: 必须是对象或 null');
+    } else {
+      if (relief.stops !== undefined && !Array.isArray(relief.stops)) {
+        errors.push('geo.relief.stops: 必须是数组');
+      }
+      if (relief.vmin !== undefined || relief.vmax !== undefined) {
+        if (
+          !isFiniteNumber(relief.vmin) ||
+          !isFiniteNumber(relief.vmax) ||
+          !(relief.vmax > relief.vmin)
+        ) {
+          errors.push('geo.relief: vmin/vmax 必须是有限数字且 vmax > vmin');
+        }
+      }
+      if (relief.ticks !== undefined && !Array.isArray(relief.ticks)) {
+        errors.push('geo.relief.ticks: 必须是数组');
+      }
+    }
+  }
+  const legend = value.legend;
+  if (legend !== undefined && legend !== null) {
+    if (!isObject(legend)) {
+      errors.push('geo.legend: 必须是对象或 null');
+    } else {
+      if (legend.entries !== undefined && !Array.isArray(legend.entries)) {
+        errors.push('geo.legend.entries: 必须是数组');
+      }
+      if (legend.title !== undefined && typeof legend.title !== 'string') {
+        errors.push('geo.legend.title: 必须是字符串');
+      }
+    }
+  }
+  const suggestions = value.suggestions;
+  if (suggestions !== undefined && suggestions !== null) {
+    if (!isObject(suggestions)) {
+      errors.push('geo.suggestions: 必须是对象或 null');
+    } else {
+      for (const key of ['notes', 'area_annotation'] as const) {
+        if (suggestions[key] !== undefined && !Array.isArray(suggestions[key])) {
+          errors.push(`geo.suggestions.${key}: 必须是数组`);
+        }
+      }
+      for (const key of [
+        'title',
+        'subtitle',
+        'source',
+        'legend_title',
+        'colorbar_title',
+      ] as const) {
+        if (suggestions[key] !== undefined && typeof suggestions[key] !== 'string') {
+          errors.push(`geo.suggestions.${key}: 必须是字符串`);
+        }
+      }
+    }
+  }
   return errors;
+}
+
+/* =========================== geo 归一化（可选块补默认） =========================== */
+
+/** 空 suggestions：Cartopy 没有默认文案时的全空块（defaultScene 据此不生成标题/注记/来源） */
+function emptySuggestions(): GeoSuggestions {
+  return {
+    title: '',
+    subtitle: '',
+    notes: [],
+    source: '',
+    area_annotation: [],
+    legend_title: '',
+    colorbar_title: '',
+  };
+}
+
+/** 字符串字段兜底：类型不对就当空串（normalizeGeo 只补齐，不修改合法值） */
+function stringOr(value: unknown, fallback: string): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+/** 字符串数组兜底：非数组当空数组；元素不是字符串时转成字符串（避免下游 .split 崩） */
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => (typeof entry === 'string' ? entry : String(entry)));
+}
+
+/**
+ * graticule 线型的中性默认值。
+ * 为什么需要：`geo.graticule.style` 是 Cartopy 可能不写的可选字段（validateGeo 允许缺省）；
+ * 当前渲染并不读取它，但 `Geo` 类型要求字段完整，缺省时补中性值避免下游拿到 undefined。
+ */
+function neutralGraticuleStyle(): GraticuleStyle {
+  return { stroke: '#808080', width_pt: 0.5, dash: [0.5, 0.825], opacity: 1 };
+}
+
+/** 归一化 graticule：刻度数组原样保留，只补可能缺省的 style（lon/lat 由 validateGeo 保证） */
+function normalizeGraticule(raw: GeoGraticule): GeoGraticule {
+  const source: Record<string, unknown> = isObject(raw) ? raw : {};
+  const style = isObject(source['style'])
+    ? (source['style'] as unknown as GraticuleStyle)
+    : neutralGraticuleStyle();
+  return {
+    lon: (source['lon'] as GeoTick[] | undefined) ?? [],
+    lat: (source['lat'] as GeoTick[] | undefined) ?? [],
+    style,
+  };
+}
+
+/**
+ * 归一化 relief：结构不完整一律 null。
+ * 为什么坏结构不保留：色标依赖 vmax>vmin、stops 至少一条、数值有限；缺任何一项都无法
+ * 画出有意义的色标，不如让默认排版不生成色标、让 scene 里的 colorbar 给出明确错误。
+ */
+function normalizeRelief(raw: unknown): GeoRelief | null {
+  if (!isObject(raw)) return null;
+  const title = raw.title;
+  const unit = raw.unit;
+  const vmin = raw.vmin;
+  const vmax = raw.vmax;
+  const stops = raw.stops;
+  if (typeof title !== 'string' || typeof unit !== 'string') return null;
+  if (!isFiniteNumber(vmin) || !isFiniteNumber(vmax) || !(vmax > vmin)) return null;
+  if (!Array.isArray(stops) || stops.length === 0) return null;
+  const normalizedStops: GeoReliefStop[] = [];
+  for (const stop of stops) {
+    if (!isObject(stop)) return null;
+    const offset = stop.offset;
+    const color = stop.color;
+    if (!isFiniteNumber(offset) || typeof color !== 'string') return null;
+    normalizedStops.push({ offset, color });
+  }
+  const ticks = Array.isArray(raw.ticks) ? raw.ticks.filter(isFiniteNumber) : [];
+  return { title, unit, vmin, vmax, stops: normalizedStops, ticks };
+}
+
+/** 归一化 legend：缺省/结构坏 → 空图例（标题固定「图例」，defaultScene 不会生图例框） */
+function normalizeLegend(raw: unknown): GeoLegend {
+  if (!isObject(raw) || !Array.isArray(raw.entries)) return { title: '图例', entries: [] };
+  if (!raw.entries.every(isObject)) return { title: '图例', entries: [] };
+  return {
+    title: stringOr(raw.title, '图例'),
+    entries: raw.entries as unknown as GeoLegendEntry[],
+  };
+}
+
+/** 归一化 suggestions：逐字段兜底（部分字段坏只影响那一项，不整块丢弃） */
+function normalizeSuggestions(raw: unknown): GeoSuggestions {
+  if (!isObject(raw)) return emptySuggestions();
+  return {
+    title: stringOr(raw.title, ''),
+    subtitle: stringOr(raw.subtitle, ''),
+    notes: stringList(raw.notes),
+    source: stringOr(raw.source, ''),
+    area_annotation: stringList(raw.area_annotation),
+    legend_title: stringOr(raw.legend_title, ''),
+    colorbar_title: stringOr(raw.colorbar_title, ''),
+  };
+}
+
+/**
+ * 把上传的 geo 收敛成前端可安全消费的形状：可选块补默认值，返回新对象。
+ *
+ * - legend 缺省/结构坏 → `{title:'图例', entries: []}`（defaultScene 因此不生成空图例框）；
+ * - suggestions 缺省/结构坏 → 全空（defaultScene 因此不生成标题/注记/来源）；
+ * - relief 缺省/结构坏 → null（defaultScene 因此不生成色标）；
+ * - graticule 的 lon/lat 原样保留，style 缺省时补中性值；
+ * - base/labels 不补：validateGeo 已要求，缺了属于调用方漏校验。
+ * 为什么返回新对象：`PageDocument.geo` 是打开后共享的只读真值，不能与用户上传的原始
+ * JSON 共享可变引用。
+ */
+export function normalizeGeo(raw: Geo): Geo {
+  const source: Partial<Geo> = isObject(raw) ? raw : {};
+  return {
+    format: source.format ?? PAGE_GEO_FORMAT,
+    version: source.version ?? PAGE_GEO_VERSION,
+    base: source.base as GeoBase,
+    graticule: normalizeGraticule(source.graticule as GeoGraticule),
+    labels: source.labels ?? [],
+    relief: normalizeRelief(source.relief),
+    legend: normalizeLegend(source.legend),
+    suggestions: normalizeSuggestions(source.suggestions),
+  };
 }
 
 /* =========================== 查询/编辑辅助 =========================== */

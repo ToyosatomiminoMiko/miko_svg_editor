@@ -44,16 +44,16 @@ flowchart TB
 
 ### 1.1 根目录
 
-| 路径                                  | 一句话职责                                                                                |
-| ------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `index.html`                          | 唯一挂载点 `#app` + `src/app/main.ts` 模块脚本；页面骨架全由 JS 建                        |
-| `package.json`                        | 脚本（dev/build/typecheck/lint/arch/format/test/check）与唯一运行期依赖 `miko_ui`         |
-| `src/styles.css`                      | 页面网格、`.app-*` 消费者类、canvas 绘制 token（`:root` 是主题单一来源）                  |
-| `eslint.config.js`                    | 分层 import 禁令 + 通用规则（见 §8）                                                      |
-| `tsconfig.json`                       | strict + `noUncheckedIndexedAccess` + `verbatimModuleSyntax` 等编译口径                   |
-| `vite.config.ts` / `vitest.config.ts` | Vite 构建（本地库白名单 / studio 代理 + 自动拉起）/ node 环境单测（`tests/**/*.test.ts`） |
-| `scripts/dev_ui_link.mjs`             | 本地 miko_ui 工作副本 ↔ npm 版的 link/unlink/status/auto 切换                             |
-| `scripts/check_architecture.mjs`      | `npm run arch`：src 运行期依赖只能向下 + 无环检查（见 §8.3）                              |
+| 路径                                  | 一句话职责                                                                        |
+| ------------------------------------- | --------------------------------------------------------------------------------- |
+| `index.html`                          | 唯一挂载点 `#app` + `src/app/main.ts` 模块脚本；页面骨架全由 JS 建                |
+| `package.json`                        | 脚本（dev/build/typecheck/lint/arch/format/test/check）与唯一运行期依赖 `miko_ui` |
+| `src/styles.css`                      | 页面网格、`.app-*` 消费者类、canvas 绘制 token（`:root` 是主题单一来源）          |
+| `eslint.config.js`                    | 分层 import 禁令 + 通用规则（见 §8）                                              |
+| `tsconfig.json`                       | strict + `noUncheckedIndexedAccess` + `verbatimModuleSyntax` 等编译口径           |
+| `vite.config.ts` / `vitest.config.ts` | Vite 构建（两个 HTML 入口 / 本地库白名单）/ node 环境单测（`tests/**/*.test.ts`） |
+| `scripts/dev_ui_link.mjs`             | 本地 miko_ui 工作副本 ↔ npm 版的 link/unlink/status/auto 切换                     |
+| `scripts/check_architecture.mjs`      | `npm run arch`：src 运行期依赖只能向下 + 无环检查（见 §8.3）                      |
 
 ### 1.2 `src/app/`：装配与事件控制
 
@@ -631,110 +631,120 @@ const input = (w: Vec, snap: Snap | null = null): ClickInput => ({
 
 ## 15. 地图出版排版编辑器（map.html）：纯底图 + geo + 排版层
 
-> 状态：**新数据流已实现**。取代 `docs/merge/DESIGN.md` 的「冻结底图 × 草图叠加层」方案；
-> 唯一契约见 `docs/PAGE-EDITOR.md`。
+> 状态：**新数据流已实现，且已改为纯静态前端**（2026-10-28：删除 studio/Python/HTTP）。取代
+> `docs/merge/DESIGN.md` 的「冻结底图 × 草图叠加层」方案；唯一契约见 `docs/PAGE-EDITOR.md`。
 
 ### 15.1 边界与数据流
 
 **两件东西彻底分开**：地理内容归 Cartopy/底图，所有非地理内容（标题、图例、色标、图框、刻度数字、
 地名、注释、来源）归前端。
 
-```
-Cartopy 成品 SVG（含地理 + 文字/图例/色标/框）
-  │ tools/prepare_demo.py（extract.py：字符串手术剥离）
-  ▼
-.build/<stem>.base.svg    纯地图：地形/水系/边界/经纬网/地理坐标点；无 <text>、无字体、
-                          无图例/色标/标题/图框/纸白底；viewBox 裁到地图框
-<stem>.geo.json           只读地理元数据：地图框、经纬网刻度、39 个地名候选、relief 色带/刻度、
-                          图例样式、默认文案
-  │ 浏览器 map.html（出版排版编辑器）
-  ▼
-<stem>.scene.json         排版真值：纸张、地图摆放、图框/刻度、text/legend/colorbar items
-  │ PUT /api/scene → tools/studio.py → tools/mapdoc/render.py + compose.py
-  ▼
-<stem>.svg                交付成品：纸张尺寸、底图矢量内联、文字可选中、单文件
+```text
+Cartopy_file（另一个仓）直接产出：
+  <stem>.svg        纯地图：地形/水系/边界/经纬网/地理坐标点；无 <text>、无字体、
+                    无图例/色标/标题/图框/纸白底；viewBox 裁到地图框
+  <stem>.geo.json   只读地理元数据（format mapdoc-geo v1）：地图框、经纬网刻度、地名候选、
+                    relief 色带/刻度、图例样式、默认文案；legend/relief/suggestions 整块可缺省
+        │ 浏览器上传（文件选择 / 拖放；可同时选 <stem>.scene.json 恢复排版）
+        ▼
+map.html（纯静态 Vite 站）
+  core/base-svg.ts       底图契约 C1–C4 + 根标签内原文切片（inner）
+  core/document.ts       PageDocument：底图字节 + sha256 + 解析结果 + 规范化 geo
+  core/page.ts           scene/geo 类型、规范化/校验、canonicalJson/digest/序列化
+  core/page-layout.ts    §5 全部布局公式 + defaultScene（可选块降级）
+  render/compose-svg.ts  浏览器内合成 final.svg（纯函数）
+        │ 导出（Blob + <a download>）
+        ▼
+  <stem>.scene.json    排版真值：纸张、地图摆放、图框/刻度、text/legend/colorbar items
+  <stem>.svg           交付成品：纸张尺寸、底图内容内联、文字可选中、单文件
 ```
 
 三条不可协商的规则：
 
-1. 底图只读：浏览器只把它当 `<image>` 显示，不解析、不回写；`prepare` 之后 base/geo 是冻结输入。
+1. 底图只读：浏览器只把它当 `<image>` 预览与成品内联原文，不解析成图元、不回写。
 2. 底图里没有文字：标题/图例/色标/刻度数字/地名全部在 `scene.json` 里，由前端编排。
-3. 成品只有一个作者：浏览器只写 `scene.json`，`final.svg` 由 Python 按同一套 §5 布局公式合成；
-   同一 (base, geo, scene) 字节稳定。
+3. 成品只有一个作者：合成只在浏览器内 `render/compose-svg.ts` 一处；同一浏览器实现下，
+   同一 `(base, geo, scene)` 输出同字节。
 
 ### 15.2 文件与分层落点（两个入口、同一套五层）
 
-| 层        | 草图（`index.html`）          | 地图排版（`map.html`）                                                                                                                                          |
-| --------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `config/` | `config/*.ts`                 | `config/page.ts`：纸张预设、页边距/字号/图例/色标默认值、URL、上限                                                                                              |
-| `core/`   | 草图模型/约束/求解/尺寸       | `core/page.ts`：scene/geo 类型、序列化/校验/digest（纯逻辑，node 可测）<br>`core/page-layout.ts`：§5 布局公式 + `defaultScene(geo, base)`（A4 横向/自适应纸张） |
-| `render/` | canvas 渲染 + `export-svg.ts` | `render/page-format.ts`（3 位小数/转义/属性 helper）<br>`render/page-svg.ts`：scene+geo → 预览 SVG DOM（纸张/底图 image/框/刻度/文字/图例/色标）                |
-| `ui/`     | 状态栏/dock/工具条/通知       | `ui/page-toolbar.ts`、`ui/page-sidebar.ts`、`ui/page-notify.ts`（全部 miko_ui）                                                                                 |
-| `app/`    | `main.ts` + `editor.ts`       | `page-main.ts`（组合根）、`page-editor.ts`（选择/拖拽/缩放/保存状态机）                                                                                         |
+| 层        | 草图（`index.html`）          | 地图排版（`map.html`）                                                                                                                                                                                                                                                                              |
+| --------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config/` | `config/*.ts`                 | `config/page.ts`：格式标识、上传 accept、校验容差、纸张预设、页边距/字号/图例/色标默认值、上限                                                                                                                                                                                                      |
+| `core/`   | 草图模型/约束/求解/尺寸       | `core/base-svg.ts`：底图 C1–C4 与根标签内原文切片<br>`core/document.ts`：PageDocument、上传文件分类、导出命名<br>`core/page.ts`：scene/geo 类型、规范化/校验/digest/序列化（纯逻辑，node 可测）<br>`core/page-layout.ts`：§5 布局公式 + `defaultScene(geo, base)`（A4 横向/自适应纸张、可选块降级） |
+| `render/` | canvas 渲染 + `export-svg.ts` | `render/page-format.ts`（3 位小数/转义/属性 helper）<br>`render/page-svg.ts`：scene+geo → 预览 SVG DOM（纸张/底图 image/框/刻度/文字/图例/色标）<br>`render/compose-svg.ts`：浏览器内合成 final.svg（结构/marker/report）                                                                           |
+| `ui/`     | 状态栏/dock/工具条/通知       | `ui/page-open.ts`（上传面板）、`ui/page-toolbar.ts`、`ui/page-sidebar.ts`、`ui/page-notify.ts`、`ui/download.ts`（全部 miko_ui 或标准 DOM）                                                                                                                                                         |
+| `app/`    | `main.ts` + `editor.ts`       | `page-main.ts`（组合根：上传/校验/装配）、`page-editor.ts`（选择/拖拽/缩放/导出状态机）                                                                                                                                                                                                             |
 
 `npm run arch` 的层规则不变：两个入口都只使用 `app → ui/render/core/config` 的下行依赖。
 地图排版页与草图内核**不共享模块级单例**，因此刷新/切换模式不会互相污染。
 
 ### 15.3 浏览器装配顺序（`map.html`）
 
-```
+```text
 page-main.ts:
   mountShell(#page-app) → toolbar/canvas/sidebar/notices/status
-  GET /api/doc → GET /api/geo → GET /api/scene
-  scene 为 null → defaultScene(geo, doc.base)（标记未保存）
-  否则 validateScene(scene，失败则报错并拒绝渲染)
-  new PageEditor(svg, scene, geo) → 绑定 toolbar/sidebar/notify → 适应页面
+  显示 ui/page-open.ts 的上传面板
+  用户选/拖文件 → 分类（core/document.ts）→ 读字节 + 严格 UTF-8 解码
+  → readBaseSvg（C1–C4）→ validateGeo + normalizeGeo
+  → 与底图一致性校验（sha256、viewBox/尺寸容差 0.01pt）→ PageDocument
+  → 有合法 scene 则 normalizeScene；否则 defaultScene（标脏）
+  → URL.createObjectURL(baseBytes) 建预览地址 → 建 sidebar/editor/toolbar → start
 交互：
   点击 = data-page-item 命中 → select（侧栏属性面板跟随）
   拖拽 = page 空间 item 写回 pt；map 空间 item 写回底图坐标（§5.1 反变换）
   方向键 = 1pt 微移（Shift 10pt）；滚轮 = 以指针为中心缩放；空格/中键 = 平移
-  双击文字 = 侧栏内容框聚焦；Ctrl+S = PUT /api/scene
+  双击文字 = 侧栏内容框聚焦
+  工具条 = 打开… / 导出 JSON / 导出 SVG + 添加 + 视图；Ctrl+S = 导出 JSON
 ```
 
 `page-editor.ts` 是唯一持有「当前 scene + 选中 id + 视图 viewBox + dirty」的地方；渲染是
-`render/page-svg.ts` 的纯函数式重建（每帧全量重建 DOM，数量 ≤500，简单优先）。
+`render/page-svg.ts` 的纯函数式重建（每帧全量重建 DOM，数量 ≤500，简单优先）。`destroy()` 解绑
+window/svg 监听并清空根节点；「打开…」在脏时先确认，再 destroy + revoke + 回到上传面板。
 
-### 15.4 保存与合成链（Python）
+### 15.4 导出与合成链（浏览器内）
 
+```text
+导出 JSON（Ctrl+S）:
+  normalizeScene（3 位小数）→ serializeSceneFile（canonicalJson、键排序）
+  → Blob（application/json）→ <a download> `<stem>.scene.json`；成功清脏标记
+导出 SVG:
+  composeFinalSvg(PageDocument, scene)
+    → normalizeScene；geo.relief 为 null 且 scene 有 colorbar → 抛错（不写半成品）
+    → core/page-layout.ts 的 §5 公式（mapTransform / frameTick / legend / colorbar / text）
+    → 底图原文内联进 <g id="mapdoc-map" transform="translate(tx,ty) scale(s)">
+    → <g id="mapdoc-frame"> + <g id="mapdoc-overlay"> + `<!-- mapdoc-final:B64 -->`
+    → {svg, report}；report.counts / warnings / out_of_paper 显示在消息区
+  → Blob（image/svg+xml）→ <a download> `<stem>.svg`；不清脏标记
 ```
-PUT /api/scene（body = scene 语义体 + base 声明；不含 figure）
-  → studio 注入 figure、剥离 ack_base_change
-  → base 实测复核：尺寸变 → 409 base_size_changed；sha 变且未 ack → 409 base_changed
-  → page.validate_scene → page.normalize_scene(3 位小数/服务器底图声明)
-  → 原子写 scene.json
-  → compose.compose(scene, base_path, geo_path, final_path)
-      → contract.read_base（C1–C4）
-      → geo.read_geo；核对 geo.base 与真实 base 一致（stale geo 抛 GeoInvalid）
-      → render.render_frame/render_items（§5 布局公式）
-      → base[:inner_start] + <g id="mapdoc-map">BASE_INNER</g> + 排版层 + marker + base[inner_end:]
-      → fsutil 非阻塞 flock + 原子写 final.svg
-  → 200 {saved, composed, report, marker}
-```
 
-`final.svg` 结构（`docs/PAGE-EDITOR.md` §6）：纸张尺寸根 `<svg>` → 纸白底 → 地图 group
-（`transform=translate(tx,ty) scale(s)` + 底图原始字节）→ `mapdoc-frame` → `mapdoc-overlay` →
-`<!-- mapdoc-final:B64 -->`。marker 记录 counts/geo/scene 摘要，`check_contract.py` 用它验证
-final 与输入同步。
+`final.svg` 结构（`docs/PAGE-EDITOR.md` §6）：纸张尺寸根 `<svg>` → 纸白底 → `<defs>`（必含
+`mapdoc-map-clip`，有 colorbar 时再放色标渐变）→ 地图 group（底图原文，`clip-path` 裁到地图框）→
+`mapdoc-frame` → `mapdoc-overlay` → `<!-- mapdoc-final:B64 -->`。marker 记录 counts / geoDigest /
+sceneDigest / version，只写不读；成品不引用外部底图资源，但底图内部自带的
+内联 `<image>`（如晕渲位图 base64）属底图内容，会原样进入成品。
+裁剪是预览与成品一致的关键：预览把底图当 `<image>` 放 map 矩形（天然裁剪），而 matplotlib 底图根内
+自带覆盖整个 Figure 的图幅白底 path，不裁剪会在非白纸色下铺满整页。
 
 ### 15.5 本地开发
 
-站点端口的唯一真值是 `tools/studio.toml` 的 `[studio].port`（当前 5173）；`vite.config.ts` 在
-构建配置时读它，不再保留第二份端口常量。开发期 Vite 监听该端口（`strictPort`，被占直接报错），
-`studioDevPlugin` 顺带管理 studio：Vite 在回环上现取一个空闲内部端口，注入 `MAPDOC_STUDIO_PORT`
-拉起 `python3 tools/studio.py`（stdio 继承，日志与 Vite 在同一终端；配置改动重建 dev server 时
-沿用同一内部端口复用旧实例），Vite 退出时一并结束。开发期打开 `http://localhost:5173/map.html`
-（Vite 代理 `/api`、`/base.svg`、`/final.svg`、`/geo.json`）；生产形态由 studio 直接监听同一
-端口并服务 `dist/`：`/` → `map.html`，`/sketch` → 草图页，两种形态不能同时运行。
-首次运行先 `python3 tools/prepare_demo.py` 生成 `demo/` 底图与 geo。
+`npm run dev` 只启动 Vite（端口唯一真值是 `vite.config.ts` 的 `SITE_PORT = 5173` + `strictPort`），
+不再有 Python 子进程、`/api` 代理或 `studio.toml`。打开 `http://localhost:5173/map.html`，上传
+Cartopy 直出的 `base.svg + geo.json`（可选旧 `scene.json`）即可编辑/导出。`npm run build` 产出
+`dist/`（两个入口、`base: './'`），可放任意静态服务器；不再需要 prepare/extract 步骤。
 
 ### 15.6 已知边界（本轮）
 
 - 字体不内嵌：`final.svg` 的文字用 `font-family` 引用本机字体（Noto Sans Mono CJK SC /
   JetBrains Mono / DejaVu Sans / sans-serif）；跨机器字形可能变化，印刷前在 Inkscape/AI 转曲。
+  字体子集载荷位置已预留（未来往 `<defs>` 加 `@font-face`）。
 - 不做自动换行/字距：`defaultScene` 用 canvas 测量把注记/来源折成 `lines`，之后不再重排。
+- 无自动草稿：不写 localStorage、不自动下载；未导出即刷新/关闭会丢修改（`beforeunload` 提醒）。
+- 大底图（约 10MB）首次打开/导出在主线程一次完成（读取、UTF-8 解码、sha256、C1–C4 扫描、合成），
+  未 Worker 化，可能卡顿。
 - 不做比例尺/指北针（geo 未提供数据）；不做撤销/重做、多图切换、图层管理（items 数组序即 z 序）。
-- `prepare` 的抽取是一次性适配器：依赖 Cartopy 当前 matplotlib SVG 结构（`figure_1/axes_*/patch_*/label-*`
-  与色标 data URI PNG）；渲染侧改为直接输出纯底图 + geo 后，它退化成复制 + 校验。
 - 默认排版只提供两个起始版式：横向「左地图 + 右栏」、纵向「地图满宽 + 下方一排」；纸张比例
   变化时按 `k` 缩放字号/间距，但用户手工改过排版后不会自动重排（需点「重新排默认版式」）。
   小纸张（A5）内容多时仍可能偏挤，属排版参数问题（契约 §11）。
+- 旧 Cartopy 带字成品不再被解析（extract/prepare 已随 `tools/` 删除）；旧 demo `scene.json` 仍可
+  导入（`figure` 会被覆盖为底图文件名）。

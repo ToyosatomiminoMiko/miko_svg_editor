@@ -698,7 +698,8 @@ describe('§5.5 色标', () => {
     const scene = makeScene();
     const colorbar = scene.items.find((item) => item.kind === 'colorbar');
     if (colorbar?.kind !== 'colorbar') throw new Error('缺少色标');
-    const relief = makeGeo().relief;
+    // fixture 的 geo 一定带 relief；类型上 relief 可空（无色标的 geo），这里取非空断言
+    const relief = makeGeo().relief!;
     const layout = colorbarLayout(colorbar, relief);
     expect(layout.titleText).toBe('高程 / 水深 (m)');
     expect(layout.titleX).toBeCloseTo(colorbar.x + colorbar.width_pt / 2, 9);

@@ -58,7 +58,17 @@ const UI_MESSAGE =
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', '.npm-cache/**', 'audit/**', 'coverage/**'],
+    // demo/ 是本机 gitignored 的 Cartopy 快照与浏览器验收产物，.work/ 是临时协作/验证目录：
+    // 两者都不属于源码，eslint 不应扫描（CI checkout 里通常也不存在）。
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      '.npm-cache/**',
+      'audit/**',
+      'coverage/**',
+      'demo/**',
+      '.work/**',
+    ],
   },
 
   js.configs.recommended,

@@ -1,5 +1,5 @@
 /**
- * Vite 配置：多页入口 + 本地库联调白名单 + 出版排版编辑器（map.html）studio 的代理与自动启动。
+ * Vite 配置：多页入口 + 本地库联调白名单。
  *
  * 是什么：
  *   - 两个 HTML 入口：`index.html`（约束草图编辑器）与 `map.html`（地图出版排版编辑器）；
@@ -8,62 +8,32 @@
  *     把它的真实路径加入 server.fs.allow：软链后的 miko_ui 位于项目根之外，
  *     Vite dev 默认只允许工作区根，会以 403 拒绝服务；
  *   - resolve.dedupe 固定 @preact/signals-core，避免根 node_modules 与链接库各解析出一份
- *     signals 实例（signal 身份不一致会让响应式失效）；
- *   - server.proxy 把 `/api`、`/base.svg`、`/final.svg`、`/geo.json` 代理到开发期 studio
- *     （回环内部端口，见下面「端口」段）；
- *   - studioDevPlugin 在 dev server 启动时顺带拉起 `python3 tools/studio.py`，Vite 退出时
- *     一起结束，省掉「再开第二个终端跑后端」。
+ *     signals 实例（signal 身份不一致会让响应式失效）。
  *
- * 端口（单一真值）：站点端口只在 tools/studio.toml 的 `[studio].port` 里定义一次（readSitePort）。
- * 独立运行 `python3 tools/studio.py` 时 studio 直接监听它；开发期由 Vite 监听同一端口
- * （strictPort：被占用直接报错，而不是像默认行为那样悄悄换成 5174 让文档里的地址失真），
- * Python studio 则退到一个系统分配的回环内部端口，由本文件注入 MAPDOC_STUDIO_PORT。
- * 为什么 studio 不能也用站点端口：两个进程无法监听同一个端口；开发期页面必须由 Vite 提供
- * （HMR / 模块解析），所以 studio 只能退到内部端口，再由 Vite 代理。页面里的 `/api/doc`、
- * `/base.svg` 等同源相对 URL 因此保持不变，和「studio 直接服务 dist」的生产形态一致。
- * 为什么内部端口由系统分配而不是再写一个常量：任何写死的第二个端口都会变成第二份真值；
- * 端口在每次 npm run dev 时现取、不落盘。但它缓存在 globalThis 上，配置改动导致 dev server
- * 重建时沿用同一端口，才能复用旧 studio（见 StudioDevState 的说明）。
- * 为什么自动拉起时要禁浏览器：studio.toml 的 open_browser = true 是给「直接跑 studio 服务
- * dist」的形态用的；开发期页面在 Vite 上，再弹一个 studio 的旧 dist 页只会让人困惑，因此子进程
- * 环境里写 MAPDOC_OPEN_BROWSER=0（外部显式设过就尊重外部值）。
- * 为什么启动前先探活：配置改动会让 dev server 重建，重建期间旧 studio 还活着；复用比再起一个
- * 更符合直觉，也能避免旧实例关闭后留下一个死掉的后端。
- * 为什么站点端口被独立的 studio 占着时直接报错：那种情况下 Vite 只能绑到另一个回环地址，
- * 页面与 API 会分散在两个进程上；与其留一个半残的 dev server，不如让用户先结束它。
- * 为什么自动拉起失败只告警不退出：草图页不依赖 studio，拉不起来时仍可开发，把原因打在
- * Vite 日志里比让 dev server 起不来更有用；排版编辑器页会显示后端不可用的提示。
- * 为什么改 vite.config.ts 时 studio 不跟着重启：dev server 重建是「先建新实例、再关旧实例」，
- * 新实例探活会接管旧实例拉起的进程，旧实例关闭时发现世代已被接管就不再结束它（见 StudioDevState）。
+ * 为什么没有代理与子进程：map.html 已改为纯静态前端——底图与 geo 由用户在浏览器里上传、
+ * 终稿也在浏览器内合成，开发期只需要 Vite 本身，不再有后端要转发或拉起。
  *
- * 为什么用 process.getBuiltinModule 取 fs / path / net / child_process，而不是 import ...：
+ * 为什么用 process.getBuiltinModule 取 fs / path，而不是 import ...：
  *   本仓库 tsconfig 用 types: ["vite/client"] 且没装 @types/node，直接 import node 内置模块会让
- *   npm run typecheck 与 ESLint 的 no-unsafe-* 规则报「缺声明」；tsconfig 不在本任务可改范围内。
+ *   npm run typecheck 与 ESLint 的 no-unsafe-* 规则报「缺声明」；tsconfig 不在本文件可改范围内。
  *   Node 20.16+ / 22.3+ 的 process.getBuiltinModule 在运行期返回同一批内置模块，语义等价，
  *   这里用最小接口标注类型，不引入 any。
  *
  * 元信息：作者 deps-plumber，2026-10-22 加入本地库联调支持；线上 / CI 仍走 npm 发布版。
- *         作者 fe-render-ui，2026-10-27 加入地图模式 studio 代理（impl-contract.md §6）、
- *         studio 自动启动与跨 dev server 重启的进程接管（studioDevPlugin）。
- *         作者 lead，2026-10-27 改为出版排版编辑器（docs/PAGE-EDITOR.md）多页入口与 geo 代理。
- *         作者 lead，2026-10-27 端口收敛为单一真值（tools/studio.toml），studio 在开发期改用
- *         系统分配的内部回环端口，代理目标不再有第二份默认值。
+ *         作者 cleanup，2026-10-28 移除地图模式的后端代理与子进程管理（map.html 改为纯静态前端）。
  */
 import { defineConfig, searchForWorkspaceRoot } from 'vite';
-import type { Plugin, ViteDevServer } from 'vite';
 
 /** process 的最小结构：只声明运行期用到的成员，避免依赖 @types/node。 */
 interface NodeProcessLike {
   cwd(): string;
   env: Record<string, string | undefined>;
   getBuiltinModule(id: string): unknown;
-  once(event: 'exit', listener: () => void): void;
 }
 
 /** node:fs 的最小结构。 */
 interface FsLike {
   existsSync(target: string): boolean;
-  readFileSync(target: string, encoding: 'utf-8'): string;
 }
 
 /** node:path 的最小结构。 */
@@ -72,43 +42,9 @@ interface PathLike {
   resolve(...parts: string[]): string;
 }
 
-/** node:net 的最小监听结构：只用来向系统申请一个空闲端口。 */
-interface NetServerLike {
-  once(event: 'error', listener: (error: Error) => void): void;
-  listen(port: number, host: string, listener: () => void): void;
-  address(): { port: number } | string | null;
-  close(listener: () => void): void;
-}
-
-/** node:net 的最小模块结构。 */
-interface NetModuleLike {
-  createServer(): NetServerLike;
-}
-
-/** node:child_process 的最小子进程结构：只声明自动拉起 studio 用到的成员。 */
-interface ChildProcessLike {
-  kill(signal?: string): boolean;
-  on(event: 'error' | 'exit', listener: (payload?: unknown) => void): void;
-}
-
-/** node:child_process 的最小模块结构。 */
-interface ChildProcessModuleLike {
-  spawn(
-    command: string,
-    args: readonly string[],
-    options: {
-      cwd: string;
-      env: Record<string, string | undefined>;
-      stdio: 'inherit';
-    },
-  ): ChildProcessLike;
-}
-
 const nodeProcess = (globalThis as unknown as { process: NodeProcessLike }).process;
 const fs = nodeProcess.getBuiltinModule('fs') as FsLike;
 const path = nodeProcess.getBuiltinModule('path') as PathLike;
-const netModule = nodeProcess.getBuiltinModule('net') as NetModuleLike;
-const childProcessModule = nodeProcess.getBuiltinModule('child_process') as ChildProcessModuleLike;
 
 /** 与 scripts/dev_ui_link.mjs 保持一致：本地库工作副本的默认位置。 */
 const DEFAULT_LOCAL_UI_DIR = '/mnt/IVSTINIANVS/__projects_web/miko_ui';
@@ -118,338 +54,41 @@ const localUiDir = path.resolve(nodeProcess.env.MIKO_UI_DIR ?? DEFAULT_LOCAL_UI_
 const hasLocalUi = fs.existsSync(path.join(localUiDir, 'dist', 'index.js'));
 
 /**
- * 站点端口：唯一真值在 tools/studio.toml 的 `[studio].port`，本文件不复制默认值。
+ * 开发服务器端口：唯一真值就是本文件。
  *
- * 为什么自己解析 TOML：Node 侧没有 TOML 解析能力（仓库不装依赖、也没 @types/node）；与其把
- * 端口复制一份造成两处真值，不如只解析 `[studio].port` 这一行整数。解析失败直接抛错，
- * 比静默回退到某个默认端口更早暴露「配置文件被改坏 / 挪走」。
+ * 为什么写死在配置里：README 与文档都指向 http://localhost:5173/map.html；端口只在这里定义一次，
+ * 就没有第二份真值可漂移。strictPort 让端口被占时直接报错，而不是像默认行为那样悄悄换成 5174
+ * 让文档里的地址失真。
  */
-function readSitePort(): number {
-  const configPath = path.resolve(nodeProcess.cwd(), 'tools/studio.toml');
-  let text: string;
-  try {
-    text = fs.readFileSync(configPath, 'utf-8');
-  } catch (error) {
-    throw new Error(`读取 ${configPath} 失败：${String(error)}（站点端口只在该文件里定义）`, {
-      cause: error,
-    });
-  }
-  let section = '';
-  for (const line of text.split(/\r?\n/)) {
-    const header = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/.exec(line);
-    if (header !== null) {
-      section = (header[1] ?? '').trim();
-      continue;
-    }
-    if (section !== 'studio') continue;
-    const matched = /^\s*port\s*=\s*(\d+)\s*(?:#.*)?$/.exec(line);
-    if (matched === null) continue;
-    const port = Number(matched[1]);
-    if (port < 1 || port > 65535) throw new Error(`studio.toml 的 [studio].port 越界：${port}`);
-    return port;
-  }
-  throw new Error(`在 ${configPath} 里找不到 [studio].port（站点端口只在该文件里定义）`);
-}
+const SITE_PORT = 5173;
 
-/** 跨 dev server 实例共享的 globalThis 命名空间：stdio 继承下没有别的跨实例通道。 */
-const globalScope = globalThis as unknown as Record<string, unknown>;
+export default defineConfig({
+  // 产物用相对路径，方便直接把 dist 放到任意静态目录下预览
+  base: './',
 
-/** 开发期 studio 内部端口的缓存键：重建 dev server 时沿用同一端口，才能复用旧 studio。 */
-const DEV_STUDIO_PORT_KEY = '__mapdocDevStudioPort';
-
-/** 向系统要一个空闲回环端口：绑 0 取号后立刻释放，再把号码交给 studio 子进程。 */
-function reserveLoopbackPort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = netModule.createServer();
-    probe.once('error', (error) => {
-      reject(error);
-    });
-    probe.listen(0, '127.0.0.1', () => {
-      const address = probe.address();
-      const port = typeof address === 'object' && address !== null ? address.port : 0;
-      probe.close(() => {
-        if (port > 0) resolve(port);
-        else reject(new Error('无法向系统申请 studio 内部端口'));
-      });
-    });
-  });
-}
-
-/** 取（或首次分配）开发期 studio 的内部端口。 */
-async function devStudioPort(): Promise<number> {
-  const cached = globalScope[DEV_STUDIO_PORT_KEY];
-  if (typeof cached === 'number') return cached;
-  const port = await reserveLoopbackPort();
-  globalScope[DEV_STUDIO_PORT_KEY] = port;
-  return port;
-}
-
-/** 回环地址的 origin：探活与代理目标都用它，端口由调用方给出。 */
-function originOf(port: number): string {
-  return `http://127.0.0.1:${port}`;
-}
-
-/** 健康探测：单次超时与轮询间隔（毫秒）。探测本身很快，间隔小一点能让 Vite 尽早进入就绪。 */
-const STUDIO_PROBE_TIMEOUT_MS = 500;
-const STUDIO_PROBE_INTERVAL_MS = 150;
-/** 等 studio 就绪的上限：首次启动要跑一遍 startup compose，给足余量。 */
-const STUDIO_READY_TIMEOUT_MS = 15000;
-/** 启动尝试次数与间隔：首次没起来（端口刚释放/慢启动）时再试一次，避免一次抖动就回退草图模式。 */
-const STUDIO_START_ATTEMPTS = 2;
-const STUDIO_RETRY_DELAY_MS = 500;
-/** python 解释器：默认 python3，特殊环境（如虚拟环境里的 python）用 MAPDOC_PYTHON 指定。 */
-const pythonCommand = nodeProcess.env.MAPDOC_PYTHON ?? 'python3';
-
-/** 等待若干毫秒（轮询用）。 */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-/** 单次探测某端口上的 studio 健康端点：能连上且返回 2xx 才算就绪。 */
-async function probeStudio(origin: string): Promise<boolean> {
-  try {
-    const response = await fetch(`${origin}/api/health`, {
-      signal: AbortSignal.timeout(STUDIO_PROBE_TIMEOUT_MS),
-    });
-    return response.ok;
-  } catch {
-    // 连不上 / 超时 / 端口被非 studio 进程占用：都当作「没就绪」，由调用方决定启不启。
-    return false;
-  }
-}
-
-/**
- * 轮询健康端点直到 studio 就绪、子进程退出或超时。
- * isAlive 返回 false 表示本次拉起的子进程已经退出，此时不必等满超时（例如端口被占直接退出）。
- */
-async function waitForStudioReady(origin: string, isAlive: () => boolean): Promise<boolean> {
-  const deadline = Date.now() + STUDIO_READY_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    if (await probeStudio(origin)) return true;
-    if (!isAlive()) return false;
-    await sleep(STUDIO_PROBE_INTERVAL_MS);
-  }
-  return probeStudio(origin);
-}
-
-/**
- * 编辑 vite.config.ts 会让 Vite 在同一个 Node 进程里重建 dev server（先建新实例、再关旧实例）。
- * 这份状态挂在 globalThis 上跨实例共享，让 studio 不跟着重启：重启要多跑一遍 startup compose，
- * 而且新实例先探活会看到旧 studio、旧实例随后关闭又把它杀掉（实测会留下一个死掉的后端）。
- */
-interface StudioDevState {
-  /** 每次 dev server 建立 +1；只有最新世代负责在关闭时结束 studio。 */
-  generation: number;
-  /** 本进程拉起过的 studio 子进程；外部手工起的 studio 不登记，也就不会被结束。 */
-  child: ChildProcessLike | null;
-  /** 是否已挂 process 'exit' 兜底清理（只挂一次，避免配置反复改动堆积监听器）。 */
-  exitGuardInstalled: boolean;
-}
-
-const STUDIO_DEV_STATE_KEY = '__mapdocStudioDevState';
-
-/** 取（或首次创建）跨 dev server 实例共享的 studio 进程状态。 */
-function studioDevState(): StudioDevState {
-  const existing = globalScope[STUDIO_DEV_STATE_KEY];
-  if (existing !== undefined) return existing as StudioDevState;
-  const created: StudioDevState = { generation: 0, child: null, exitGuardInstalled: false };
-  globalScope[STUDIO_DEV_STATE_KEY] = created;
-  return created;
-}
-
-/** 一次 dev server 会话用到的两个端口。 */
-interface StudioRuntime {
-  /** 站点端口：浏览器访问、Vite 监听；真值来自 tools/studio.toml。 */
-  sitePort: number;
-  /** 开发期 Python studio 的回环端口：系统分配，只在进程内传递，不落盘。 */
-  studioPort: number;
-}
-
-/**
- * 在 dev server 启动 / 重启时确保 studio 在线：已在线就复用，否则拉起并在 Vite 退出时结束。
- *
- * 拉起失败（python 不在 PATH、TOML 写错、内部端口被占）只告警：草稿模式仍然可用，
- * 让 dev server 起不来会把排错成本推给用户。
- */
-async function ensureStudio(server: ViteDevServer, runtime: StudioRuntime): Promise<void> {
-  const { logger } = server.config;
-  const state = studioDevState();
-  const generation = state.generation + 1;
-  state.generation = generation;
-  const studioOrigin = originOf(runtime.studioPort);
-
-  if (!state.exitGuardInstalled) {
-    state.exitGuardInstalled = true;
-    // 兜底：SIGTERM / stdin 结束时 Vite 会先 server.close() 再 process.exit()，正常路径由下面的
-    // close 钩子负责；这里覆盖没走到 close 的 process.exit。
-    nodeProcess.once('exit', () => {
-      state.child?.kill('SIGTERM');
-    });
-  }
-
-  let closed = false;
-  // vite 的 HttpServer 类型引用了 @types/node，本仓库没装；这里只用 once 挂一个关闭钩子。
-  const httpServer = server.httpServer as unknown as CloseEventSourceLike | null;
-  httpServer?.once('close', () => {
-    closed = true;
-    // 配置改动触发的 dev server 重启：新实例已经接管，不结束 studio，否则新实例会看到一个刚断开的后端。
-    if (state.generation !== generation) return;
-    const child = state.child;
-    state.child = null;
-    // 用 SIGTERM 而不是 SIGINT：Python 默认对 SIGTERM 直接终止，不依赖子进程没有把 SIGINT 设成忽略。
-    child?.kill('SIGTERM');
-  });
-
-  // 配置改动触发的重建：内部端口缓存在 globalThis 上，这里探活会命中上一次拉起的 studio。
-  if (await probeStudio(studioOrigin)) {
-    logger.info(`[mapdoc] 复用已在运行的 studio：${studioOrigin}`);
-    return;
-  }
-
-  // 站点端口被独立运行的 studio 占着：它不代理前端，Vite 只能绑到另一个回环地址（IPv6 ::1），
-  // 页面与 API 会落在两个进程上；与其留一个半残的 dev server，不如直接报错让用户先结束它。
-  const siteOrigin = originOf(runtime.sitePort);
-  if (await probeStudio(siteOrigin)) {
-    throw new Error(
-      `${siteOrigin} 已被独立运行的 studio 占用：站点端口同时只能有一个前端。` +
-        '请先结束它（Ctrl+C）再运行 npm run dev，或直接使用该 studio 提供的页面。',
-    );
-  }
-
-  for (let attempt = 1; attempt <= STUDIO_START_ATTEMPTS; attempt += 1) {
-    if (closed) return;
-    // 上一轮尝试结束时旧实例可能刚好就绪，先复探一次再拉起。
-    if (await probeStudio(studioOrigin)) {
-      logger.info(`[mapdoc] 复用已在运行的 studio：${studioOrigin}`);
-      return;
-    }
-
-    let exited = false;
-    let spawnFailed = false;
-    let child: ChildProcessLike;
-    try {
-      logger.info(
-        `[mapdoc] 启动 studio：${pythonCommand} tools/studio.py（内部端口 ${studioOrigin}）`,
-      );
-      child = childProcessModule.spawn(pythonCommand, ['tools/studio.py'], {
-        cwd: nodeProcess.cwd(),
-        // stdio 继承：studio 的日志（含 startup compose 结果）与 Vite 日志在同一个终端。
-        env: {
-          ...nodeProcess.env,
-          // 内部端口由 Vite 决定：代理目标就是它，外部设置在这里必须让位，否则两边会错开。
-          MAPDOC_STUDIO_PORT: String(runtime.studioPort),
-          MAPDOC_OPEN_BROWSER: nodeProcess.env.MAPDOC_OPEN_BROWSER ?? '0',
-        },
-        stdio: 'inherit',
-      });
-    } catch (error) {
-      logger.warn(
-        `[mapdoc] 无法启动 studio（${pythonCommand}）：${String(error)}；排版编辑器会提示后端不可用`,
-      );
-      return;
-    }
-    state.child = child;
-
-    child.on('error', (error) => {
-      exited = true;
-      spawnFailed = true;
-      if (state.child === child) state.child = null;
-      logger.warn(
-        `[mapdoc] studio 启动失败：${String(error)}（检查 ${pythonCommand} 是否在 PATH 上）`,
-      );
-    });
-    child.on('exit', () => {
-      exited = true;
-      if (state.child === child) state.child = null;
-    });
-
-    if (await waitForStudioReady(studioOrigin, () => !exited)) {
-      logger.info(`[mapdoc] studio 已就绪：${studioOrigin}（Ctrl+C 会一起结束）`);
-      return;
-    }
-
-    // 没就绪：结束本次尝试（spawnFailed 时进程本就起不来），需要的话再试一次。
-    child.kill('SIGTERM');
-    if (state.child === child) state.child = null;
-    if (spawnFailed) return;
-    if (attempt < STUDIO_START_ATTEMPTS) await sleep(STUDIO_RETRY_DELAY_MS);
-  }
-
-  if (!closed) {
-    logger.warn(
-      `[mapdoc] studio 未能就绪（${studioOrigin}）：单独运行 ${pythonCommand} tools/studio.py ` +
-        '可看到完整报错；排版编辑器会提示后端不可用',
-    );
-  }
-}
-
-/** HTTP server 的最小结构：只声明本文件用来挂「关闭时结束 studio」的 once。 */
-interface CloseEventSourceLike {
-  once(event: 'close', listener: () => void): void;
-}
-
-/** dev server 插件：让 `vite` / `npm run dev` 顺带管理 studio 进程（build / preview 不触发）。 */
-function studioDevPlugin(runtime: StudioRuntime): Plugin {
-  return {
-    name: 'mapdoc-studio-dev-server',
-    apply: 'serve',
-    async configureServer(server) {
-      await ensureStudio(server, runtime);
-    },
-  };
-}
-
-export default defineConfig(async ({ command }) => {
-  // 站点端口唯一真值来自 tools/studio.toml；build 用不到 studio，省掉一次内部端口申请。
-  const sitePort = readSitePort();
-  const runtime: StudioRuntime = {
-    sitePort,
-    studioPort: command === 'serve' ? await devStudioPort() : sitePort,
-  };
-  const studioOrigin = originOf(runtime.studioPort);
-
-  return {
-    // 产物用相对路径，方便直接把 dist 放到任意静态目录下预览
-    base: './',
-
-    plugins: [studioDevPlugin(runtime)],
-
-    build: {
-      // 两个独立 HTML 入口：草图编辑器与地图出版排版编辑器，互不共享运行时状态。
-      rollupOptions: {
-        input: {
-          main: path.resolve(nodeProcess.cwd(), 'index.html'),
-          map: path.resolve(nodeProcess.cwd(), 'map.html'),
-        },
+  build: {
+    // 两个独立 HTML 入口：草图编辑器与地图出版排版编辑器，互不共享运行时状态。
+    rollupOptions: {
+      input: {
+        main: path.resolve(nodeProcess.cwd(), 'index.html'),
+        map: path.resolve(nodeProcess.cwd(), 'map.html'),
       },
     },
+  },
 
-    server: {
-      // 站点端口与 studio.toml 一致；strictPort 让「端口被占」直接失败，避免地址悄悄漂移。
-      port: sitePort,
-      strictPort: true,
+  server: {
+    port: SITE_PORT,
+    strictPort: true,
 
-      fs: {
-        // 只在本地库存在时覆盖默认白名单；不存在时保持 undefined，行为与不配置时完全一致。
-        // 必须显式带上 searchForWorkspaceRoot：一旦设置 allow 就不再自动搜索工作区根。
-        allow: hasLocalUi ? [searchForWorkspaceRoot(nodeProcess.cwd()), localUiDir] : undefined,
-      },
-
-      // 开发期把 studio 的端点转发到同一源：页面用相对 URL，与生产形态（studio 服务 dist）一致。
-      // 注意 `/api` 是前缀匹配，/api/health、/api/doc 等都在其中。
-      proxy: {
-        '/api': studioOrigin,
-        '/base.svg': studioOrigin,
-        '/final.svg': studioOrigin,
-        '/geo.json': studioOrigin,
-      },
+    fs: {
+      // 只在本地库存在时覆盖默认白名单；不存在时保持 undefined，行为与不配置时完全一致。
+      // 必须显式带上 searchForWorkspaceRoot：一旦设置 allow 就不再自动搜索工作区根。
+      allow: hasLocalUi ? [searchForWorkspaceRoot(nodeProcess.cwd()), localUiDir] : undefined,
     },
+  },
 
-    resolve: {
-      // 链接库时 miko_ui 从项目根之外解析，避免与根 node_modules 里的副本各持一份 signals。
-      dedupe: ['@preact/signals-core'],
-    },
-  };
+  resolve: {
+    // 链接库时 miko_ui 从项目根之外解析，避免与根 node_modules 里的副本各持一份 signals。
+    dedupe: ['@preact/signals-core'],
+  },
 });

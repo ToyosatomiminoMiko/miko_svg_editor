@@ -139,6 +139,102 @@
   color: var(--color-error);
 }
 
+/* ---------------- 打开地图上传面板 ---------------- */
+
+/* 遮罩铺满画布：拖放目标越大越不容易拖错；面板隐藏后画布继续给编辑器用 */
+.page-open {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: auto;
+  background: var(--color-bg-desktop);
+}
+
+/* 作者样式里的 display:grid 会盖过 UA 的 [hidden]，这里显式收回 */
+.page-open[hidden] {
+  display: none;
+}
+
+.page-open-panel {
+  width: min(560px, 100%);
+}
+
+.page-open-lead {
+  margin: 0 0 6px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text-strong);
+}
+
+.page-open-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-meta);
+}
+
+.page-open-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 22px 16px;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-sunken);
+  text-align: center;
+  cursor: pointer;
+}
+
+.page-open-drop:hover,
+.page-open-drop.is-dragover {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-hover-bg);
+}
+
+.page-open-drop.is-dragover {
+  border-style: solid;
+}
+
+.page-open-drop-text {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.page-open-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-error);
+}
+
+.page-open-error[hidden] {
+  display: none;
+}
+
+.page-open-input {
+  display: none;
+}
+
+/* 读取/校验期间视觉上锁住拖放区，避免用户误以为没收到点击 */
+.page-open.is-busy .page-open-drop {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  .page-open {
+    padding: 12px;
+  }
+
+  .page-open-drop {
+    padding: 14px 10px;
+  }
+}
+
 /* ---------------- 输入控件（颜色/文本） ---------------- */
 
 .page-color-input {

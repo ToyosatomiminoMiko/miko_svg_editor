@@ -3,7 +3,7 @@
  *
  * 是什么：底图坐标 → 纸张坐标的变换、图框/刻度位置、text/legend/colorbar 的基线/行位置、
  * 文字折行与文本宽度估算，以及「从 geo 生成默认 A4 横向排版」。
- * 为什么放在 core：预览（`render/page-svg.ts`）与 Python 合成（`tools/mapdoc/render.py`）
+ * 为什么放在 core：预览（`render/page-svg.ts`）与成品合成（`render/compose-svg.ts`）
  * 必须逐字一致；这里只写纯函数，文本测量以参数注入（`MeasureText`），node 单测时用
  * 内置的无 DOM 估算回退，浏览器里注入 canvas measureText。
  * 已知口径：字符宽度估算按「CJK/全角 = 1em，其余 = 0.55em」；只服务没有测量器时的
@@ -419,15 +419,15 @@ export interface LegendLayout {
   /** 由内容派生的高度（不落 scene） */
   readonly height: number;
   readonly titleBaseline: number;
-  /** 标题水平中心（契约未写，前端与 Python 统一取宽度中点） */
+  /** 标题水平中心（契约未写，预览与成品统一取宽度中点） */
   readonly titleX: number;
   readonly rows: readonly LegendRowLayout[];
 }
 
 /**
  * §5.4 图例布局。
- * @param sizeScale 仅 map 空间的图例用：契约未定义，Python 侧把 width_pt 乘 s，
- *                  这里同样只缩放宽度（行高/字号保持 pt），保持两侧口径一致。
+ * @param sizeScale 仅 map 空间的图例用：契约未定义，成品合成把 width_pt 乘 s，
+ *                  这里同样只缩放宽度（行高/字号保持 pt），保持预览与成品口径一致。
  */
 export function legendLayout(item: LegendItem, sizeScale = 1): LegendLayout {
   const padding = item.padding_pt;
@@ -485,7 +485,7 @@ export function colorbarTitleText(item: ColorbarItem): string {
 
 /**
  * §5.5 色标布局。
- * @param sizeScale 仅 map 空间的色标用：宽度/高度乘 s（字号保持 pt，与 Python 侧一致）。
+ * @param sizeScale 仅 map 空间的色标用：宽度/高度乘 s（字号保持 pt，预览与成品一致）。
  */
 export function colorbarLayout(
   item: ColorbarItem,
@@ -525,7 +525,7 @@ export function colorbarLayout(
 /* =========================== 默认排版 =========================== */
 
 export interface DefaultSceneOptions {
-  /** scene.figure 的展示路径（来自 `/api/doc` 的 figure.path） */
+  /** scene.figure 的展示名（打开后统一写上传底图文件名，见 core/document.ts） */
   readonly figure?: string;
   /** 页边距（「重新排默认版式」可改） */
   readonly margin_pt?: number;
@@ -572,6 +572,17 @@ function measureLegendColumn(
     labelWidth;
   const titleWidth = PAGE_LEGEND_DEFAULTS.padding_pt * 2 * fontScale + measure(title, titleFont);
   return Math.max(entryWidth, titleWidth);
+}
+
+/**
+ * 没有图例时的右栏宽度（pt）：只放注记/色标，不需要图例列那么宽。
+ *
+ * 为什么取 0.7 × 右栏最小宽：横向右栏最小宽是 150pt，只放色标（14pt）时右侧还要容纳
+ * 3pt 刻度线 + 5pt 间距 + 数字标签，约 40pt 就够；取 105pt 既够放折行注记，又比图例列
+ * 窄，让地图在高度允许时可以多占宽度。乘 k 与其它纸面尺寸同一口径。
+ */
+function compactRightColumnWidth(fontScale: number): number {
+  return PAGE_DEFAULT_RIGHT_COLUMN_MIN_PT * 0.7 * fontScale;
 }
 
 /** 把 geo 图例条目复制成 scene 条目，补齐可选字段 */
@@ -705,6 +716,17 @@ export function defaultScene(geo: Geo, base: SceneBase, options: DefaultSceneOpt
   const frame: PageFrame = { ...PAGE_FRAME_DEFAULTS };
   const legendTitle = geo.suggestions.legend_title || geo.legend.title || '图例';
 
+  /*
+   * 可选块降级：Cartopy 不画图例 / 不画色标 / 没有默认文案时，这些块整体缺省。
+   * 默认排版必须按「有哪些块」决定右栏（或纵向一排）存不存在，否则会留下空图例框、
+   * 画出没有数据来源的色标，或者让地图白白让出宽度。
+   */
+  const relief = geo.relief;
+  const hasLegend = geo.legend.entries.length > 0;
+  const hasNotes = geo.suggestions.notes.some((note) => note.trim().length > 0);
+  const hasColorbar = relief !== null;
+  const hasRightColumn = hasLegend || hasNotes || hasColorbar;
+
   // 纸张自适应比例 k：所有「纸面元素」的字号/间距按它缩放（地名另有地图缩放 s）
   const k = layoutScaleFor(paper);
   const columnGap = PAGE_DEFAULT_COLUMN_GAP_PT * k;
@@ -749,13 +771,14 @@ export function defaultScene(geo: Geo, base: SceneBase, options: DefaultSceneOpt
     },
   });
 
-  /** 色标元素（配色/刻度来自 geo.relief，只落摆放与字号） */
+  /** 色标元素（配色/刻度来自 geo.relief，只落摆放与字号；relief 已在外层判空） */
   const makeColorbarItem = (
     id: number,
     x: number,
     y: number,
     width: number,
     height: number,
+    reliefData: GeoRelief,
   ): ColorbarItem => ({
     id,
     kind: 'colorbar',
@@ -764,20 +787,28 @@ export function defaultScene(geo: Geo, base: SceneBase, options: DefaultSceneOpt
     y,
     width_pt: width,
     height_pt: height,
-    title: geo.suggestions.colorbar_title || geo.relief.title || '色标',
-    unit: geo.relief.unit,
+    title: geo.suggestions.colorbar_title || reliefData.title || '色标',
+    unit: reliefData.unit,
     show_title: true,
     show_ticks: true,
     title_size_pt: PAGE_COLORBAR_TITLE_SIZE_PT * k,
     label_size_pt: PAGE_COLORBAR_LABEL_SIZE_PT * k,
   });
 
+  // 右栏预留宽度：有图例时沿用图例列宽（保持既有 demo 版式/数值），只有注记/色标时用窄列。
+  const reservedRightWidth = hasRightColumn
+    ? hasLegend
+      ? legendMinWidth
+      : compactRightColumnWidth(k)
+    : 0;
+
   // 地图宽度：横向受右栏与高度双重约束；纵向用满内容宽度
   let mapWidth: number;
   if (portrait) {
     mapWidth = Math.max(PAGE_MIN_MAP_WIDTH_PT + 1, contentWidth);
   } else {
-    const availableWidth = contentWidth - columnGap - legendMinWidth;
+    const availableWidth =
+      reservedRightWidth > 0 ? contentWidth - columnGap - reservedRightWidth : contentWidth;
     const availableHeight = paper.height_pt - margin - sourceReserved - mapTop;
     const widthByHeight = baseRatio > 0 ? availableHeight / baseRatio : availableWidth;
     mapWidth = Math.max(PAGE_MIN_MAP_WIDTH_PT + 1, Math.min(availableWidth, widthByHeight));
@@ -818,7 +849,7 @@ export function defaultScene(geo: Geo, base: SceneBase, options: DefaultSceneOpt
   }
 
   if (portrait) {
-    // 3P) 纵向：地图下方一排 = 图例 | 注记 | 色标
+    // 3P) 纵向：地图下方一排 = [图例 |] 注记 | [色标]（缺省块不占位、不留空框）
     // 地图底边不是内容底边：经度刻度标签占 mapBottom + tick_length + tick_gap + tick_font_size
     // （刻度字号是纸面字号、不随 k 缩），纵向一排必须让开这段高度。
     // 注意 notes 的首行基线 = rowY，但文字 group 的包围盒上沿还要再高约 0.9em：
@@ -831,18 +862,27 @@ export function defaultScene(geo: Geo, base: SceneBase, options: DefaultSceneOpt
         Math.max(16 * k, noteSize * 0.9 + 4)
       : 0;
     const rowY = mapTop + mapHeight + Math.max(notesGap, tickLabelExtent);
-    const legendWidth = legendMinWidth;
+    // 图例不存在时不占列：注记从左边距开始，只有色标时仍贴右；间距按实际存在的列计。
+    const legendWidth = hasLegend ? legendMinWidth : 0;
+    const leadingGap = hasLegend ? columnGap : 0;
     const colorbarWidth = PAGE_COLORBAR_WIDTH_PT * k;
-    const notesX = margin + legendWidth + columnGap;
-    const notesWidth = Math.max(40, contentWidth - legendWidth - colorbarWidth - columnGap * 2);
+    const notesX = margin + legendWidth + leadingGap;
+    const notesWidth = Math.max(
+      40,
+      contentWidth - legendWidth - leadingGap - (hasColorbar ? colorbarWidth + columnGap : 0),
+    );
     const noteFont = fontShorthand(noteSize, style.font_family);
     const noteLines = wrapParagraphs(geo.suggestions.notes, noteFont, notesWidth, measure).filter(
       (line) => line.length > 0,
     );
 
-    const legendItem = makeLegendItem(nextId++, margin, rowY, legendWidth);
-    items.push(legendItem);
-    const legendBox = legendLayout(legendItem);
+    // 空图例不生成元素（也就没有空图例框）；有图例时高度仍由 §5.4 公式派生。
+    let legendHeight = 0;
+    if (hasLegend) {
+      const legendItem = makeLegendItem(nextId++, margin, rowY, legendWidth);
+      items.push(legendItem);
+      legendHeight = legendLayout(legendItem).height;
+    }
 
     let noteBlockHeight = 0;
     if (noteLines.length > 0) {
@@ -855,79 +895,90 @@ export function defaultScene(geo: Geo, base: SceneBase, options: DefaultSceneOpt
       noteBlockHeight = noteLines.length * noteSize * PAGE_TEXT_LINE_HEIGHT;
     }
 
-    // 行高 = 三块内容的最大高度；色标底部与图例/注记底对齐。
-    // 色标标题基线 = colorbarY - 4，必须落在 row 内：给标题预留 title_size*1.4 + 4，
-    // 再只在剩余高度里放色条，避免标题画到地图底/经度标签上。
-    const colorbarMaxHeight = PAGE_COLORBAR_HEIGHT_PT * k;
-    const bottomLimit = paper.height_pt - margin - sourceReserved;
-    const availableRow = Math.max(PAGE_MIN_COLORBAR_HEIGHT_PT, bottomLimit - rowY);
-    const colorbarTitleBlock = PAGE_COLORBAR_TITLE_SIZE_PT * k * 1.4 + 4;
-    let rowHeight = Math.max(
-      legendBox.height,
-      noteBlockHeight,
-      PAGE_MIN_COLORBAR_HEIGHT_PT + colorbarTitleBlock,
-    );
-    if (rowHeight > availableRow) rowHeight = availableRow;
-    const colorbarHeight = Math.max(
-      PAGE_MIN_COLORBAR_HEIGHT_PT,
-      Math.min(colorbarMaxHeight, rowHeight - colorbarTitleBlock),
-    );
-    const colorbarY = rowY + rowHeight - colorbarHeight;
-    items.push(
-      makeColorbarItem(
-        nextId++,
-        paper.width_pt - margin - colorbarWidth,
-        colorbarY,
-        colorbarWidth,
-        colorbarHeight,
-      ),
-    );
+    if (hasColorbar && relief !== null) {
+      // 行高 = 图例/注记/色标三块内容的最大高度；色标底部与图例/注记底对齐。
+      // 色标标题基线 = colorbarY - 4，必须落在 row 内：给标题预留 title_size*1.4 + 4，
+      // 再只在剩余高度里放色条，避免标题画到地图底/经度标签上。
+      const colorbarMaxHeight = PAGE_COLORBAR_HEIGHT_PT * k;
+      const bottomLimit = paper.height_pt - margin - sourceReserved;
+      const availableRow = Math.max(PAGE_MIN_COLORBAR_HEIGHT_PT, bottomLimit - rowY);
+      const colorbarTitleBlock = PAGE_COLORBAR_TITLE_SIZE_PT * k * 1.4 + 4;
+      let rowHeight = Math.max(
+        legendHeight,
+        noteBlockHeight,
+        PAGE_MIN_COLORBAR_HEIGHT_PT + colorbarTitleBlock,
+      );
+      if (rowHeight > availableRow) rowHeight = availableRow;
+      const colorbarHeight = Math.max(
+        PAGE_MIN_COLORBAR_HEIGHT_PT,
+        Math.min(colorbarMaxHeight, rowHeight - colorbarTitleBlock),
+      );
+      const colorbarY = rowY + rowHeight - colorbarHeight;
+      items.push(
+        makeColorbarItem(
+          nextId++,
+          paper.width_pt - margin - colorbarWidth,
+          colorbarY,
+          colorbarWidth,
+          colorbarHeight,
+          relief,
+        ),
+      );
+    }
   } else {
-    // 3L) 横向：右栏自上而下 = 图例 | 注记 | 色标
+    // 3L) 横向：右栏自上而下 = 图例 | 注记 | 色标（缺省块不占位）
     const rightX = margin + mapWidth + columnGap;
-    const rightWidth = Math.max(legendMinWidth, paper.width_pt - margin - rightX);
-    const legendY = mapTop;
-    const legendItem = makeLegendItem(nextId++, rightX, legendY, rightWidth);
-    items.push(legendItem);
-    const legendBox = legendLayout(legendItem);
+    const rightWidth = hasRightColumn
+      ? Math.max(reservedRightWidth, paper.width_pt - margin - rightX)
+      : 0;
+
+    // 没有图例时注记/色标直接从栏顶开始；有图例时保持既有版式（回归 demo）。
+    let contentTop = mapTop;
+    if (hasLegend) {
+      const legendItem = makeLegendItem(nextId++, rightX, mapTop, rightWidth);
+      items.push(legendItem);
+      contentTop = mapTop + legendLayout(legendItem).height;
+    }
 
     const noteSize = PAGE_NOTE_SIZE_PT * k;
     const noteFont = fontShorthand(noteSize, style.font_family);
     const noteLines = wrapParagraphs(geo.suggestions.notes, noteFont, rightWidth, measure).filter(
       (line) => line.length > 0,
     );
-    let noteBlockHeight = 0;
+    let notesBottom = contentTop;
     if (noteLines.length > 0) {
-      const notesY = legendY + legendBox.height + notesGap;
+      const notesY = hasLegend ? contentTop + notesGap : contentTop;
       items.push(
         makeTextItem(nextId++, 'note', rightX, notesY, noteLines, noteSize, {
           anchor: 'start',
           color: style.color,
         }),
       );
-      noteBlockHeight = noteLines.length * noteSize * PAGE_TEXT_LINE_HEIGHT;
+      notesBottom = notesY + noteLines.length * noteSize * PAGE_TEXT_LINE_HEIGHT;
     }
 
-    // 色标：高度按剩余空间压缩；不够 40pt 时贴右栏底、与注记留 8pt
-    const colorbarWidth = PAGE_COLORBAR_WIDTH_PT * k;
-    const colorbarMaxHeight = PAGE_COLORBAR_HEIGHT_PT * k;
-    const colorbarX = rightX + (rightWidth - colorbarWidth) / 2;
-    const notesBottom =
-      legendY + legendBox.height + (noteBlockHeight > 0 ? notesGap + noteBlockHeight : 0);
-    const bottomLimit = paper.height_pt - margin - sourceReserved;
-    const colorbarGap = PAGE_COLORBAR_GAP_PT * k;
-    let colorbarY = notesBottom + colorbarGap;
-    let colorbarHeight = Math.min(colorbarMaxHeight, bottomLimit - colorbarY);
-    if (colorbarHeight < PAGE_MIN_COLORBAR_HEIGHT_PT) {
-      colorbarHeight = Math.min(
-        colorbarMaxHeight,
-        Math.max(PAGE_MIN_COLORBAR_HEIGHT_PT, bottomLimit - (notesBottom + 8)),
+    if (hasColorbar && relief !== null) {
+      // 色标：高度按剩余空间压缩；不够 40pt 时贴右栏底、与注记留 8pt
+      const colorbarWidth = PAGE_COLORBAR_WIDTH_PT * k;
+      const colorbarMaxHeight = PAGE_COLORBAR_HEIGHT_PT * k;
+      const colorbarX = rightX + (rightWidth - colorbarWidth) / 2;
+      const bottomLimit = paper.height_pt - margin - sourceReserved;
+      const colorbarGap = PAGE_COLORBAR_GAP_PT * k;
+      let colorbarY = notesBottom + colorbarGap;
+      let colorbarHeight = Math.min(colorbarMaxHeight, bottomLimit - colorbarY);
+      if (colorbarHeight < PAGE_MIN_COLORBAR_HEIGHT_PT) {
+        colorbarHeight = Math.min(
+          colorbarMaxHeight,
+          Math.max(PAGE_MIN_COLORBAR_HEIGHT_PT, bottomLimit - (notesBottom + 8)),
+        );
+        colorbarY = bottomLimit - colorbarHeight;
+        if (colorbarY < notesBottom + 8) colorbarY = notesBottom + 8;
+      }
+      colorbarHeight = Math.max(PAGE_MIN_COLORBAR_HEIGHT_PT, colorbarHeight);
+      items.push(
+        makeColorbarItem(nextId++, colorbarX, colorbarY, colorbarWidth, colorbarHeight, relief),
       );
-      colorbarY = bottomLimit - colorbarHeight;
-      if (colorbarY < notesBottom + 8) colorbarY = notesBottom + 8;
     }
-    colorbarHeight = Math.max(PAGE_MIN_COLORBAR_HEIGHT_PT, colorbarHeight);
-    items.push(makeColorbarItem(nextId++, colorbarX, colorbarY, colorbarWidth, colorbarHeight));
   }
 
   // 4) 来源（页底一行或折行后多行，最后一行基线贴住页边距）

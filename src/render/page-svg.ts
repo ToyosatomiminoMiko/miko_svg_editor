@@ -45,7 +45,7 @@ import {
 /* =========================== 选项与分层 =========================== */
 
 export interface PageSvgOptions {
-  /** 底图地址（`/base.svg`） */
+  /** 底图地址：上传底图字节的 objectURL（由 app/page-main.ts 创建并 revoke） */
   readonly baseUrl: string;
   /** 当前选中元素 id；null = 无选中 */
   readonly selectedId: number | null;
@@ -406,12 +406,17 @@ function renderColorbarItem(
   const origin = item.space === 'map' ? mapPointToPage(transform, item) : { x: 0, y: 0 };
   const effective: ColorbarItem =
     item.space === 'map' ? { ...item, x: origin.x, y: origin.y } : item;
-  const layout = colorbarLayout(effective, geo.relief, sizeScale);
 
   const group = svg('g', {
     class: 'page-item page-item-colorbar',
     'data-page-item': String(item.id),
   });
+  // geo 没有 relief（Cartopy 不画色标）时，scene 里残留的 colorbar 无法取色带/刻度：
+  // 直接跳过该元素而不是让预览崩溃（导出 composeFinalSvg 会给出明确错误）。
+  const relief = geo.relief;
+  if (relief === null) return group;
+  const layout = colorbarLayout(effective, relief, sizeScale);
+
   group.append(
     svg('rect', {
       x: formatPageNumber(effective.x),
@@ -510,7 +515,7 @@ function renderFrame(layer: SVGGElement, scene: Scene, geo: Geo, fontFamily: str
           x2: formatPageNumber(tick.x2),
           y2: formatPageNumber(tick.y2),
           stroke: frame.tick_color,
-          // 与 Python 合成侧一致：刻度短线线宽取 frame.width_pt（不是 SVG 默认 1）
+          // 与成品合成一致：刻度短线线宽取 frame.width_pt（不是 SVG 默认 1）
           'stroke-width': formatPageNumber(frame.width_pt),
         }),
         svg(
@@ -536,10 +541,16 @@ function renderFrame(layer: SVGGElement, scene: Scene, geo: Geo, fontFamily: str
 
 /** colorbar 渐变（y1=100% 下 = vmin，y2=0% 上 = vmax，契约 §5.5） */
 function renderGradientDefs(defs: SVGDefsElement, scene: Scene, geo: Geo): void {
+  // 没有 relief 就没有可画的色带：清空 defs（预览跳过 colorbar，合成侧会报错）。
+  const relief = geo.relief;
+  if (relief === null) {
+    defs.replaceChildren();
+    return;
+  }
   const gradients = scene.items
     .filter((item): item is ColorbarItem => item.kind === 'colorbar')
     .map((item) => {
-      const stops = geo.relief.stops.map((stop) =>
+      const stops = relief.stops.map((stop) =>
         svg('stop', {
           offset: gradientOffset(stop.offset),
           'stop-color': stop.color,

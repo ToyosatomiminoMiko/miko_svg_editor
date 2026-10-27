@@ -1,6 +1,7 @@
 docs/*
 !docs/ARCHITECTURE.md
 !docs/PAGE-EDITOR.md
+!docs/CARTOPY-MIGRATION.md
 node_modules/
 dist/
 .npm-cache/

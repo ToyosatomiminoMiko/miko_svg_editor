@@ -1,11 +1,12 @@
 /**
- * 排版预览的数值/转义/SVG 属性格式（与 Python `tools/mapdoc/render.py` 逐字一致）。
+ * 排版预览与浏览器内合成的数值/转义/SVG 属性格式。
  *
  * 是什么：3 位小数去尾零的 `formatPageNumber`、颜色与虚线属性、XML 文本/属性转义，
  * 以及 colorbar 渐变 id 的唯一命名。
- * 为什么单列一层：SVG 里「28.0」与「28」不是同一份字节，预览、scene 摘要与最终成品
- * 必须共用同一套格式化；Python 侧复刻同一语义（`Math.round(v*1000)/1000` 再去掉尾零）。
- * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地。
+ * 为什么单列一层：SVG 里「28.0」与「28」不是同一份字节，预览、scene 摘要与导出的
+ * final.svg 必须共用同一套格式化，否则同一 scene 会得到不同字节。
+ * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地；2026-10-28
+ * 无后端改造后由预览与 `render/compose-svg.ts` 共同复用。
  */
 
 import { PAGE_DECIMALS } from '../config/page';
@@ -14,9 +15,8 @@ import { PAGE_DECIMALS } from '../config/page';
  * 数字 → SVG 文本：最多 3 位小数、去掉尾零、不带单位后缀。
  *
  * 为什么是 `Math.round(v*1000)/1000` 而不是 `toFixed`：`toFixed` 在 .xxx5 边界上
- * 的舍入与 Python 的 `round()` 都是「四舍六入五成双」，而 Python 合成侧已约定用
- * `floor(v*1000+0.5)/1000` 复刻 JS 语义，两侧必须完全同源，否则同一 scene 会得到
- * 不同字节。非有限值落成 "0"（不让 NaN/Infinity 进 SVG）。
+ * 的舍入规则由实现决定；预览、scene 摘要与导出的 final.svg 必须逐字同源，否则
+ * 同一 scene 会得到不同字节。非有限值落成 "0"（不让 NaN/Infinity 进 SVG）。
  */
 export function formatPageNumber(value: number, decimals: number = PAGE_DECIMALS): string {
   if (!Number.isFinite(value)) return '0';

@@ -1,302 +1,74 @@
 /**
- * 出版排版编辑器的状态机：选择/拖拽/缩放/平移/脏标记/保存。
+ * 出版排版编辑器的状态机：选择/拖拽/缩放/平移/脏标记/导出。
  *
- * 是什么：持有当前 `Scene`（唯一真值），把画布指针/键盘手势翻译成对 scene 的修改，
- * 组织预览重绘与侧栏同步；同时是 `/api/doc`、`/api/geo`、`/api/scene`、`/api/compose`
- * 的 HTTP 客户端（本文件里的 fetch 辅助也由 `app/page-main.ts` 复用）。
+ * 是什么：持有当前 `Scene`（唯一真值）与打开时的 `PageDocument`（底图字节 + geo），把画布
+ * 指针/键盘手势翻译成对 scene 的修改，组织预览重绘与侧栏同步；导出两个文件——
+ * `exportScene()` 写 `<stem>.scene.json`，`exportFinal()` 调 `render/compose-svg.ts` 在浏览器内
+ * 合成 `<stem>.svg` 后下载。本文件不认识任何 HTTP 接口。
  * 为什么拖拽/缩放只改 scene 而不改底图：地理层只读（契约 §1），map 空间 item 的位置
- * 写回底图坐标，成品由 Python 合成；预览只是同一套 §5 公式的 DOM 实现。
+ * 写回底图坐标；预览与成品共用 `core/page-layout.ts` 的同一套 §5 公式。
  * 缩放/平移通过根 `<svg>` 的 `viewBox` 实现；指针坐标转换统一走 `getScreenCTM().inverse()`，
  * 这样 letterbox（preserveAspectRatio）与设备像素比都不需要自己算。
- * 元信息：作者 frontend，2026-10-27。
+ * 元信息：作者 frontend，2026-10-27；2026-10-28 改为无后端（上传文档 + 双导出）。
  */
 
 import {
-  PAGE_COMPOSE_URL,
   PAGE_DEFAULT_MARGIN_PT,
-  PAGE_DOC_URL,
   PAGE_FIT_PADDING_RATIO,
-  PAGE_GEO_URL,
   PAGE_KEY_MOVE_LARGE_PT,
   PAGE_KEY_MOVE_PT,
   PAGE_LEGEND_DEFAULTS,
   PAGE_NEW_COLORBAR_HEIGHT_PT,
   PAGE_NEW_COLORBAR_WIDTH_PT,
   PAGE_NEW_LEGEND_WIDTH_PT,
-  PAGE_REQUEST_TIMEOUT_MS,
-  PAGE_SCENE_URL,
   PAGE_WHEEL_ZOOM_SENSITIVITY,
   PAGE_ZOOM_MAX,
   PAGE_ZOOM_MIN,
 } from '../config/page';
+import { sceneFileNameOf, finalFileNameOf, type PageDocument } from '../core/document';
 import {
   allocateItemId,
   countItems,
   itemById,
   normalizeScene,
   removeItem,
-  serializeScene,
+  roundToPageDecimals,
+  serializeSceneFile,
   type ColorbarItem,
   type Geo,
   type LegendItem,
   type Scene,
+  type SceneBase,
   type TextItem,
   type TextRole,
 } from '../core/page';
 import { defaultScene, mapTransform, type DefaultSceneOptions } from '../core/page-layout';
-import { roundToPageDecimals } from '../core/page';
 import { formatPageNumber } from '../render/page-format';
+import { composeFinalSvg, type ComposeReport } from '../render/compose-svg';
 import { renderPageSvg } from '../render/page-svg';
 import type { MeasureText } from '../core/types';
+import { downloadText } from '../ui/download';
 import { isEditableTarget, type PageSidebar } from '../ui/page-sidebar';
 import type { PageNotifier } from '../ui/page-notify';
-import type { PageToolbarHandle } from '../ui/page-toolbar';
 
-/* =========================== HTTP 类型与客户端 =========================== */
+/** JSON 导出的 MIME（浏览器据此识别 `scene.json`） */
+const SCENE_MIME = 'application/json';
+/** SVG 导出的 MIME */
+const SVG_MIME = 'image/svg+xml';
 
-/** `/api/doc` 的底图描述 */
-export interface PageDocBase {
-  readonly url: string;
-  readonly sha256: string;
-  readonly width_pt: number;
-  readonly height_pt: number;
+/** 把异常转成可直接展示的一行中文 */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
-/** `/api/doc` 的图标识 */
-export interface PageDocFigure {
-  readonly key: string;
-  readonly path: string;
-}
-
-/** `/api/doc` 的响应（契约 §8） */
-export interface PageDoc {
-  readonly figure: PageDocFigure;
-  readonly base: PageDocBase;
-  readonly geo: { readonly url: string };
-  readonly scene: { readonly url: string };
-  readonly final: { readonly url: string };
-  readonly needs: { readonly base: boolean; readonly geo: boolean };
-}
-
-/** compose 报告里前端会用到的字段（其余字段原样忽略） */
-export interface PageComposeReport {
-  readonly warnings?: readonly string[];
-  readonly counts?: Readonly<Record<string, number>>;
-  readonly out_of_canvas?: readonly number[];
-}
-
-/** 保存失败的语义码（契约 §8） */
-export type PageSaveErrorCode =
-  | 'invalid_scene'
-  | 'base_changed'
-  | 'base_size_changed'
-  | 'base_missing'
-  | 'geo_missing'
-  | 'network'
-  | 'http';
-
-export type PageSaveVerdict =
-  | {
-      readonly ok: true;
-      readonly composed: boolean;
-      readonly report: PageComposeReport | null;
-      readonly marker: Readonly<Record<string, unknown>> | null;
-    }
-  | { readonly ok: false; readonly code: PageSaveErrorCode; readonly message: string };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const asNumber = (value: unknown): number | null =>
-  typeof value === 'number' && Number.isFinite(value) ? value : null;
-
-const asString = (value: unknown): string | null =>
-  typeof value === 'string' && value.length > 0 ? value : null;
-
-/** 轻量断言 `/api/doc` 的响应；失败抛出可直接展示的中文错误 */
-function assertPageDoc(value: unknown): PageDoc {
-  if (!isRecord(value)) throw new Error('/api/doc 响应不是对象');
-  const figure = value.figure;
-  const base = value.base;
-  const geo = value.geo;
-  const scene = value.scene;
-  const final = value.final;
-  const needs = value.needs;
-  if (!isRecord(figure) || asString(figure.key) === null) {
-    throw new Error('/api/doc 缺少 figure.key');
-  }
-  if (
-    !isRecord(base) ||
-    asString(base.url) === null ||
-    theStringOrEmpty(base.sha256) === null ||
-    asNumber(base.width_pt) === null ||
-    asNumber(base.height_pt) === null
-  ) {
-    throw new Error('/api/doc 缺少 base 描述（url/sha256/width_pt/height_pt）');
-  }
-  const geoUrl = isRecord(geo) ? (asString(geo.url) ?? PAGE_GEO_URL) : PAGE_GEO_URL;
-  const sceneUrl = isRecord(scene) ? (asString(scene.url) ?? PAGE_SCENE_URL) : PAGE_SCENE_URL;
-  const finalUrl = isRecord(final) ? (asString(final.url) ?? '/final.svg') : '/final.svg';
+/** scene 声明的底图身份：来自打开时的 `PageDocument`（sha256 + 契约解析出的 pt 尺寸） */
+export function sceneBaseOf(document: PageDocument): SceneBase {
   return {
-    figure: { key: figure.key as string, path: theStringOrEmpty(figure.path) ?? '' },
-    base: {
-      url: base.url as string,
-      sha256: theStringOrEmpty(base.sha256) ?? '',
-      width_pt: base.width_pt as number,
-      height_pt: base.height_pt as number,
-    },
-    geo: { url: geoUrl },
-    scene: { url: sceneUrl },
-    final: { url: finalUrl },
-    needs: {
-      base: isRecord(needs) ? needs.base === true : false,
-      geo: isRecord(needs) ? needs.geo === true : false,
-    },
+    sha256: document.baseSha256,
+    width_pt: document.base.width_pt,
+    height_pt: document.base.height_pt,
   };
 }
-
-/** 空字符串也算合法字符串（底图缺失时 sha256 为空） */
-function theStringOrEmpty(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
-
-/** 带超时的 fetch；网络错误统一转成中文 Error */
-async function request(url: string, init?: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), PAGE_REQUEST_TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal, cache: 'no-store' });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error(`请求超时（${PAGE_REQUEST_TIMEOUT_MS / 1000}s）：${url}`, { cause: error });
-    }
-    throw new Error(`网络错误：${url}`, { cause: error });
-  } finally {
-    window.clearTimeout(timer);
-  }
-}
-
-/** 读 JSON 响应体；非 JSON 时返回 null（错误路径也要能读到语义体） */
-async function readJson(response: Response): Promise<unknown> {
-  try {
-    return (await response.json()) as unknown;
-  } catch {
-    return null;
-  }
-}
-
-/** 从错误响应里取业务码与 message（新契约用 error，旧实现用 code，两者都兼容） */
-function failureOf(response: Response, body: unknown, fallback: string): PageSaveVerdict {
-  const record = isRecord(body) ? body : {};
-  const rawCode = asString(record.error) ?? asString(record.code) ?? fallback;
-  const message = asString(record.message) ?? `HTTP ${response.status}`;
-  const code: PageSaveErrorCode =
-    rawCode === 'invalid_scene' ||
-    rawCode === 'base_changed' ||
-    rawCode === 'base_size_changed' ||
-    rawCode === 'base_missing' ||
-    rawCode === 'geo_missing'
-      ? rawCode
-      : 'http';
-  return { ok: false, code, message };
-}
-
-/** 从成功响应里取 report/marker（字段缺失时给 null，不阻止「已保存」提示） */
-function successOf(body: unknown): PageSaveVerdict {
-  const record = isRecord(body) ? body : {};
-  const report = isRecord(record.report) ? (record.report as PageComposeReport) : null;
-  const marker = isRecord(record.marker) ? record.marker : null;
-  return {
-    ok: true,
-    composed: record.composed !== false,
-    report,
-    marker,
-  };
-}
-
-/** `GET /api/doc` */
-export async function fetchPageDoc(): Promise<PageDoc> {
-  const response = await request(PAGE_DOC_URL);
-  if (!response.ok) {
-    const body = await readJson(response);
-    const record = isRecord(body) ? body : {};
-    throw new Error(asString(record.message) ?? `GET /api/doc 失败（HTTP ${response.status}）`);
-  }
-  return assertPageDoc(await readJson(response));
-}
-
-/** `GET /api/geo`：返回原始 geo 对象（校验由调用方做） */
-export async function fetchGeoJson(): Promise<unknown> {
-  const response = await request(PAGE_GEO_URL);
-  if (!response.ok) {
-    const body = await readJson(response);
-    const record = isRecord(body) ? body : {};
-    throw new Error(
-      asString(record.message) ?? `GET /api/geo 失败（HTTP ${response.status}，geo 尚未生成？）`,
-    );
-  }
-  return readJson(response);
-}
-
-/** `GET /api/scene`：不存在时服务器返回 `null` */
-export async function fetchSceneJson(): Promise<unknown> {
-  const response = await request(PAGE_SCENE_URL);
-  if (!response.ok) {
-    const body = await readJson(response);
-    const record = isRecord(body) ? body : {};
-    throw new Error(asString(record.message) ?? `GET /api/scene 失败（HTTP ${response.status}）`);
-  }
-  return readJson(response);
-}
-
-/** PUT 请求体：scene 去掉 figure、数字规范化，按需带 `ack_base_change` */
-function savePayload(scene: Scene, ackBaseChange: boolean): Record<string, unknown> {
-  const normalized = normalizeScene(scene);
-  const { figure: _figure, ...rest } = normalized;
-  const payload: Record<string, unknown> = { ...rest };
-  if (ackBaseChange) payload.ack_base_change = true;
-  return payload;
-}
-
-/** `PUT /api/scene`：保存并触发合成 */
-export async function putScene(scene: Scene, ackBaseChange = false): Promise<PageSaveVerdict> {
-  let response: Response;
-  try {
-    response = await request(PAGE_SCENE_URL, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(savePayload(scene, ackBaseChange)),
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      code: 'network',
-      message: error instanceof Error ? error.message : '网络错误',
-    };
-  }
-  const body = await readJson(response);
-  if (!response.ok) return failureOf(response, body, 'http');
-  return successOf(body);
-}
-
-/** `POST /api/compose`：用服务器当前 scene 重新合成 */
-export async function postCompose(): Promise<PageSaveVerdict> {
-  let response: Response;
-  try {
-    response = await request(PAGE_COMPOSE_URL, { method: 'POST' });
-  } catch (error) {
-    return {
-      ok: false,
-      code: 'network',
-      message: error instanceof Error ? error.message : '网络错误',
-    };
-  }
-  const body = await readJson(response);
-  if (!response.ok) return failureOf(response, body, 'http');
-  return successOf(body);
-}
-
-/* =========================== 编辑器 =========================== */
 
 /** 视图窗口（根 svg 的 viewBox） */
 interface ViewBox {
@@ -332,38 +104,41 @@ export interface PageEditorDeps {
   readonly notifier: PageNotifier;
   /** 文本测量器（canvas measureText 适配器） */
   readonly measureText: MeasureText;
-  readonly doc: PageDoc;
-  readonly geo: Geo;
+  /** 打开的上传文档（底图字节/契约解析结果/规范化 geo） */
+  readonly document: PageDocument;
+  /** 底图预览的 objectURL（由组合根创建并在关闭时 revoke） */
+  readonly baseUrl: string;
   readonly scene: Scene;
-  /** 初次打开时 scene 是否来自 defaultScene（尚未保存） */
+  /** 初次打开时 scene 是否来自 defaultScene（尚未导出） */
   readonly dirty?: boolean;
 }
 
-/** 选中/拖拽/保存状态机 + HTTP 动作 */
+/** 选中/拖拽/缩放/导出状态机 */
 export class PageEditor {
   private readonly svg: SVGSVGElement;
   private readonly sidebar: PageSidebar;
   private readonly notifier: PageNotifier;
   private readonly measureText: MeasureText;
-  private readonly doc: PageDoc;
+  private readonly document: PageDocument;
+  private readonly baseUrl: string;
   private readonly geo: Geo;
   private scene: Scene;
 
   private selectedId: number | null = null;
   private view: ViewBox = { x: 0, y: 0, w: 1, h: 1 };
   private dirty: boolean;
-  private saving = false;
   private spaceDown = false;
   private gesture: Gesture | null = null;
-  private toolbar: PageToolbarHandle | null = null;
+  private started = false;
 
   constructor(deps: PageEditorDeps) {
     this.svg = deps.svg;
     this.sidebar = deps.sidebar;
     this.notifier = deps.notifier;
     this.measureText = deps.measureText;
-    this.doc = deps.doc;
-    this.geo = deps.geo;
+    this.document = deps.document;
+    this.baseUrl = deps.baseUrl;
+    this.geo = deps.document.geo;
     this.scene = deps.scene;
     this.dirty = deps.dirty ?? false;
 
@@ -377,13 +152,10 @@ export class PageEditor {
 
   /* =========================== 生命周期 =========================== */
 
-  /** 挂上工具栏句柄（page-main 先构造编辑器再建工具栏） */
-  bindToolbar(handle: PageToolbarHandle): void {
-    this.toolbar = handle;
-  }
-
   /** 首次装配：适应页面、绑事件、渲染 */
   start(): void {
+    if (this.started) return;
+    this.started = true;
     this.fitPage();
     this.renderAll();
     this.svg.addEventListener('pointerdown', this.onPointerDown);
@@ -398,6 +170,31 @@ export class PageEditor {
     window.addEventListener('blur', this.onWindowBlur);
     window.addEventListener('beforeunload', this.onBeforeUnload);
     this.updateChrome();
+  }
+
+  /**
+   * 关闭当前文档：解绑所有 window/画布监听并清空根节点。
+   * 为什么由组合根调用而不是自动：同一份外壳会被下一份上传文档复用，
+   * 组合根要在 revoke 预览 objectURL 前先把编辑器停干净。
+   */
+  destroy(): void {
+    if (!this.started) return;
+    this.started = false;
+    this.svg.removeEventListener('pointerdown', this.onPointerDown);
+    this.svg.removeEventListener('pointermove', this.onPointerMove);
+    this.svg.removeEventListener('pointerup', this.onPointerUp);
+    this.svg.removeEventListener('pointercancel', this.onPointerUp);
+    this.svg.removeEventListener('wheel', this.onWheel);
+    this.svg.removeEventListener('dblclick', this.onDoubleClick);
+    this.svg.removeEventListener('contextmenu', this.onContextMenu);
+    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
+    window.removeEventListener('blur', this.onWindowBlur);
+    window.removeEventListener('beforeunload', this.onBeforeUnload);
+    this.gesture = null;
+    this.spaceDown = false;
+    this.svg.classList.remove('is-panning', 'is-dragging', 'is-pan-ready');
+    this.svg.replaceChildren();
   }
 
   /** 当前 scene 的只读引用（page-main 装配侧栏需要） */
@@ -430,83 +227,48 @@ export class PageEditor {
     });
   }
 
-  /* =========================== 工具栏动作 =========================== */
+  /* =========================== 导出 =========================== */
 
-  /** 保存：PUT scene，处理 400/409/503；成功时清脏标记并展示 warnings */
-  async save(): Promise<boolean> {
-    if (this.saving) return false;
-    this.saving = true;
-    this.toolbar?.setSaving(true);
-    this.updateChrome();
+  /**
+   * 导出 `scene.json`（Ctrl+S 的入口）：规范化后下载，成功即清脏标记。
+   * 为什么先 `normalizeScene`：导出文件是「当前排版」的持久化，3 位小数口径必须与
+   * 合成/签名一致；再交给 `serializeSceneFile` 产出键排序、可 diff 的 2 空格缩进 JSON。
+   */
+  exportScene(): boolean {
+    const fileName = sceneFileNameOf(this.document);
     try {
-      let ack = false;
-      for (;;) {
-        const verdict = await putScene(this.scene, ack);
-        if (verdict.ok) {
-          this.dirty = false;
-          this.updateChrome();
-          this.reportWarnings(verdict.report);
-          this.notifier.info(verdict.composed ? '已保存并合成' : 'scene 已保存（合成未完成）');
-          if (verdict.marker) {
-            const counts = isRecord(verdict.marker.counts) ? verdict.marker.counts : null;
-            const total = counts ? counts['total'] : null;
-            if (typeof total === 'number') this.notifier.info(`final 已更新：共 ${total} 个元素`);
-          }
-          return true;
-        }
-        if (verdict.code === 'base_changed') {
-          if (ack) {
-            this.notifier.error('底图仍与 scene 声明不一致，保存取消');
-            return false;
-          }
-          const accepted = await this.notifier.ask(
-            '底图已更新（内容可能变化），scene 的底图声明将随之更新。仍要保存？',
-          );
-          if (!accepted) return false;
-          ack = true;
-          continue;
-        }
-        if (verdict.code === 'base_size_changed') {
-          this.notifier.error('底图尺寸已变（画布尺寸变化），请刷新页面后重新排版再保存');
-          return false;
-        }
-        if (verdict.code === 'invalid_scene') {
-          this.notifier.error(`scene 校验失败：${verdict.message}`);
-          return false;
-        }
-        if (verdict.code === 'base_missing' || verdict.code === 'geo_missing') {
-          this.notifier.error(
-            `服务端缺少 ${verdict.code === 'base_missing' ? '底图' : 'geo'}：${verdict.message}`,
-          );
-          return false;
-        }
-        this.notifier.error(`保存失败：${verdict.message}`);
-        return false;
-      }
-    } finally {
-      this.saving = false;
-      this.toolbar?.setSaving(false);
+      const scene = normalizeScene(this.scene);
+      // figure 是「这张图叫什么」：无后端后统一记为上传的底图文件名（旧 scene 的路径也在这里覆盖）
+      scene.figure = this.document.baseFileName;
+      downloadText(serializeSceneFile(scene), fileName, SCENE_MIME);
+      this.dirty = false;
       this.updateChrome();
+      this.notifier.info(`已导出 ${fileName}`);
+      return true;
+    } catch (error) {
+      this.notifier.error(`导出 JSON 失败：${errorMessage(error)}`);
+      return false;
     }
   }
 
-  /** 重新合成：先保存（含确认），再 POST /api/compose */
-  async composeAgain(): Promise<void> {
-    if (!(await this.save())) return;
-    const verdict = await postCompose();
-    if (verdict.ok) {
-      this.reportWarnings(verdict.report);
-      this.notifier.info('已重新合成 final.svg');
-      return;
+  /**
+   * 导出 `final.svg`：浏览器内合成后下载，展示合成报告里的告警。
+   * 为什么不清脏标记：导出 SVG 不改变排版数据，scene.json 仍可能没导出；
+   * 是否「干净」以 JSON 落盘为准。
+   */
+  exportFinal(): void {
+    const fileName = finalFileNameOf(this.document);
+    try {
+      const result = composeFinalSvg(this.document, this.scene);
+      downloadText(result.svg, fileName, SVG_MIME);
+      this.reportWarnings(result.report);
+      this.notifier.info(`已导出 ${fileName}（${result.report.counts.total} 个元素）`);
+    } catch (error) {
+      this.notifier.error(`导出 SVG 失败：${errorMessage(error)}`);
     }
-    this.notifier.error(`重新合成失败：${verdict.message}`);
   }
 
-  /** 新标签页打开服务端成品 */
-  openFinal(): void {
-    const url = this.doc.final.url || '/final.svg';
-    window.open(url, '_blank', 'noopener');
-  }
+  /* =========================== 视图 =========================== */
 
   /** 适应页面：纸张四周留 4% 空白 */
   fitPage(): void {
@@ -533,6 +295,8 @@ export class PageEditor {
     };
     this.applyView();
   }
+
+  /* =========================== 添加元素 =========================== */
 
   /** 添加文字元素（role 决定默认位置/字号） */
   addText(role: TextRole): void {
@@ -595,8 +359,13 @@ export class PageEditor {
     this.select(newId);
   }
 
-  /** 添加色标（配色/刻度来自 geo.relief） */
+  /** 添加色标（配色/刻度来自 geo.relief；没有 relief 的 geo 不能加） */
   addColorbar(): void {
+    const relief = this.geo.relief;
+    if (relief === null) {
+      this.notifier.error('该 geo.json 没有 relief 色标数据，无法添加色标');
+      return;
+    }
     let newId = 0;
     this.applySceneChange((scene) => {
       newId = allocateItemId(scene);
@@ -611,8 +380,8 @@ export class PageEditor {
         y: Math.max(40, paper.height_pt * 0.4),
         width_pt: PAGE_NEW_COLORBAR_WIDTH_PT,
         height_pt: height,
-        title: this.geo.relief.title || '色标',
-        unit: this.geo.relief.unit,
+        title: relief.title || '色标',
+        unit: relief.unit,
         show_title: true,
         show_ticks: true,
         title_size_pt: 8,
@@ -635,7 +404,7 @@ export class PageEditor {
       paper: { ...this.scene.paper },
       measureText: this.measureText,
     };
-    this.scene = defaultScene(this.geo, this.doc.base, options);
+    this.scene = defaultScene(this.geo, sceneBaseOf(this.document), options);
     this.selectedId = null;
     this.dirty = true;
     this.fitPage();
@@ -648,7 +417,7 @@ export class PageEditor {
   /** 重绘预览、同步侧栏、更新标题/状态栏 */
   renderAll(): void {
     renderPageSvg(this.svg, this.scene, this.geo, {
-      baseUrl: this.doc.base.url || '/base.svg',
+      baseUrl: this.baseUrl,
       selectedId: this.selectedId,
       measureText: this.measureText,
       interactive: true,
@@ -657,26 +426,19 @@ export class PageEditor {
     this.updateChrome();
   }
 
-  /** 标题与状态栏（脏标记/保存中/元素数） */
+  /** 标题与状态栏：文档名用底图文件名；脏标记表示「当前排版还没导出 JSON」 */
   private updateChrome(): void {
     const count = countItems(this.scene);
-    const figureName = this.doc.figure.key || '地图排版';
-    document.title = `${figureName} · ${count} 元素${this.dirty ? ' *' : ''}`;
+    document.title = `${this.document.baseFileName} · ${count} 元素${this.dirty ? ' *' : ''}`;
     const selection = this.selectedId === null ? '' : ` · 选中 #${this.selectedId}`;
-    this.notifier.setState(
-      `${count} 个元素${selection} · ${this.dirty ? '未保存' : '已保存'}${
-        this.saving ? ' · 保存中…' : ''
-      }`,
-    );
+    this.notifier.setState(`${count} 个元素${selection} · ${this.dirty ? '未导出' : '已导出'}`);
   }
 
-  /** 把 compose 报告的告警送到消息区（越界对象单独汇总） */
-  private reportWarnings(report: PageComposeReport | null): void {
-    if (!report) return;
-    for (const warning of report.warnings ?? []) this.notifier.error(`警告：${warning}`);
-    const outOfCanvas = report.out_of_canvas ?? [];
-    if (outOfCanvas.length > 0) {
-      this.notifier.error(`有 ${outOfCanvas.length} 个对象落在纸张之外（成品会被裁掉）`);
+  /** 把合成报告的告警送到消息区（越界元素单独汇总） */
+  private reportWarnings(report: ComposeReport): void {
+    for (const warning of report.warnings) this.notifier.error(`警告：${warning}`);
+    if (report.out_of_paper.length > 0) {
+      this.notifier.error(`有 ${report.out_of_paper.length} 个对象落在纸张之外（成品会被裁掉）`);
     }
   }
 
@@ -850,10 +612,10 @@ export class PageEditor {
   /* =========================== 键盘 =========================== */
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    // Ctrl+S 优先于「输入框里不响应快捷键」：保存是全局命令
+    // Ctrl+S 优先于「输入框里不响应快捷键」：导出 JSON 是全局命令
     if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's') {
       event.preventDefault();
-      void this.save();
+      this.exportScene();
       return;
     }
     if (isEditableTarget(event.target)) return;
@@ -994,7 +756,7 @@ export class PageEditor {
 
   /* =========================== 状态查询（测试/调试） =========================== */
 
-  /** 是否未保存 */
+  /** 是否未导出（组合根据此决定「打开…」是否先确认） */
   get isDirty(): boolean {
     return this.dirty;
   }
@@ -1002,10 +764,5 @@ export class PageEditor {
   /** 当前选中 id */
   get selection(): number | null {
     return this.selectedId;
-  }
-
-  /** 当前 scene 签名（beforeunload 的比对口径与调试用） */
-  get signature(): string {
-    return serializeScene(this.scene);
   }
 }

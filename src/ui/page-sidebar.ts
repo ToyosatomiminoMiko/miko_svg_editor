@@ -307,7 +307,7 @@ export class PageSidebar {
       create_element(
         { tag: 'p' },
         { class: 'page-hint' },
-        '纸张尺寸与元素位置都以 pt 落盘；预览与 Python 合成使用同一套公式。',
+        '纸张尺寸与元素位置都以 pt 落盘；预览与导出的 final.svg 共用同一套排版公式。',
       ),
     );
   }

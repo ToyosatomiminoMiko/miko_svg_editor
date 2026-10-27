@@ -25,7 +25,7 @@ export interface PageNotifierHosts {
   readonly noticesHost: HTMLElement;
   /** 状态行左侧的瞬时提示文案（info） */
   readonly messageEl: HTMLElement;
-  /** 状态行右侧的持久状态（脏标记/保存中/元素数） */
+  /** 状态行右侧的持久状态（元素数/选中项/未导出标记） */
   readonly stateEl: HTMLElement;
 }
 
@@ -61,7 +61,7 @@ export class PageNotifier {
     }, TOAST_DURATION_MS);
   }
 
-  /** 持久状态：脏标记、保存中、元素数（不会被 info 的计时器清掉） */
+  /** 持久状态：元素数/选中项/未导出标记（不会被 info 的计时器清掉） */
   setState(text: string): void {
     if (this.disposed) return;
     this.hosts.stateEl.textContent = text;

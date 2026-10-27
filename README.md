@@ -41,15 +41,11 @@ npm run build        # tsc --noEmit && vite build，产物在 dist/
 npm run preview      # 预览 dist/
 ```
 
-> **地图出版排版编辑器**（`map.html`）要一个本地 Python studio（`tools/studio.py`，标准库即可）。
-> 站点端口只有一个真值：`tools/studio.toml` 的 `[studio].port`（当前 5173），`vite.config.ts`
-> 与 Python 侧都读它，没有第二份端口常量。开发期 `npm run dev` / `npx vite` 监听该端口并顺带
-> 管理 studio（已有实例就复用，Vite 退出时一起结束）；studio 自己改用 Vite 在回环上现取的一个
-> 内部空闲端口，`/api`、`/base.svg`、`/final.svg`、`/geo.json` 由 Vite 代理过去。首次运行先
-> `python3 tools/prepare_demo.py`，从 Cartopy 成品剥离纯底图并抽取 `geo.json`。开发期打开
-> `http://localhost:5173/map.html`；生产形态 `python3 tools/studio.py` 直接监听同一端口，打开
-> `http://127.0.0.1:5173/`（两种形态不能同时运行）。细节（端口/解释器覆盖、单独跑后端、
-> 数据流契约）见 [`tools/README.md`](tools/README.md) 与
+> **地图出版排版编辑器**（`map.html`）是**纯静态前端**：不需要 Python，也不需要任何后端服务。
+> `npm run dev` 后打开 `http://localhost:5173/map.html`，上传 Cartopy_file 产出的 `base.svg` 与
+> `geo.json`（可选 `scene.json` 恢复排版），在浏览器内排版并导出 `scene.json` / `final.svg` 两个文件。
+> 开发端口唯一真值是 `vite.config.ts` 的 `SITE_PORT`（5173，`strictPort`）；`npm run build` 的
+> `dist/` 可直接放任意静态服务器。数据流、字段、文件 I/O 与校验口径见
 > [`docs/PAGE-EDITOR.md`](docs/PAGE-EDITOR.md)。
 
 本地库默认是 `/mnt/IVSTINIANVS/__projects_web/miko_ui`，用 `MIKO_UI_DIR` 指到别的工作副本即可；
@@ -279,55 +275,61 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 
 ## 地图出版排版编辑器（`map.html`）
 
-与草图编辑器**平行**的第二个产品入口：给 Cartopy 出的地图做出版排版。数据流与字段契约见
-[`docs/PAGE-EDITOR.md`](docs/PAGE-EDITOR.md)，Python 侧用法见 [`tools/README.md`](tools/README.md)。
+与草图编辑器**平行**的第二个产品入口：给 Cartopy 出的地图做出版排版。数据流、字段与文件 I/O 契约见
+[`docs/PAGE-EDITOR.md`](docs/PAGE-EDITOR.md)。
 
-**分层**：Cartopy 只负责地理内容（地形/水系/边界/经纬网/地理坐标点），产物是**纯地图 SVG +
-`geo.json`**；标题、图例、色标、图框、经纬度刻度数字、地名、注释、来源全部由前端排版，
-存成 `scene.json`；`final.svg` 由 Python 按同一套布局公式合成（浏览器只写 JSON）。
+**纯前端**：Cartopy 只负责地理内容（地形/水系/边界/经纬网/地理坐标点），产物是**纯地图 SVG +
+`geo.json`**；标题、图例、色标、图框、经纬度刻度数字、地名、注释、来源全部在浏览器里排版，存成
+`scene.json`；`final.svg` 也在浏览器内合成（`render/compose-svg.ts`）——没有 Python、没有 HTTP 后端。
 
 **能做什么**
 
+- 打开：上传/拖入配套的 `base.svg` + `geo.json`（可再选一个 `scene.json` 恢复旧排版）；底图含文字、
+  sha256 与尺寸对不上、JSON 格式不对等都给中文原因。
 - 纸张：A5/A4/A3/Letter/自定义、纵横向、页边距；地图摆放（x/y/宽，高度按底图纵横比派生）。
 - 图文：标题、副标题、注释、来源、自由文字；字号/行高/旋转/颜色/对齐/斜体/加粗/白色光晕；
   双击选中项在右侧栏改内容。
-- 图例与色标：图例条目（线/块/点三种符号，可改名/显隐/增删）、色标（标题/单位/刻度，配色来自 geo）。
+- 图例与色标：图例条目（线/块/点三种符号，可改名/显隐/增删）、色标（标题/单位/刻度，配色来自
+  `geo.relief`；`geo.json` 没有 relief 时不能加色标）。
 - 图框：显示开关、线宽/颜色、经纬度刻度、刻度长/字号/颜色/间距；地名/刻度随地图缩放与移动。
 - 编辑：缩放/平移（滚轮、空格/中键拖动、适应页面、1:1）、点选、拖拽、方向键微移、Delete、
-  未保存保护；「重新排默认版式」按当前纸张重建初始排版（会弹确认）。
-- 保存：`Ctrl+S` 写 `scene.json` 并由 Python 合成 `final.svg`；`base_changed` 会要求确认。
-- 导出物：`final.svg` 是纸张尺寸、单文件、底图矢量内联、文字可选中（字体不内嵌，见限制）。
+  未导出保护；「重新排默认版式」按当前纸张重建初始排版（会弹确认）。
+- 导出：`导出 JSON`（`Ctrl+S`）下载 `<stem>.scene.json`；`导出 SVG` 在浏览器内合成并下载
+  `<stem>.svg`（纸张尺寸、底图内容内联、文字可选中；字体不内嵌，见限制）。
+- `打开…` 有未导出的修改会先确认；未导出时离开页面有 `beforeunload` 提醒。
 
 **跑起来**
 
 ```bash
-python3 tools/prepare_demo.py     # 从 Cartopy 成品剥离纯底图 + geo.json（首次/图变时）
-npm run dev                       # Vite + studio；打开 http://localhost:5173/map.html
-# 或生产形态（与 dev 二选一：站点端口只能有一个进程监听）：
-npm run build && python3 tools/studio.py   # 打开 http://127.0.0.1:5173/
+npm run dev     # Vite；打开 http://localhost:5173/map.html
+npm run build   # 产物 dist/ 可放任意静态服务器（或 npm run preview 本地预览）
 ```
 
+输入文件由 Cartopy_file 正常出图直接得到（`<stem>.svg` + `<stem>.geo.json`），本仓不再需要抽取/
+准备步骤；`demo/` 下的旧底图与 geo 也可直接上传（本地目录，gitignored）。
+
 **已知限制**：字体不内嵌（跨机字形可能变化，印刷前转曲）；不做自动换行/字距（默认排版按宽度折好
-`lines` 后不再重排）；不做比例尺/指北针、撤销/重做、多图切换；小纸张（A5 横向）内容多时排版会很挤，
+`lines` 后不再重排）；无自动草稿/无 localStorage，未导出即关闭会丢修改；约 10MB 底图首次打开与导出
+会有可感知卡顿；不做比例尺/指北针、撤销/重做、多图切换；小纸张（A5 横向）内容多时排版会很挤，
 需手工调字号/位置或换纸张。
 
 ## 运行与质量门
 
-| 命令                   | 作用                                                                     |
-| ---------------------- | ------------------------------------------------------------------------ |
-| `npm run dev`          | `predev` 自动链接本地库（若可用）+ Vite 开发服务器 + 自动拉起排版 studio |
-| `npm run build`        | `tsc --noEmit && vite build`，产物到 `dist/`                             |
-| `npm run preview`      | 预览 `dist/`                                                             |
-| `npm run typecheck`    | `tsc --noEmit`（strict + `noUncheckedIndexedAccess`）                    |
-| `npm run lint`         | `eslint .`（含按目录的依赖分层规则）                                     |
-| `npm run arch`         | 依赖分层 + 运行期循环依赖检查（`scripts/check_architecture.mjs`）        |
-| `npm run format`       | `prettier --write .`                                                     |
-| `npm run format:check` | `prettier --check .`                                                     |
-| `npm run test`         | `vitest run`（node 环境，`tests/**/*.test.ts`）                          |
-| `npm run check`        | typecheck → lint → arch → format:check → test → build，一次跑全部门      |
-| `npm run ui:link`      | 把 `node_modules/miko_ui` 链到本地库工作副本                             |
-| `npm run ui:unlink`    | 移除本地库软链（之后 `npm ci` 还原 npm 版）                              |
-| `npm run ui:status`    | 打印当前 miko_ui 解析来源（本地库 / npm 版）与版本                       |
+| 命令                   | 作用                                                                      |
+| ---------------------- | ------------------------------------------------------------------------- |
+| `npm run dev`          | `predev` 自动链接本地库（若可用）+ Vite 开发服务器（map.html 为纯静态页） |
+| `npm run build`        | `tsc --noEmit && vite build`，产物到 `dist/`                              |
+| `npm run preview`      | 预览 `dist/`                                                              |
+| `npm run typecheck`    | `tsc --noEmit`（strict + `noUncheckedIndexedAccess`）                     |
+| `npm run lint`         | `eslint .`（含按目录的依赖分层规则）                                      |
+| `npm run arch`         | 依赖分层 + 运行期循环依赖检查（`scripts/check_architecture.mjs`）         |
+| `npm run format`       | `prettier --write .`                                                      |
+| `npm run format:check` | `prettier --check .`                                                      |
+| `npm run test`         | `vitest run`（node 环境，`tests/**/*.test.ts`）                           |
+| `npm run check`        | typecheck → lint → arch → format:check → test → build，一次跑全部门       |
+| `npm run ui:link`      | 把 `node_modules/miko_ui` 链到本地库工作副本                              |
+| `npm run ui:unlink`    | 移除本地库软链（之后 `npm ci` 还原 npm 版）                               |
+| `npm run ui:status`    | 打印当前 miko_ui 解析来源（本地库 / npm 版）与版本                        |
 
 **TypeScript 7 与 eslint 的由来**：项目用 TypeScript 7（原生 Go 版编译器），它不再导出 JS 编译器 API，
 上游 `typescript-eslint`（peer `<6.1.0`）在 import 时会直接拒绝 TS 7。因此 devDependencies 用
@@ -361,7 +363,7 @@ index.html                   草图编辑器入口（仅一个 #app 挂载点；
 map.html                     地图出版排版编辑器入口（#page-app；由 app/page-main.ts 装配）
 docs/
   ARCHITECTURE.md            分层图 + 一次点击/一次约束的手把手调用链路 + 修改任务导航（本表详细版）
-  PAGE-EDITOR.md             地图出版排版的数据流/geo.json/scene.json/布局公式/HTTP 端点契约
+  PAGE-EDITOR.md             地图出版排版的数据流/geo.json/scene.json/布局公式/文件 I/O 契约
   merge/                     旧「冻结底图 × 草图叠加层」设计稿归档（已被 PAGE-EDITOR.md 取代）
 src/
   app/                       应用层：组合根与事件控制器（唯一做「全局装配」的目录）
@@ -369,9 +371,9 @@ src/
                              引样式、读主题、组装 Editor 与工具栏
     editor.ts                草图控制器：指针/键盘事件接线 + 手势状态机（拖拽/平移/框选）+ Enter/Backspace/Esc
                              路由 + ResizeObserver 跟随布局重设画布；命令实现委托 ui/editor-controls.ts
-    page-main.ts             排版编辑器组合根：建三栏外壳 → /api/doc + /api/geo + /api/scene →
-                             defaultScene → PageEditor + 侧栏/工具条/通知 + Ctrl+S / beforeunload
-    page-editor.ts           排版编辑器状态机：选择/拖拽/方向键/缩放/平移/脏标记/保存（409 ack/400/503）
+    page-main.ts             排版编辑器组合根：建三栏外壳 → 上传面板 → 读取/校验 base.svg + geo.json →
+                             PageDocument → defaultScene → PageEditor + 侧栏/工具条/通知 + 导出
+    page-editor.ts           排版编辑器状态机：选择/拖拽/方向键/缩放/平移/脏标记；导出 JSON/SVG、destroy
   core/                      纯逻辑内核：不碰 DOM / miko_ui，node 环境可直接单测
     types.ts                 非图元的数据类型：Point/Constraint/ToolId/SelectionItem/Selection/Marquee 等
                              （图元是多态类，在 entities.ts）
@@ -399,9 +401,11 @@ src/
     viewport.ts              视图交互写入口：适应视图、滚轮缩放、平移
     camera.ts                世界 ↔ 屏幕换算、缩放范围、网格间距（纯函数）
     vec.ts                   二维向量纯函数（含 safeLen / unitPerp 的零向量约定）
-    page.ts                  排版文档 scene/geo 的类型、序列化/校验/digest（纯逻辑，node 可测）
+    base-svg.ts              底图契约 C1–C4 与根标签内原文切片（纯逻辑）
+    document.ts              上传文件分类 + PageDocument（底图字节/sha256/规范化 geo）+ 导出文件名
+    page.ts                  排版文档 scene/geo 的类型、规范化/序列化/校验/digest（纯逻辑，node 可测）
     page-layout.ts           §5 布局公式（底图→纸张变换、图框刻度、文字/图例/色标位置）+
-                             defaultScene(geo, base)：按纸张生成初始排版、地名按地图缩放比缩放字号
+                             defaultScene(geo, base)：按纸张生成初始排版、可选块降级、地名缩放
   render/                    绘图与输出适配层（canvas / SVG）：数据全部由参数注入
     renderer.ts              canvas 渲染编排：DPR 与画布尺寸、逐帧调用各绘制模块、图元选中态判定
     draw-grid.ts             网格 + 原点十字
@@ -413,6 +417,7 @@ src/
     export-svg.ts            纯 SVG 导出（buildSVG，按几何基元生成标签，含点图元）；下载适配器在 ui/download.ts
     page-format.ts           排版层数字格式化（3 位小数去尾零）、XML 转义、SVG 属性 helper
     page-svg.ts              scene + geo → 排版预览 SVG（纸张/底图 image/图框刻度/文字/图例/色标）
+    compose-svg.ts           浏览器内合成 final.svg（图层结构、marker、越界 report；纯函数）
   ui/                        miko_ui 组件封装（左侧状态栏 / 顶部 dock / 输入 / 通知）
     toolbar.ts               顶部 dock 工具栏：miko_ui 的分段按钮组 / 按钮 / 开关 / 控制组 + 操作按钮高亮
                              （两个分区 .dock-group / .dock-actions，不建面板；工具表来自 core.TOOLS）
@@ -425,13 +430,14 @@ src/
     hint-editor.ts           状态区两行（当前操作 / 操作提示）+ 尺寸输入（填充左侧栏下半区）：ValueDisplay / NumberField / NumberRow
     parse-dim-input.ts       尺寸输入纯解析（node 可测，无 DOM）
     notify.ts                错误提示进 miko_ui MessageArea；info 走状态栏；确认框用 Panel + Button
-    download.ts              Blob/<a download>/objectURL 下载适配器
+    download.ts              Blob/<a download>/objectURL 下载适配器（downloadText / downloadSvg）
     measure-text.ts          canvas measureText 适配器（无 canvas 时回退估算）
+    page-open.ts             排版编辑器上传面板（选择文件/拖放区/错误文案）
     page-sidebar.ts          排版编辑器右侧属性面板（页面/地图/图框/元素列表/选中项/图例编辑）
-    page-toolbar.ts          排版编辑器顶部工具条（保存/重新合成/成品/添加文字/标题/图例/色标/视图）
+    page-toolbar.ts          排版编辑器顶部工具条（打开…/导出 JSON/导出 SVG/添加/视图）
     page-notify.ts           排版编辑器消息区（miko_ui MessageArea + 简单确认框）
   config/                    纯数据/常量层（index.ts 统一出口；只许 type-only 引 core 类型）
-    page.ts                  排版编辑器常量：纸张预设、页边距/字号/图例/色标默认值、URL、上限
+    page.ts                  排版编辑器常量：格式标识、上传 accept、校验容差、纸张预设、默认排版、上限
     index.ts                 汇总出口，业务统一从 './config' 引入
     angle.ts                 TAU / sweepOf / normalizeAngle / 弧段数
     constraints-meta.ts      16 种约束元数据、去重键、引用字段推导（操作槽位/执行在 core/operations.ts）
@@ -445,16 +451,19 @@ src/
   styles.css                 应用样式：页面网格与宿主定位 + dock 消费者类 + .app-* 消费者类 + canvas 绘制 token；
                              控件与 dock 外观来自 miko_ui
 tests/                       node 环境单测，按被测层分组
-  core/                      纯逻辑层：model/entities/geometry/constraints/solver/dimensions/operations/
-                             sketch-actions/selection/vec/camera 等（fixtures.ts 是建图辅助）
-  render/                    SVG 导出（buildSVG）
+  core/                      纯逻辑层：草图 model/entities/geometry/constraints/solver/dimensions/
+                              operations/sketch-actions/selection/vec/camera，以及排版文档的
+                              base-svg/page/page-geo（fixtures.ts 是建图辅助）
+  render/                    SVG 导出（buildSVG）与浏览器内合成（composeFinalSvg）
   ui/                        无 DOM 的 UI 纯函数（尺寸输入解析 parseDimInput）
+  fixtures/                  共用的最小底图 fixture（200×100 无文字 SVG）与 PageDocument/geo 工厂
 scripts/dev_ui_link.mjs      本地库 / npm 发布版切换（link / unlink / status / auto）
 scripts/check_architecture.mjs 架构依赖检查：层间方向（只许向下）+ 运行期循环依赖
 eslint.config.js             ESLint 扁平配置（按目录声明的依赖分层白名单）
 vitest.config.ts             Vitest：node 环境、include tests/**/*.test.ts、关闭 globals
 tsconfig.json                strict + noUncheckedIndexedAccess；include src/tests/配置
-vite.config.ts               base: './'；本地库存在时把它的路径加入 server.fs.allow，并 dedupe signals
+vite.config.ts               两个 HTML 入口；base: './'；本地库存在时把它的路径加入 server.fs.allow，
+                             并 dedupe signals；dev 端口 5173（strictPort，唯一真值在本文件）
 .prettierrc.json             单引号 / printWidth 100 / trailingComma all / semi
 .prettierignore              dist、node_modules、audit、package-lock、.npm-cache、coverage
 .github/workflows/ci.yml      CI：Node 24 → npm ci → typecheck → lint → test → build
