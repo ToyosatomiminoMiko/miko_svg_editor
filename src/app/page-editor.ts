@@ -47,6 +47,7 @@ import {
   mapTransform,
   type DefaultPageLayoutOptions,
 } from '../core/page-layout';
+import { PAGE_TEXT_STYLES } from '../config/text-style';
 import { formatPageNumber } from '../render/page-format';
 import { composeFinalSvg, type ComposeReport } from '../render/compose-svg';
 import { renderPageSvg } from '../render/page-svg';
@@ -682,18 +683,21 @@ export class PageEditor {
   private newTextItem(layout: PageLayout, id: number, role: TextRole): TextItem {
     const paper = layout.paper;
     const centerX = paper.width_pt / 2;
+    // 样式默认值只从 config/text-style.ts 的页面文字角色表取，不在这里写死
+    const style = PAGE_TEXT_STYLES[role];
     const base = {
       id,
       kind: 'text' as const,
       space: 'page' as const,
       role,
       font_family: null,
-      color: layout.style.color,
+      color: style.color,
       rotation_deg: 0,
-      line_height: 1.35,
-      italic: false,
-      bold: false,
-      halo: null,
+      line_height: style.line_height,
+      italic: style.italic,
+      font_weight: style.font_weight,
+      letter_spacing_em: style.letter_spacing_em,
+      halo: style.halo ? { ...style.halo } : null,
     };
     switch (role) {
       case 'title':

@@ -21,7 +21,7 @@
 | 编号   | 决策                                                   | 含义                                                                                                                                                                                                                                                                                                                                                                          |
 | ------ | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **D1** | **Cartopy 只做地理，只出「没有标注、没有文字」的地图** | 成品里的文字/图例/色标/标题/注/来源/刻度数字/比例尺文字/指北针文字都不再由 Cartopy 绘制；标注工具（浏览器标签编辑器）也从 Cartopy 删除                                                                                                                                                                                                                                        |
-| **D2** | **Cartopy 产出「初始标注」JSON**（城市、河流等位置）   | 因为前端不知道标注该在哪；Cartopy 把地名候选（文本 + 位置 + 角度 + 样式）写进 `geo.json` 的 `labels`，前端据此生成默认排版                                                                                                                                                                                                                                                    |
+| **D2** | **Cartopy 产出「初始标注」JSON**（城市、河流等位置）   | 因为前端不知道标注该在哪；Cartopy 把地名候选（文本 + 位置 + 锚点 + 字号 + 语义 `role`）写进 `geo.json` 的 `labels`，样式归前端 `config/text-style.ts`，前端据此生成默认排版                                                                                                                                                                                                   |
 | **D3** | **字体嵌入在前端完成**                                 | 浏览器按 scene 实际用到的字符裁字体子集（WOFF2）。原计划「随保存交给 studio，由 Python compose 拼 `@font-face`」已随后端删除而作废（§13）：字体嵌入必须在浏览器内完成（用户上传字体文件 → 前端子集化 → 合成时写进 `<defs>`）；本轮未实现，`final.svg` 仍只写 `font-family`。项目级规定（仓库根部 `constitution.md`）：成品 SVG 必须 `<text>` + 字体嵌入，文字可复制且字体不变 |
 
 本文所有"建议/计划"都以 D1–D3 为前提。
@@ -62,7 +62,8 @@
 2. 实测 Volga demo：
    - 底图 `demo/figures/Volga/.build/…base.svg`（9,874,736 B）里 **`<text>` 出现 0 次**（契约 C2 也强制如此）；
    - `geo.json`（23,396 B）的 `labels` 共 **39 条**：city 23 / river 6 / highland 4 / country 3 / sea 3，
-     每条带 `x/y`（底图坐标）、`rotation_deg`、`anchor`、`font_size_pt`、`color`、`italic`、`halo`、`order`；
+     每条带 `x/y`（底图坐标，y 是文字块垂直中心）、`role`、`text`、`anchor`、`font_size_pt`、`order`
+     （v1 提取产物还带 `rotation_deg`/`color`/`italic`/`halo`；v2 已删，样式归前端 `config/text-style.ts`）；
    - `scene.json`（15,129 B）共 45 个 item：text 43（**39 个 map 空间地名** + title/subtitle/note/source 4 个
      page 空间文字）+ legend 1 + colorbar 1。
 3. 结论：前端的默认地名是 `defaultScene(geo)` 用 `geo.labels` 生成的 scene text item；用户改动只写
@@ -119,7 +120,7 @@
 
 ## 5. miko 现有能力与缺口
 
-已具备（可直接承接）：文字 item 全字段（多行/旋转/锚点/行高/斜体/加粗/halo/字号/颜色）、map/page 两种
+已具备（可直接承接）：文字 item 全字段（多行/旋转/锚点/行高/斜体/字重/字距/halo/字号/颜色）、map/page 两种
 空间、图例（line/rect/point + dash/fill/opacity/marker + 外框/高度派生）、色标、图框 + 经纬刻度、纸张/
 方向/两套默认版式、点选/拖拽/方向键/双击改字/缩放平移/保存合成/冲突检测/确定性字节/157 个单测。
 
@@ -176,29 +177,28 @@ Slashed Medium', 'DejaVu Sans'`；`miko_ui` 声明 `'JetBrains Mono Slashed'`；
 - `base`：`sha256`、`view_box`（= 地图框）、`width_pt/height_pt`；
 - `graticule`：`lon/lat` 每项 `{value,label,x,y,side}` + 线型 `style`（刻度值来自 FixedLocator，坐标由投影换算，
   label 沿用现有 `dms`/半球格式）；
-- `labels`（**初始标注**）：每项
-  `{id, kind(city|river|country|sea|highland|area|other), text, lines, x, y, rotation_deg, anchor,
-font_size_pt, color, italic, halo{color,width_pt}|null, order}`；
-  位置/角度/样式来自脚本现有数据表与计算（城市点、`projected_angle` 河名角度、手工避让偏移、出图框过滤、
-  同名序号、双语成对 `-en`），**保留数据、不再画文字**；
+- `labels`（**初始标注**，v2 契约）：每项
+  `{id, role(枚举见 miko 的 config/text-style.ts), text, x, y, anchor, font_size_pt, order}`；
+  位置由脚本现有数据表与计算给出（城市点、手工避让偏移、出图框过滤、同名序号、双语成对 `-en`），
+  `y` 是文字块**垂直中心**；**文字样式（颜色/斜体/字重/字距/行高/描边）已归前端
+  `config/text-style.ts` 的 role 表，生成端不再写 color/halo/italic/rotation，也不再做基线偏移与角度**；
 - `relief`：`title/unit/vmin/vmax/stops/ticks`；
 - `legend`：`title` + `entries[{label,shape,stroke,width_pt,dash,fill,opacity,marker}]`；
 - `suggestions`：`title/subtitle/notes/source/area_annotation/legend_title/colorbar_title`。
 
-**geo v2 建议新增**（配合 P0-2/3/4/P0-5）：
+**geo v2 已落地**：`labels` 只留 `id/role/text/x/y/anchor/font_size_pt/order`（样式归前端）；
+**仍建议新增**（配合 P0-2/3/4/P0-5，下面示例里的 `leader`/`lang`/`scale`/`north` 属这一组）：
 
 ```jsonc
 "labels": [
   {
     "id": "label-river-伏尔加河-1",
-    "kind": "river",
+    "role": "river",
     "text": "伏尔加河",
-    "lines": ["伏尔加河"],
-    "x": 512.25, "y": 640.5, "rotation_deg": -78.0, "anchor": "middle",
-    "font_size_pt": 9.8, "color": "#2d6ea6", "italic": true,
-    "halo": { "color": "#ffffff", "width_pt": 3 },
-    "leader": { "x": 501.0, "y": 655.2 },   // 可选：引线目标点（底图坐标）
-    "lang": "zh",                            // 可选：双语配对
+    "x": 512.25, "y": 640.5, "anchor": "middle",
+    "font_size_pt": 9.8,
+    "leader": { "x": 501.0, "y": 655.2 },   // 可选：引线目标点（底图坐标；尚未实现）
+    "lang": "zh",                            // 可选：双语配对（尚未实现）
     "order": 12
   }
 ],

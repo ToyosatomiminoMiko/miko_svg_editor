@@ -12,7 +12,9 @@
  * 注意：摘要用纯 TS SHA-256 实现（不依赖 Web Crypto / node:crypto），只用于本地签名与
  * 成品 marker（`render/compose-svg.ts` 的 `makeMarker`）。
  * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地；
- *         2026-10-28 合并 scene.json 为 geo.json 的 page 块（去掉独立 scene 格式与重复 base）。
+ *         2026-10-28 合并 scene.json 为 geo.json 的 page 块（去掉独立 scene 格式与重复 base）；
+ *         2026-10-29 geo 升 v2：GeoLabel 只含 role/text/位置/锚点/字号（样式归 config/text-style.ts），
+ *         TextItem 用 font_weight/letter_spacing_em 取代 bold，labels 逐条校验。
  */
 
 import {
@@ -27,6 +29,8 @@ import {
   PAGE_PAPER_MIN_PT,
 } from '../config/page';
 import type { PaperOrientation, PaperPresetId } from '../config/page';
+import { MAP_LABEL_ROLES, PAGE_TEXT_STYLES } from '../config/text-style';
+import type { MapLabelRole, PageTextRole } from '../config/text-style';
 
 /* =========================== 基础类型 =========================== */
 
@@ -36,8 +40,8 @@ export type ItemSpace = 'page' | 'map';
 /** 文字锚点 */
 export type TextAnchor = 'start' | 'middle' | 'end';
 
-/** 文字语义角色（只影响默认样式/UI，不参与布局公式） */
-export type TextRole = 'title' | 'subtitle' | 'label' | 'annotation' | 'note' | 'source';
+/** 文字语义角色（与 config/text-style.ts 的页面文字角色同源，只影响默认样式/UI，不参与布局公式） */
+export type TextRole = PageTextRole;
 
 /** 图例条目形状 */
 export type LegendShape = 'line' | 'rect' | 'point';
@@ -73,7 +77,10 @@ export interface TextItem extends ItemBase {
   rotation_deg: number;
   line_height: number;
   italic: boolean;
-  bold: boolean;
+  /** 数字字重，100..900 的整数（默认 400；渲染时非 400 才写 font-weight） */
+  font_weight: number;
+  /** 字距（em，相对字号；默认 0，渲染时非 0 才写 letter-spacing） */
+  letter_spacing_em: number;
   halo: Halo | null;
 }
 
@@ -213,20 +220,21 @@ export interface GeoGraticule {
   style: GraticuleStyle;
 }
 
-/** 地物/地名标注候选（只读；文字由前端渲染） */
+/**
+ * 地物/地名标注候选（geo v2，只读；样式由 config/text-style.ts 的 role 表决定）。
+ * `x` 是文字块的水平锚点（由 `anchor` 决定是左端/中心/右端）；`y` 是文字块**垂直中心**，
+ * 前端用 `MAP_LABEL_STYLE.baseline_ratio` 换算回第一行基线（见 core/page-layout.ts）。
+ */
 export interface GeoLabel {
   id: string;
-  kind: string;
+  role: MapLabelRole;
+  /** 原始文字；换行用 "\n"，前端自己 split */
   text: string;
-  lines: string[];
   x: number;
   y: number;
-  rotation_deg: number;
   anchor: TextAnchor;
   font_size_pt: number;
-  color: string;
-  italic: boolean;
-  halo: Halo | null;
+  /** 绘制顺序，整数，原图顺序 */
   order: number;
 }
 
@@ -548,13 +556,12 @@ const isTextAnchor = (value: unknown): value is TextAnchor =>
 
 const isItemSpace = (value: unknown): value is ItemSpace => value === 'page' || value === 'map';
 
+/** 页面文字角色：键集来自 config/text-style.ts 的 PAGE_TEXT_STYLES（单一真源） */
 const isTextRole = (value: unknown): value is TextRole =>
-  value === 'title' ||
-  value === 'subtitle' ||
-  value === 'label' ||
-  value === 'annotation' ||
-  value === 'note' ||
-  value === 'source';
+  typeof value === 'string' && Object.hasOwn(PAGE_TEXT_STYLES, value);
+
+const isMapLabelRole = (value: unknown): value is MapLabelRole =>
+  typeof value === 'string' && (MAP_LABEL_ROLES as readonly string[]).includes(value);
 
 const isLegendShape = (value: unknown): value is LegendShape =>
   value === 'line' || value === 'rect' || value === 'point';
@@ -636,7 +643,21 @@ function validateTextItem(item: Record<string, unknown>, path: string, errors: s
     errors.push(`${path}.line_height: 必须是正数`);
   }
   if (!isBoolean(item.italic)) errors.push(`${path}.italic: 必须是布尔值`);
-  if (!isBoolean(item.bold)) errors.push(`${path}.bold: 必须是布尔值`);
+  if (
+    !isFiniteNumber(item.font_weight) ||
+    !Number.isInteger(item.font_weight) ||
+    item.font_weight < 100 ||
+    item.font_weight > 900
+  ) {
+    errors.push(`${path}.font_weight: 必须是 100..900 的整数`);
+  }
+  if (
+    !isFiniteNumber(item.letter_spacing_em) ||
+    item.letter_spacing_em < -1 ||
+    item.letter_spacing_em > 2
+  ) {
+    errors.push(`${path}.letter_spacing_em: 必须是 -1..2 的有限数字`);
+  }
   checkHalo(item.halo, `${path}.halo`, errors);
 }
 
@@ -854,6 +875,36 @@ export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
 }
 
 /**
+ * 校验 geo v2 的一条地名标注（结构 + 取值范围，按契约 §1）。
+ * 不校验样式字段：v2 的样式完全由 `config/text-style.ts` 的 role 表决定，产物里不应出现。
+ */
+function validateGeoLabel(value: unknown, path: string, seen: Set<string>, errors: string[]): void {
+  if (!isObject(value)) {
+    errors.push(`${path}: 必须是对象`);
+    return;
+  }
+  if (typeof value.id !== 'string' || value.id.length === 0) {
+    errors.push(`${path}.id: 必须是非空字符串`);
+  } else {
+    if (seen.has(value.id)) errors.push(`${path}.id: id "${value.id}" 重复`);
+    seen.add(value.id);
+  }
+  if (!isMapLabelRole(value.role)) {
+    errors.push(`${path}.role: 必须是 config/text-style.ts 里的合法地名角色`);
+  }
+  if (typeof value.text !== 'string') errors.push(`${path}.text: 必须是字符串`);
+  if (!isFiniteNumber(value.x)) errors.push(`${path}.x: 必须是有限数字`);
+  if (!isFiniteNumber(value.y)) errors.push(`${path}.y: 必须是有限数字`);
+  if (!isTextAnchor(value.anchor)) errors.push(`${path}.anchor: 必须是 start/middle/end`);
+  if (!isFiniteNumber(value.font_size_pt) || value.font_size_pt <= 0) {
+    errors.push(`${path}.font_size_pt: 必须是正数`);
+  }
+  if (!isFiniteNumber(value.order) || !Number.isInteger(value.order)) {
+    errors.push(`${path}.order: 必须是整数`);
+  }
+}
+
+/**
  * 轻量校验 geo：只查前端渲染默认排版必需的字段，返回错误清单（空 = 可用）。
  * relief/legend/suggestions 是可选块（Cartopy 不画就没有对应的键）：缺省合法，
  * 存在时只做基础结构检查；归一化默认值由 `normalizeGeo` 负责。
@@ -863,7 +914,13 @@ export function validateGeo(value: unknown): string[] {
   const errors: string[] = [];
   if (!isObject(value)) return ['geo: 顶层必须是 JSON 对象'];
   if (value.format !== PAGE_GEO_FORMAT) errors.push(`geo.format: 必须是 "${PAGE_GEO_FORMAT}"`);
-  if (value.version !== PAGE_GEO_VERSION) errors.push(`geo.version: 必须是 ${PAGE_GEO_VERSION}`);
+  if (value.version !== PAGE_GEO_VERSION) {
+    if (value.version === 1) {
+      errors.push('geo.version: 旧 v1 契约，请用更新后的 Cartopy 重新生成');
+    } else {
+      errors.push(`geo.version: 必须是 ${PAGE_GEO_VERSION}`);
+    }
+  }
   const base = value.base;
   if (!isObject(base)) {
     errors.push('geo.base: 必须是对象');
@@ -910,7 +967,14 @@ export function validateGeo(value: unknown): string[] {
       errors.push('geo.graticule.style: 必须是对象或 null');
     }
   }
-  if (!Array.isArray(value.labels)) errors.push('geo.labels: 必须是数组');
+  if (!Array.isArray(value.labels)) {
+    errors.push('geo.labels: 必须是数组');
+  } else {
+    const seen = new Set<string>();
+    value.labels.forEach((label, index) =>
+      validateGeoLabel(label, `geo.labels[${index}]`, seen, errors),
+    );
+  }
 
   // relief / legend / suggestions 是 Cartopy 的可选块：整块缺省合法；块内字段也可能缺省
   // （Cartopy 的 set_suggestions 只写调用方给出的字段，notes/area_annotation 等可能根本没有键），

@@ -281,9 +281,10 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 [`docs/PAGE-EDITOR.md`](docs/PAGE-EDITOR.md)。
 
 **纯前端**：Cartopy 只负责地理内容（地形/水系/边界/经纬网/地理坐标点），产物是**纯地图 SVG +
-`geo.json`**；标题、图例、色标、图框、经纬度刻度数字、地名、注释、来源全部在浏览器里排版，编辑后
-写进**同一份 geo.json 的 `page` 块**；`final.svg` 也在浏览器内合成（`render/compose-svg.ts`）——
-没有 Python、没有 HTTP 后端。
+`geo.json`**（`format=mapdoc-geo` **v2**：地名只给 `role`/文字/位置/锚点/字号，文字样式统一由前端
+`src/config/text-style.ts` 的常量表决定）；标题、图例、色标、图框、经纬度刻度数字、地名、注释、
+来源全部在浏览器里排版，编辑后写进**同一份 geo.json 的 `page` 块**；`final.svg` 也在浏览器内合成
+（`render/compose-svg.ts`）——没有 Python、没有 HTTP 后端。
 
 **能做什么**
 
@@ -293,8 +294,8 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
   ③ 成品 SVG + 配套导出的 geo.json。底图含文字、sha256 与尺寸对不上、JSON 格式不对（含旧
   `scene.json`）、成品与 geo 不配套等都给中文原因。
 - 纸张：A5/A4/A3/Letter/自定义、纵横向、页边距；地图摆放（x/y/宽，高度按底图纵横比派生）。
-- 图文：标题、副标题、注释、来源、自由文字；字号/行高/旋转/颜色/对齐/斜体/加粗/白色光晕；
-  双击选中项在右侧栏改内容。
+- 图文：标题、副标题、注释、来源、自由文字；字号/行高/旋转/颜色/对齐/斜体/字重（400/500/600/700）/
+  字距（em）/白色光晕；双击选中项在右侧栏改内容。
 - 图例与色标：图例条目（线/块/点三种符号，可改名/显隐/增删）、色标（标题/单位/刻度，配色来自
   `geo.relief`；`geo.json` 没有 relief 时不能加色标）。
 - 图框：显示开关、线宽/颜色、经纬度刻度、刻度长/字号/颜色/间距；地名/刻度随地图缩放与移动。
@@ -316,8 +317,9 @@ npm run build   # 产物 dist/ 可放任意静态服务器（或 npm run preview
 输入文件由 Cartopy_file 正常出图直接得到（`<stem>.svg` + `<stem>.geo.json`），本仓不再需要抽取/
 准备步骤；`demo/` 下的旧底图与 geo 也可直接上传（本地目录，gitignored）。
 
-**已知限制**：字体不内嵌（跨机字形可能变化，印刷前转曲）；不做自动换行/字距（默认排版按宽度折好
-`lines` 后不再重排）；无自动草稿/无 localStorage，未导出即关闭会丢修改；约 10MB 底图首次打开与导出
+**已知限制**：字体不内嵌（跨机字形可能变化，印刷前转曲）；不做自动换行/两端对齐（默认排版按宽度
+折好 `lines` 后不再重排，字距按 item 的 `letter_spacing_em` 渲染）；无自动草稿/无 localStorage，
+未导出即关闭会丢修改；约 10MB 底图首次打开与导出
 会有可感知卡顿；不做比例尺/指北针、撤销/重做、多图切换；小纸张（A5 横向）内容多时排版会很挤，
 需手工调字号/位置或换纸张。成品 SVG 的再编辑依赖内嵌 `<metadata>`：若被 Inkscape/AI 等外部工具
 丢弃，只能回退到「旧版成品 + 配套 geo.json」打开；外部工具对渲染内容的改动不会被读回（再编辑以
@@ -451,6 +453,7 @@ src/
     page-notify.ts           排版编辑器消息区（miko_ui MessageArea + 简单确认框）
   config/                    纯数据/常量层（index.ts 统一出口；只许 type-only 引 core 类型）
     page.ts                  排版编辑器常量：geo/成品内嵌源格式标识、上传 accept、校验容差、纸张预设、默认排版、上限
+    text-style.ts            地图标注/页面文字样式常量（role 颜色表、字重/字距/行高/光晕；样式唯一真源）
     index.ts                 汇总出口，业务统一从 './config' 引入
     angle.ts                 TAU / sweepOf / normalizeAngle / 弧段数
     constraints-meta.ts      16 种约束元数据、去重键、引用字段推导（操作槽位/执行在 core/operations.ts）

@@ -19,8 +19,9 @@
 Cartopy_file（另一个仓；本仓只消费它的产物）
   <stem>.svg           纯几何底图：地形/水系/边界/经纬网/地理坐标点；无任何 <text>、
                        无标题/图例/色标/图框/画布白底；viewBox 裁到地图框
-  <stem>.geo.json      地理元数据（format mapdoc-geo v1）：地图框、经纬网刻度、地名候选、
-                       配色/图例样式、默认文案、色标刻度；只读
+  <stem>.geo.json      地理元数据（format mapdoc-geo v2）：地图框、经纬网刻度、地名候选
+                       （role/文字/位置/锚点/字号；样式归前端 config/text-style.ts）、
+                       图例样式、默认文案、色标刻度；只读
         │  浏览器上传（文件选择 / 拖放）：
         │    ① base.svg + geo.json（各恰好一个）；或
         │    ② 一份本编辑器导出的成品 <stem>.svg（内嵌整份 geo.json 与底图前后缀，单文件即可再编辑）；
@@ -62,7 +63,7 @@ map.html（Vite 静态站；npm run dev → http://localhost:5173/map.html）
 ```
 Cartopy_file 侧（另一个仓）：
   <stem>.svg                 纯几何底图；与 geo 成对生成
-  <stem>.geo.json            format=mapdoc-geo v1；与底图字节 sha256 绑定
+  <stem>.geo.json            format=mapdoc-geo v2；与底图字节 sha256 绑定
 
 浏览器上传（只读；不落盘、不写服务器）：
   <stem>.svg                 底图（Cartopy 纯几何），或本编辑器导出的成品（自带内嵌源）
@@ -81,7 +82,7 @@ Cartopy_file 侧（另一个仓）：
   导出的 `geo.json` 就是排版落盘；导出的成品 SVG 也自带同一份排版（§6.2），可单独再打开。
 - 打开成品 SVG 时文件名沿用该 SVG 的 stem：再次导出的 `geo.json` / 成品 SVG 同名覆盖，便于归档。
 
-## 3. `geo.json`（format `mapdoc-geo` v1）
+## 3. `geo.json`（format `mapdoc-geo` v2）
 
 Cartopy 侧已对齐本契约：渲染时直接写「纯几何底图 + geo.json」，本仓不再从成品 SVG 反推
 （旧的 `extract.py`/`prepare_demo.py` 已删除）。`geo.json` 的**地理字段**（`format` / `version` /
@@ -93,7 +94,7 @@ Cartopy 直出的 geo.json 没有 `page` 键（未知键对 Cartopy 的 `tools/c
 ```jsonc
 {
   "format": "mapdoc-geo",
-  "version": 1,
+  "version": 2,
   "base": {
     "sha256": "<base.svg 的 sha256>",
     "view_box": [38.88, 102.7728, 896.350289, 712.3824],
@@ -105,21 +106,16 @@ Cartopy 直出的 geo.json 没有 `page` 键（未知键对 Cartopy 的 `tools/c
     "lat": [{ "value": 46, "label": "46°N", "x": 33.88, "y": 731.037789, "side": "left" }],
     "style": { "stroke": "#808080", "width_pt": 0.5, "dash": [0.5, 0.825], "opacity": 0.4 },
   },
-  // 地名/地物标注候选：位置是底图坐标（viewBox 坐标）；文字由前端渲染
+  // 地名/地物标注候选：位置是底图坐标（viewBox 坐标）；样式由前端 role 表决定，这里不给样式
   "labels": [
     {
-      "id": "label-country-哈萨克斯坦",
-      "kind": "country", // country|sea|highland|river|city|area|other
-      "text": "哈萨克斯坦", // 主文字（多行时 lines 全给）
-      "lines": ["哈萨克斯坦"],
-      "x": 719.381081,
-      "y": 703.365097,
-      "rotation_deg": 0,
+      "id": "label-country-哈萨克斯坦", // 生成端给稳定 id（id 前缀按角色家族）
+      "role": "country", // 语义角色，决定颜色/斜体（枚举见下方约束）
+      "text": "哈萨克斯坦", // 原始文字；换行用 "\n"，前端自己 split
+      "x": 719.381081, // 底图坐标；anchor=start 是文字块左端、middle 中心、end 右端
+      "y": 703.365097, // 底图坐标；文字块垂直中心（v2 语义，前端换算回第一行基线）
       "anchor": "middle", // start|middle|end
       "font_size_pt": 12,
-      "color": "#3a3a3a",
-      "italic": false,
-      "halo": { "color": "#ffffff", "width_pt": 3 }, // 无描边光晕时 null
       "order": 0, // 原图绘制顺序（z 序）
     },
   ],
@@ -181,6 +177,13 @@ Cartopy 直出的 geo.json 没有 `page` 键（未知键对 Cartopy 的 `tools/c
     这样「没有图例/没有色标/没有默认文案」的图也能打开，默认排版自动不生成对应的框（§5.6）。
 - 刻度 `x/y` 都在底图坐标系；`side`：经度用 `bottom|top`，纬度用 `left|right`；
   `labels` 只含**地图内**地名，图外面积注记放 `suggestions.area_annotation`。
+- `labels[].role` 枚举（唯一真源是 `src/config/text-style.ts` 的 `MAP_LABEL_ROLES`）：`country`、
+  `country-name`、`sea`、`city`、`city-reference`、`river`、`highland`、`area`、`area-muted`、
+  `area-accent-1` ~ `area-accent-4`、`area-basin`；它决定颜色/斜体，其余样式是全局常量。
+- `labels` 逐条校验（`validateGeo`）：`id` 非空且唯一、`role` 在枚举内、`text` 字符串、`x`/`y` 有限、
+  `anchor` 合法、`font_size_pt` 正数、`order` 整数。v2 已无 `kind`/`lines`/`color`/`italic`/`halo`/
+  `rotation_deg`：多行由前端 `text.split('\n')` 得到，样式由 `role` 查 `config/text-style.ts`，
+  旋转默认 0（编辑器里仍可旋转）。版本为 1 的旧 geo 直接拒绝并提示「旧 v1 契约，请重新生成」。
 - 颜色只接受 `#rrggbb`。geo 侧数值保留 Cartopy 原样精度（例如 `view_box` 的 `896.350289` 不截断）；
   只有导出时 `page` 块内的数字统一 3 位小数（§4）。导出文件递归按键名排序、2 空格缩进、末尾一个
   换行，同一输入两次导出字节相同。
@@ -228,6 +231,7 @@ Cartopy 直出的 geo.json 没有这个键。形状：
   的分支。
 - `paper` 宽高 50..5000pt；`map.x/y` 有限即可（越界只告警）；`map.width_pt > 1`；颜色只接受
   `#rrggbb`；数字 3 位小数；`items.length ≤ 500`；`seq` 为正整数且大于所有 item id。
+  text item 的 `font_weight` 必须是 100..900 的整数，`letter_spacing_em` 必须是有限数且在 -1..2。
 
 ### 4.1 item 联合类型
 
@@ -240,7 +244,7 @@ Cartopy 直出的 geo.json 没有这个键。形状：
   "id": 1,
   "kind": "text",
   "space": "page",
-  "role": "title", // title|subtitle|label|annotation|note|source
+  "role": "title", // title|subtitle|label|annotation|note|source（默认样式取 PAGE_TEXT_STYLES[role]）
   "x": 420.944882,
   "y": 50, // page: pt；map: 底图坐标（viewBox 坐标）
   "lines": ["伏尔加河流域地形图"], // 1..40 行，每行 ≤200 字符；不做自动换行
@@ -251,8 +255,9 @@ Cartopy 直出的 geo.json 没有这个键。形状：
   "rotation_deg": 0,
   "line_height": 1.35,
   "italic": false,
-  "bold": false,
-  "halo": null, // 或 {"color":"#ffffff","width_pt":3}（先描边后填充）
+  "font_weight": 400, // 100..900 的整数；替换旧的 bold:boolean
+  "letter_spacing_em": 0, // 字距（em，相对字号），-1..2
+  "halo": null, // 或 {"color":"#ffffff","width_pt":2}（先描边后填充；开光晕时默认取 TEXT_HALO）
 }
 ```
 
@@ -357,7 +362,10 @@ map.height = map.width_pt * geo.base.height_pt / geo.base.width_pt   // mapHeigh
 - `halo` 非空：同一文字先画 `stroke=halo.color; stroke-width=halo.width_pt; fill=halo.color;
 paint-order=stroke` 的副本，再画正常填充（与 matplotlib 的 paint-order 效果一致）。
 - 字体：`font-family = item.font_family ?? style.font_family`；`font-size=...px`（用户单位就是 pt）。
-  `italic` → `font-style:italic`；`bold` → `font-weight:bold`。
+  `italic` → `font-style:italic`；`font_weight ≠ 400` → `font-weight="<数字>"`（不再写 `bold`）；
+  `letter_spacing_em ≠ 0` 时写 `letter-spacing="<letter_spacing_em × font_size_pt，3 位小数>"`（纸面 pt）。
+- SVG 文字属性顺序固定（成品字节确定性）：`font-family` → `font-size` → `font-style`(italic) →
+  `font-weight` → `letter-spacing` → `fill` → 光晕的 `stroke`/`stroke-width`/`paint-order`。
 - 文本转义：`& < >`。
 
 ### 5.4 legend（高度派生，`legendLayout`）
@@ -397,8 +405,10 @@ title（show_title）：基线 y-4，anchor=middle，x = item.x+width_pt/2
 - 纸张默认 A4 横向；排版随纸张自适应：`k = clamp(min(长边/841.89, 短边/595.28), 0.62, 1.6)`
   缩放字号/间距；**横向**纸用「左地图 + 右栏」，**纵向**纸（`h > w*1.05`）用「地图满内容宽 +
   下方一排图例/注记/色标」，并让开地图底部的经度刻度标签。
-- 地名标注（`geo.labels`）按 map 空间铺上，字号随地图缩放比缩放；标题/副标题/注记/来源来自
-  `geo.suggestions`。
+- 地名标注（`geo.labels`）按 map 空间铺上，字号随地图缩放比缩放：颜色/斜体按 `role` 查
+  `config/text-style.ts` 的角色表，字重/字距/行高/描边取 `MAP_LABEL_STYLE`；`label.y` 是文字块
+  垂直中心，按 `baseline_ratio` 换算回第一行基线后加回（见契约 §4），旋转默认 0。标题/副标题/
+  注记/来源来自 `geo.suggestions`。
 - **可选块降级**（无后端后新增）：`hasLegend = geo.legend.entries.length > 0`、
   `hasNotes = suggestions.notes 有非空行`、`hasColorbar = geo.relief !== null`。
   - `hasLegend` 为假 → 不生成 legend item，也不留空图例框；
@@ -421,7 +431,8 @@ DOM `getBBox()` 外扩：`getBBox()` 不含元素自身的 transform（旋转文
 **未旋转声明框**（预览、导出、命中判定共用同一批函数）：
 
 ```
-text:    水平 = 锚点 anchor + 各行前进宽度（measureText；CSS font = font_size_pt/font-family）
+text:    水平 = 锚点 anchor + 各行前进宽度（measureText；CSS font 带 font_size_pt/font-family/字重；
+               字距按 letter_spacing_em × font_size_pt × max(0, 字符数-1) 叠加）
          垂直 = 首行基线 − ascent .. 末行基线 + descent
                 ascent/descent 是 CSS font 的字体行盒：浏览器取 canvas
                 fontBoundingBoxAscent/Descent；无 canvas（node 单测）按 0.8em/0.2em 回退
@@ -473,7 +484,7 @@ colorbar:rect(x, y, width_pt × s, height_pt × s)                  // §5.5
   成品显示。位置固定在纸张底色之后、`<defs>` 之前（便于按行定位，也让 §6 的图层顺序保持稳定）。
 - 底图自带全局 CSS（如 `*{stroke-linejoin:round;stroke-linecap:butt}`）会作用于整份成品，接受。
 - 图层 id 前缀 `mapdoc-`；底图与排版层 id 不得冲突。
-- 字体**不内嵌**（v1 已知限制）：文字用 `font-family` 引用本机字体；换机器可能换字形，
+- 字体**不内嵌**（v2 已知限制）：文字用 `font-family` 引用本机字体；换机器可能换字形，
   需要印刷时在 Inkscape/AI 里转曲。合成接口已留好以后加字体载荷（`<defs><style>@font-face…`）的位置。
 - 文件末尾恰好一个换行。**确定性口径**：同一浏览器实现、同一 `(base.inner, base sha256, geo, page)`
   输入两次得到相同字节；不读 DOM/时间/随机数。不同浏览器/不同版本的浮点与序列化实现可能不同，
@@ -609,8 +620,9 @@ interface BaseSvgInfo {
 - 扩展名只用于快速分桶与分栏，**内容才是真值**（改错扩展名不会误判）：
   `.svg` 里是 Cartopy 底图还是成品、`.json` 顶层 `format`/`version` 都按内容判断；
   没有 `.svg`/`.json` 之外的文件时报「不识别的文件」。
-- 缺少或重复的 SVG / 多于一个 geo、JSON 顶层 `format` 不是 `mapdoc-geo`（或 `version` 不是 1）：
-  都在打开阶段拒绝并给出中文原因，不改变当前已打开的文档。旧 `mapdoc-page`（`scene.json`）不再
+- 缺少或重复的 SVG / 多于一个 geo、JSON 顶层 `format` 不是 `mapdoc-geo`（或 `version` 不是 2，
+  其中 `version: 1` 属旧契约、提示重新生成）：都在打开阶段拒绝并给出中文原因，不改变当前已打开的
+  文档。旧 `mapdoc-page`（`scene.json`）不再
   支持，错误文案是「是旧版 scene.json：排版已并入 geo.json，请改用 Cartopy 产出的 geo.json（或本编辑器导出的 geo.json）」。
 
 ### 8.2 打开校验（任一失败 → 面板显示原因，不崩、不离开页面）
@@ -622,7 +634,7 @@ interface BaseSvgInfo {
    否则 `readFinalSvg` 判断是否成品（`mapdoc-map` / `mapdoc-overlay` / `mapdoc-final` / 内嵌 metadata 任一
    命中）；自带内嵌源 → 路径 2（有 JSON 时只做交叉校验）；没有内嵌源 → 路径 3（必须带 JSON）；
    都不是才报「底图不符合契约」。
-2. geo：JSON 可解析；顶层 `format=mapdoc-geo`、`version=1`；`validateGeo` 无错误。
+2. geo：JSON 可解析；顶层 `format=mapdoc-geo`、`version=2`；`validateGeo` 无错误。
 3. 一致性：`createPageDocument(baseFileName, baseText, geo, { verifyBaseSha256 })` 统一校验——
    底图字节 sha256 == `geo.base.sha256`；`geo.base.view_box/width_pt/height_pt` 与底图根标签的
    viewBox/width/height 一致，容差 0.01pt（`PAGE_BASE_SIZE_TOLERANCE_PT`）。不一致直接报错，提示
@@ -640,7 +652,7 @@ false`）并告警，viewBox/尺寸仍校验。
 
 错误语义汇总（文案以 `core/open-map.ts` / `app/page-main.ts` 为准）：没有收到文件 / 不识别的文件 /
 缺少或重复的 SVG / 多于一个 geo / 文件不是 UTF-8 / 不是合法 JSON / `format` 不是 `mapdoc-geo` 或
-`version` 不是 1（旧 `scene.json` 走这条）/ 底图不符合契约（列出前几条 C1–C4）/ geo 校验失败
+`version` 不是 2（旧 v1 geo / 旧 `scene.json` 走这条）/ 底图不符合契约（列出前几条 C1–C4）/ geo 校验失败
 （列出前几条）/ sha256 不一致 / viewBox 不一致 / 尺寸不一致 / 成品内嵌源不可用 / 成品与 geo 不配套
 （marker 摘要不一致）/ 旧版成品缺少内嵌源（提示补 geo.json 或重新导出）。
 
@@ -682,6 +694,7 @@ src/app/page-main.ts            # 组合根：建外壳 → 上传面板 → Fil
                                 #   「打开…」重开与拖拽兜底
 src/app/page-editor.ts          # 状态机：选择/拖拽/缩放/平移/脏标记；exportGeo()/exportFinal()/destroy()
 src/config/page.ts              # 格式标识、上传 accept、校验容差、纸张预设、默认排版参数、上限、交互系数
+src/config/text-style.ts        # 地图标注/页面文字样式常量（角色表 + 字重/字距/行高/光晕；样式唯一真源）
 src/core/base-svg.ts            # 底图契约 C1–C4 + 根标签内原文切片 inner/prefix/suffix（纯逻辑）
 src/core/open-map.ts            # 三条打开路径：分栏 → 校验 → PageDocument + 初始排版（纯逻辑）
 src/core/final-svg.ts           # 成品 SVG 再编辑：内嵌源读取、mapdoc-map 定位、底图还原（纯逻辑）
@@ -722,7 +735,7 @@ tests/render/compose-svg.test.ts # 合成结构、marker、内嵌源、确定性
 - **选择与编辑**：点 item 选中（选中框 = §5.7 的声明几何框，随 `rotation_deg` 旋转；外观在
   `styles-page.css`）；拖拽移动（map 空间 item 写回底图坐标，page 空间写回 pt）；
   方向键 1pt 微移（Shift 10pt）；Delete 删除（title 等也允许删）；双击文字 item → 侧栏内容框聚焦；
-  侧栏改内容/字号/颜色/对齐/旋转/行高/斜体/加粗/光晕；图例条目可改名/显隐/增删。
+  侧栏改内容/字号/颜色/对齐/旋转/行高/斜体/字重/字距/光晕；图例条目可改名/显隐/增删。
 - **工具条**：文件（打开… / 导出 geo.json / 导出 SVG）、添加（文字 / 标题 / 图例 / 色标）、
   视图（适应页面 / 1:1）。
 - **侧栏**：页面（纸张预设/方向/宽高/页边距「重新排默认版式」）、地图（x/y/宽度、图框开关/
@@ -759,9 +772,10 @@ tests/render/compose-svg.test.ts # 合成结构、marker、内嵌源、确定性
 
 ## 11. 非目标与已知限制
 
-- **字体不内嵌**（v1）：成品文字用 `font-family` 引用本机字体，跨机器字形可能变化，印刷前
+- **字体不内嵌**（v2）：成品文字用 `font-family` 引用本机字体，跨机器字形可能变化，印刷前
   Inkscape/AI 转曲。字体子集载荷位置已预留（合成时可往 `<defs>` 加 `@font-face`），本轮不做。
-- 不做自动换行/两端对齐/字距；换行由前端在创建条目时按宽度折好写进 `lines`。
+- 不做自动换行/两端对齐；换行由前端在创建条目时按宽度折好写进 `lines`；字距按 item 的
+  `letter_spacing_em` 渲染（不再属于「不做」清单）。
 - **无自动草稿**：不写 localStorage、不自动下载；刷新/关闭页面会丢未导出的修改（`beforeunload` 提醒）。
   排版落盘 = 手动「导出 geo.json」。
 - **大底图首次加载**：约 10 MB 的底图要一次性读入、严格 UTF-8 解码、求 sha256、做 C1–C4 扫描，

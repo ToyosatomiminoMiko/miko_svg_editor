@@ -39,6 +39,7 @@ import {
   type PaperOrientation,
   type PaperPresetId,
 } from '../config/page';
+import { PAGE_TEXT_STYLES, TEXT_HALO } from '../config/text-style';
 import {
   itemById,
   itemKindLabel,
@@ -134,6 +135,18 @@ const ANCHOR_LABELS: Readonly<Record<TextAnchor, string>> = {
   middle: '中',
   end: '右',
 };
+
+/**
+ * 字重分段选项（四档，4 列）。
+ * 为什么存字符串：`createSegmented` 的值域只接受 `string`，写回 `font_weight` 时再转数字；
+ * 只暴露规格给出的四档，导入的 page 里其它合法字重（100..900）仍原样保留、不在此被改写。
+ */
+const FONT_WEIGHT_OPTIONS = [
+  { value: '400', label: '常规' },
+  { value: '500', label: '中等' },
+  { value: '600', label: '半粗' },
+  { value: '700', label: '粗' },
+] as const;
 
 /** 颜色值兜底：`<input type=color>` 只接受 #rrggbb */
 const safeColor = (value: string): string => (/^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000');
@@ -663,7 +676,9 @@ export class PageSidebar {
       '行高（倍数）',
       () => {
         const target = itemById(this.layout, item.id);
-        return target?.kind === 'text' ? target.line_height : 1.35;
+        return target?.kind === 'text'
+          ? target.line_height
+          : PAGE_TEXT_STYLES.annotation.line_height;
       },
       (value) =>
         this.hosts.onChange((layout) => {
@@ -671,6 +686,23 @@ export class PageSidebar {
           if (target?.kind === 'text') target.line_height = value;
         }),
       { min: 0.5, step: 0.05 },
+    );
+    this.addNumberRow(
+      styleRow,
+      'prop.letterSpacing',
+      '字距（em）',
+      () => {
+        const target = itemById(this.layout, item.id);
+        return target?.kind === 'text'
+          ? target.letter_spacing_em
+          : PAGE_TEXT_STYLES.annotation.letter_spacing_em;
+      },
+      (value) =>
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
+          if (target?.kind === 'text') target.letter_spacing_em = value;
+        }),
+      { min: -0.5, step: 0.01 },
     );
     this.addNumberRow(
       styleRow,
@@ -693,7 +725,7 @@ export class PageSidebar {
       '文字颜色',
       () => {
         const target = itemById(this.layout, item.id);
-        return target?.kind === 'text' ? target.color : '#111111';
+        return target?.kind === 'text' ? target.color : PAGE_TEXT_STYLES.annotation.color;
       },
       (value) =>
         this.hosts.onChange((layout) => {
@@ -745,20 +777,6 @@ export class PageSidebar {
     );
     this.addSwitchRow(
       styleSwitches,
-      'prop.bold',
-      '加粗',
-      () => {
-        const target = itemById(this.layout, item.id);
-        return target?.kind === 'text' ? target.bold : false;
-      },
-      (value) =>
-        this.hosts.onChange((layout) => {
-          const target = itemById(layout, item.id);
-          if (target?.kind === 'text') target.bold = value;
-        }),
-    );
-    this.addSwitchRow(
-      styleSwitches,
       'prop.halo',
       '文字光晕',
       () => {
@@ -769,7 +787,7 @@ export class PageSidebar {
         this.hosts.onChange((layout) => {
           const target = itemById(layout, item.id);
           if (target?.kind !== 'text') return;
-          target.halo = value ? { color: '#ffffff', width_pt: 3 } : null;
+          target.halo = value ? { ...TEXT_HALO } : null;
         }),
     );
     this.addColorRow(
@@ -778,13 +796,13 @@ export class PageSidebar {
       '光晕颜色',
       () => {
         const target = itemById(this.layout, item.id);
-        return target?.kind === 'text' && target.halo ? target.halo.color : '#ffffff';
+        return target?.kind === 'text' && target.halo ? target.halo.color : TEXT_HALO.color;
       },
       (value) =>
         this.hosts.onChange((layout) => {
           const target = itemById(layout, item.id);
           if (target?.kind !== 'text') return;
-          target.halo = { color: value, width_pt: target.halo?.width_pt ?? 3 };
+          target.halo = { color: value, width_pt: target.halo?.width_pt ?? TEXT_HALO.width_pt };
         }),
     );
     this.addNumberRow(
@@ -793,16 +811,39 @@ export class PageSidebar {
       '光晕宽度',
       () => {
         const target = itemById(this.layout, item.id);
-        return target?.kind === 'text' && target.halo ? target.halo.width_pt : 3;
+        return target?.kind === 'text' && target.halo ? target.halo.width_pt : TEXT_HALO.width_pt;
       },
       (value) =>
         this.hosts.onChange((layout) => {
           const target = itemById(layout, item.id);
           if (target?.kind !== 'text') return;
-          target.halo = { color: target.halo?.color ?? '#ffffff', width_pt: value };
+          target.halo = { color: target.halo?.color ?? TEXT_HALO.color, width_pt: value };
         }),
       { min: 0, step: 0.5 },
     );
+    const weightSegmented = createSegmented<string>({
+      columns: 4,
+      ariaLabel: '字重',
+      value: String(item.font_weight),
+      items: FONT_WEIGHT_OPTIONS,
+    });
+    weightSegmented.onChange((value) =>
+      this.hosts.onChange((layout) => {
+        const target = itemById(layout, item.id);
+        if (target?.kind === 'text') target.font_weight = Number(value);
+      }),
+    );
+    this.registerSegmented(
+      'prop.fontWeight',
+      () => {
+        const target = itemById(this.layout, item.id);
+        return target?.kind === 'text'
+          ? String(target.font_weight)
+          : String(PAGE_TEXT_STYLES.annotation.font_weight);
+      },
+      (value) => weightSegmented.set(value),
+    );
+    fragments.push(createControlGroup('字重', weightSegmented.element));
     fragments.push(createControlGroup('样式', styleSwitches));
     return fragments;
   }

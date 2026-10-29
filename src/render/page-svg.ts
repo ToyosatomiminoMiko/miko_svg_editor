@@ -39,8 +39,10 @@ import {
   colorValue,
   dashArray,
   fontSizeValue,
+  fontWeightValue,
   formatPageNumber,
   gradientOffset,
+  letterSpacingValue,
   opacityValue,
 } from './page-format';
 
@@ -112,7 +114,12 @@ interface TextVisualOptions {
   readonly halo: boolean;
 }
 
-/** 一批文字行：`halo=true` 时用光晕样式（先描边后填充的副本） */
+/**
+ * 一批文字行：`halo=true` 时用光晕样式（先描边后填充的副本）。
+ * 文字属性顺序与成品（`render/compose-svg.ts`）保持一致：
+ * x/y → text-anchor → font-family → font-size → font-style → font-weight → letter-spacing
+ * → fill → 光晕的 stroke/stroke-width/paint-order；字重 400 / 字距 0 时不写属性。
+ */
 function createTextLines(
   item: TextItem,
   layout: { readonly px: number; readonly py: number },
@@ -125,19 +132,22 @@ function createTextLines(
     const attributes: Record<string, string> = {
       x: formatPageNumber(layout.px),
       y: formatPageNumber(layout.py + index * step),
-      'font-size': fontSizeValue(item.font_size_pt),
-      'font-family': fontFamily,
       'text-anchor': style.anchor,
-      fill: style.color,
+      'font-family': fontFamily,
+      'font-size': fontSizeValue(item.font_size_pt),
     };
+    if (item.italic) attributes['font-style'] = 'italic';
+    const fontWeight = fontWeightValue(item.font_weight);
+    if (fontWeight !== undefined) attributes['font-weight'] = fontWeight;
+    const letterSpacing = letterSpacingValue(item.letter_spacing_em, item.font_size_pt);
+    if (letterSpacing !== undefined) attributes['letter-spacing'] = letterSpacing;
+    attributes.fill = style.color;
     if (options.halo) {
       attributes.fill = item.halo?.color ?? style.color;
       attributes.stroke = item.halo?.color ?? style.color;
       attributes['stroke-width'] = formatPageNumber(item.halo?.width_pt ?? 0);
       attributes['paint-order'] = 'stroke';
     }
-    if (item.italic) attributes['font-style'] = 'italic';
-    if (item.bold) attributes['font-weight'] = 'bold';
     return svg('text', attributes, line);
   });
 }

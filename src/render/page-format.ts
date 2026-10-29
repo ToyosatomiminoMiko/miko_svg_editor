@@ -60,6 +60,28 @@ export function fontSizeValue(sizePt: number): string {
 }
 
 /**
+ * 字重属性：400（常规）返回 undefined（不写属性），其余返回数字字符串。
+ * 为什么 400 不写：SVG/浏览器默认就是常规字重，省略能保持旧成品的字节布局；
+ * 预览（`render/page-svg.ts`）与成品（`render/compose-svg.ts`）必须用同一口径。
+ */
+export function fontWeightValue(fontWeight: number): string | undefined {
+  return fontWeight === 400 ? undefined : formatPageNumber(fontWeight);
+}
+
+/**
+ * 字距属性：`letter_spacing_em × font_size_pt` 的 3 位小数（纸面 pt）；0 返回 undefined。
+ * 为什么乘字号：CSS/SVG 的 letter-spacing 是绝对长度，而契约里字距按 em 存储；
+ * 乘字号后与文本宽度（`textBlockWidth`）的加宽量同源。
+ */
+export function letterSpacingValue(
+  letterSpacingEm: number,
+  fontSizePt: number,
+): string | undefined {
+  if (letterSpacingEm === 0) return undefined;
+  return formatPageNumber(letterSpacingEm * fontSizePt);
+}
+
+/**
  * colorbar 线性渐变 id：`mapdoc-cbar-<item.id>`（契约 §5.5）。
  * 前缀 `mapdoc-` 同时避免与底图内部 id 冲突（契约 §6）。
  */

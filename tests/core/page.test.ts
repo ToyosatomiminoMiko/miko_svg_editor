@@ -53,7 +53,7 @@ import {
 function makeGeo(): Geo {
   return {
     format: 'mapdoc-geo',
-    version: 1,
+    version: 2,
     base: {
       sha256: 'a'.repeat(64),
       view_box: [38.88, 102.7728, 896.350289, 712.3824],
@@ -74,32 +74,22 @@ function makeGeo(): Geo {
     labels: [
       {
         id: 'label-country-A',
-        kind: 'country',
+        role: 'country',
         text: '甲国',
-        lines: ['甲国'],
         x: 719.381081,
         y: 703.365097,
-        rotation_deg: 0,
         anchor: 'middle',
         font_size_pt: 12,
-        color: '#3a3a3a',
-        italic: false,
-        halo: { color: '#ffffff', width_pt: 3 },
         order: 0,
       },
       {
         id: 'label-river-B',
-        kind: 'river',
+        role: 'river',
         text: '乙河',
-        lines: ['乙河'],
         x: 300,
         y: 400,
-        rotation_deg: 30,
         anchor: 'start',
         font_size_pt: 9,
-        color: '#335577',
-        italic: true,
-        halo: null,
         order: 1,
       },
     ],
@@ -286,6 +276,32 @@ describe('validatePage', () => {
     expect(validatePage(empty).ok).toBe(false);
   });
 
+  it('拒绝非法字重/字距（100..900 整数、-1..2 有限数）', () => {
+    for (const weight of [50, 950, 450.5, Number.NaN]) {
+      const layout = makeScene();
+      const text = layout.items.find((item): item is TextItem => item.kind === 'text')!;
+      text.font_weight = weight;
+      expect(validatePage(layout).ok).toBe(false);
+    }
+    for (const spacing of [-1.5, 2.5, Number.NaN]) {
+      const layout = makeScene();
+      const text = layout.items.find((item): item is TextItem => item.kind === 'text')!;
+      text.letter_spacing_em = spacing;
+      expect(validatePage(layout).ok).toBe(false);
+    }
+    // 边界值合法：权重 100/900、字距 -1/2
+    for (const [weight, spacing] of [
+      [100, -1],
+      [900, 2],
+    ] as const) {
+      const layout = makeScene();
+      const text = layout.items.find((item): item is TextItem => item.kind === 'text')!;
+      text.font_weight = weight;
+      text.letter_spacing_em = spacing;
+      expect(validatePage(layout).ok).toBe(true);
+    }
+  });
+
   it('地图越界只告警不报错', () => {
     const layout = makeScene();
     layout.map.x = -50;
@@ -350,12 +366,16 @@ describe('defaultPageLayout（§9 初始排版）', () => {
     );
     expect(labels).toHaveLength(makeGeo().labels.length);
     expect(labels[0]!.lines).toEqual(['甲国']);
-    // 地名字号/光晕按地图缩放比换算（Lead 联调结论：否则相对原图放大 1.7 倍压字）
+    // 地名字号按地图缩放比换算（Lead 联调结论：否则相对原图放大 1.7 倍压字）
     const scale = layout.map.width_pt / makeGeo().base.width_pt;
     expect(labels[0]!.font_size_pt).toBeCloseTo(12 * scale, 9);
-    expect(labels[0]!.halo?.color).toBe('#ffffff');
-    expect(labels[0]!.halo?.width_pt).toBeCloseTo(3 * scale, 9);
-    expect(labels[1]!.rotation_deg).toBe(30);
+    // 颜色/斜体来自 role 表；描边宽度是纸面常量（不随 s 缩放），旋转统一 0
+    expect(labels[0]!.color).toBe('#3a3a3a');
+    expect(labels[0]!.italic).toBe(false);
+    expect(labels[0]!.halo).toEqual({ color: '#ffffff', width_pt: 2 });
+    expect(labels[1]!.color).toBe('#2d6ea6');
+    expect(labels[1]!.italic).toBe(true);
+    expect(labels[1]!.rotation_deg).toBe(0);
     expect(labels[1]!.anchor).toBe('start');
 
     const ids = layout.items.map((item) => item.id);

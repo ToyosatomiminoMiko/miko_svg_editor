@@ -644,8 +644,9 @@ const input = (w: Vec, snap: Snap | null = null): ClickInput => ({
 Cartopy_file（另一个仓）直接产出：
   <stem>.svg        纯地图：地形/水系/边界/经纬网/地理坐标点；无 <text>、无字体、
                     无图例/色标/标题/图框/纸白底；viewBox 裁到地图框
-  <stem>.geo.json   地理元数据（format mapdoc-geo v1）：地图框、经纬网刻度、地名候选、
-                    relief 色带/刻度、图例样式、默认文案；legend/relief/suggestions 整块可缺省
+  <stem>.geo.json   地理元数据（format mapdoc-geo v2）：地图框、经纬网刻度、地名候选
+                    （role/文字/位置/锚点/字号；样式归前端 config/text-style.ts）、relief 色带/刻度、
+                    图例样式、默认文案；legend/relief/suggestions 整块可缺省
         │ 浏览器上传（文件选择 / 拖放），按内容分三条路径：
         │   ① base.svg + geo.json ② 一份本编辑器导出的成品 SVG（内嵌源）
         │   ③ 成品 SVG + 配套 geo.json（旧版成品迁移）
@@ -679,7 +680,7 @@ map.html（纯静态 Vite 站）
 
 | 层        | 草图（`index.html`）          | 地图排版（`map.html`）                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | --------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `config/` | `config/*.ts`                 | `config/page.ts`：格式标识、上传 accept、校验容差、纸张预设、页边距/字号/图例/色标默认值、上限                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `config/` | `config/*.ts`                 | `config/page.ts`：格式标识、上传 accept、校验容差、纸张预设、页边距/字号/图例/色标默认值、上限<br>`config/text-style.ts`：地图标注/页面文字样式常量（role 颜色表 + 字重/字距/行高/光晕；样式唯一真源，其余层只引用）                                                                                                                                                                                                                                                                           |
 | `core/`   | 草图模型/约束/求解/尺寸       | `core/base-svg.ts`：底图 C1–C4 与 inner/prefix/suffix 切片<br>`core/open-map.ts`：三条打开路径 → PageDocument + 初始排版<br>`core/final-svg.ts`：成品 SVG 内嵌源读取 / 底图还原<br>`core/base64.ts`：UTF-8 base64<br>`core/document.ts`：PageDocument、createPageDocument、上传文件分类、导出命名<br>`core/page.ts`：geo/page 类型、规范化/校验/digest/序列化（纯逻辑，node 可测）<br>`core/page-layout.ts`：§5 布局公式 + `defaultPageLayout(geo, options)`（A4 横向/自适应纸张、可选块降级） |
 | `render/` | canvas 渲染 + `export-svg.ts` | `render/page-format.ts`（3 位小数/转义/属性 helper）<br>`render/page-svg.ts`：layout+geo → 预览 SVG DOM（纸张/底图 image/框/刻度/文字/图例/色标）<br>`render/compose-svg.ts`：浏览器内合成 final.svg（结构/marker/内嵌源/report）                                                                                                                                                                                                                                                              |
 | `ui/`     | 状态栏/dock/工具条/通知       | `ui/page-open.ts`（上传面板）、`ui/page-toolbar.ts`、`ui/page-sidebar.ts`、`ui/page-notify.ts`、`ui/download.ts`（全部 miko_ui 或标准 DOM）                                                                                                                                                                                                                                                                                                                                                    |
@@ -758,7 +759,8 @@ prepare/extract 步骤。
 - 字体不内嵌：`final.svg` 的文字用 `font-family` 引用本机字体（Noto Sans Mono CJK SC /
   JetBrains Mono / DejaVu Sans / sans-serif）；跨机器字形可能变化，印刷前在 Inkscape/AI 转曲。
   字体子集载荷位置已预留（未来往 `<defs>` 加 `@font-face`）。
-- 不做自动换行/字距：`defaultPageLayout` 用 canvas 测量把注记/来源折成 `lines`，之后不再重排。
+- 不做自动换行/两端对齐：`defaultPageLayout` 用 canvas 测量把注记/来源折成 `lines`，之后不再重排；
+  字距按 item 的 `letter_spacing_em` 渲染。
 - 无自动草稿：不写 localStorage、不自动下载；未导出即刷新/关闭会丢修改（`beforeunload` 提醒）。
 - 大底图（约 10MB）首次打开/导出在主线程一次完成（读取、UTF-8 解码、sha256、C1–C4 扫描、合成），
   未 Worker 化，可能卡顿。

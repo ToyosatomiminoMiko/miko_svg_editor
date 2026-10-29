@@ -7,8 +7,10 @@
  * 必须逐字一致；这里只写纯函数，文本测量以参数注入（`MeasureText`），node 单测时用
  * 内置的无 DOM 估算回退，浏览器里注入 canvas measureText。
  * 已知口径：字符宽度估算按「CJK/全角 = 1em，其余 = 0.55em」；只服务没有测量器时的
- * 折行兜底，最终排版以注入的真实测量为准。
- * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地。
+ * 折行兜底，最终排版以注入的真实测量为准。文字样式（颜色/字重/字距/行高/描边）不在本文件，
+ * 全部来自 `config/text-style.ts`；这里只做几何与换算。
+ * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地；
+ *         2026-10-29 geo v2：地名 y 改为「文字块垂直中心」，makeLabelItem 按固定比例换算回基线。
  */
 
 import {
@@ -30,7 +32,6 @@ import {
   PAGE_DEFAULT_RIGHT_COLUMN_MIN_PT,
   PAGE_DEFAULT_TEXT_COLOR,
   PAGE_FRAME_DEFAULTS,
-  PAGE_LABEL_LINE_HEIGHT,
   PAGE_LAYOUT_SCALE_MAX,
   PAGE_LAYOUT_SCALE_MIN,
   PAGE_LEGEND_DEFAULTS,
@@ -46,10 +47,10 @@ import {
   PAGE_SUBTITLE_SIZE_PT,
   PAGE_TEXT_FALLBACK_ASCENT_RATIO,
   PAGE_TEXT_FALLBACK_DESCENT_RATIO,
-  PAGE_TEXT_LINE_HEIGHT,
   PAGE_TITLE_BASELINE_OFFSET_PT,
   PAGE_TITLE_SIZE_PT,
 } from '../config/page';
+import { MAP_LABEL_ROLE_STYLES, MAP_LABEL_STYLE, PAGE_TEXT_STYLES } from '../config/text-style';
 import type { MeasureText, TextMeasure } from './types';
 import type {
   ColorbarItem,
@@ -115,14 +116,24 @@ export function pagePointToMap(
 
 /* =========================== 文本测量 =========================== */
 
-/** 字体简写：canvas 的 `ctx.font` 与无 DOM 估算器共用同一口径 */
-export function fontShorthand(sizePt: number, fontFamily: string): string {
-  return `${Math.max(0, sizePt)}px ${fontFamily}`;
+/**
+ * 字体简写：canvas 的 `ctx.font` 与无 DOM 估算器共用同一口径。
+ * 为什么 weight 为 400 时省略字重：保持旧串 `"12px family"` 的格式，未改字重的既有写法
+ * （canvas 测量、字体串快照）不产生无意义差异；非 400 才写成 `"700 12px family"`（CSS font 语法）。
+ */
+export function fontShorthand(sizePt: number, fontFamily: string, weight = 400): string {
+  const size = Math.max(0, sizePt);
+  return weight === 400 ? `${size}px ${fontFamily}` : `${weight} ${size}px ${fontFamily}`;
 }
 
-/** 从字体简写里取字号；解析失败回退 12px（与 render/theme 的回退字号一致） */
+/**
+ * 从字体简写里取字号；解析失败回退 12px（与 render/theme 的回退字号一致）。
+ * 为什么用正则找 `px` 而不是 `parseFloat`：非 400 字重的简写以数字开头（如 `"700 12px …"`），
+ * `parseFloat` 会把字重 700 当成字号；这里只认 `<数字>px` 那一段。
+ */
 function fontSizeOf(font: string): number {
-  const parsed = Number.parseFloat(font);
+  const match = /(\d+(?:\.\d+)?)px/.exec(font);
+  const parsed = match === null ? Number.NaN : Number.parseFloat(match[1] ?? '');
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 12;
 }
 
@@ -288,15 +299,22 @@ export function wrapParagraphs(
  * 文字块宽度（多行取最宽）：选中框/命中盒与导出越界估算共用。
  * `fontFamily` 是 `item.font_family` 为空时的回退字体（调用方传 `layout.style.font_family`，
  * 与 §5.3 渲染同一口径）；缺省用默认字体栈，只服务没有 layout 的独立调用。
+ * 字距按 SVG/CSS 的前进宽度口径加在每行末尾：`letter_spacing_em × 字号 × max(0, 字符数-1)`
+ * （最后一个字符后面不再算字距，与「文字块宽度」的视觉边界一致）。
  */
 export function textBlockWidth(
   item: TextItem,
   measure: MeasureText = fallbackMeasureText,
   fontFamily: string = PAGE_DEFAULT_FONT_FAMILY,
 ): number {
-  const font = fontShorthand(item.font_size_pt, item.font_family ?? fontFamily);
+  const font = fontShorthand(item.font_size_pt, item.font_family ?? fontFamily, item.font_weight);
+  const spacing = item.letter_spacing_em * item.font_size_pt;
   let width = 0;
-  for (const line of item.lines) width = Math.max(width, measure(line, font));
+  for (const line of item.lines) {
+    const chars = [...line].length;
+    const advance = measure(line, font) + spacing * Math.max(0, chars - 1);
+    width = Math.max(width, advance);
+  }
   return width;
 }
 
@@ -601,7 +619,11 @@ export function itemBoundsPt(
   switch (item.kind) {
     case 'text': {
       const text = textLayout(item, geo, layout);
-      const font = fontShorthand(item.font_size_pt, item.font_family ?? layout.style.font_family);
+      const font = fontShorthand(
+        item.font_size_pt,
+        item.font_family ?? layout.style.font_family,
+        item.font_weight,
+      );
       const width = textBlockWidth(item, measure.width, layout.style.font_family);
       const step = item.font_size_pt * item.line_height;
       const top = text.py - measure.ascent(font);
@@ -682,10 +704,15 @@ function measureLegendColumn(
   measure: MeasureText,
   fontScale: number,
 ): number {
-  const labelFont = fontShorthand(PAGE_LEGEND_DEFAULTS.font_size_pt * fontScale, style.font_family);
+  const labelFont = fontShorthand(
+    PAGE_LEGEND_DEFAULTS.font_size_pt * fontScale,
+    style.font_family,
+    PAGE_TEXT_STYLES.annotation.font_weight,
+  );
   const titleFont = fontShorthand(
     PAGE_LEGEND_DEFAULTS.title_size_pt * fontScale,
     style.font_family,
+    PAGE_TEXT_STYLES.annotation.font_weight,
   );
   let labelWidth = 0;
   for (const entry of geo.legend.entries) {
@@ -731,7 +758,11 @@ function haloOf(halo: Halo | null): Halo | null {
   return halo === null ? null : { color: halo.color, width_pt: halo.width_pt };
 }
 
-/** 文字元素工厂：所有可选字段都显式写出，保证 layout 形状固定 */
+/**
+ * 文字元素工厂：所有可选字段都显式写出，保证 layout 形状固定。
+ * 颜色/斜体/字重/字距/行高/光晕的默认值全部来自 `PAGE_TEXT_STYLES[role]`（单一真源）；
+ * overrides 只用于调用方确有语义差异的字段（如锚点、坐标空间）。
+ */
 function makeTextItem(
   id: number,
   role: TextRole,
@@ -742,10 +773,19 @@ function makeTextItem(
   overrides: Partial<
     Pick<
       TextItem,
-      'anchor' | 'space' | 'color' | 'halo' | 'italic' | 'rotation_deg' | 'line_height'
+      | 'anchor'
+      | 'space'
+      | 'color'
+      | 'halo'
+      | 'italic'
+      | 'rotation_deg'
+      | 'line_height'
+      | 'font_weight'
+      | 'letter_spacing_em'
     >
   > = {},
 ): TextItem {
+  const style = PAGE_TEXT_STYLES[role];
   return {
     id,
     kind: 'text',
@@ -756,51 +796,63 @@ function makeTextItem(
     lines: [...lines],
     font_size_pt: fontPt,
     font_family: null,
-    color: overrides.color ?? PAGE_DEFAULT_TEXT_COLOR,
+    color: overrides.color ?? style.color,
     anchor: overrides.anchor ?? 'middle',
     rotation_deg: overrides.rotation_deg ?? 0,
-    line_height: overrides.line_height ?? PAGE_TEXT_LINE_HEIGHT,
-    italic: overrides.italic ?? false,
-    bold: false,
-    halo: haloOf(overrides.halo ?? null),
+    line_height: overrides.line_height ?? style.line_height,
+    italic: overrides.italic ?? style.italic,
+    font_weight: overrides.font_weight ?? style.font_weight,
+    letter_spacing_em: overrides.letter_spacing_em ?? style.letter_spacing_em,
+    halo: haloOf(overrides.halo ?? style.halo),
   };
 }
 
 /**
- * geo 地名 → map 空间文字元素。
+ * geo v2 地名 → map 空间文字元素（把「文字块垂直中心」换算成第一行基线）。
  *
- * 为什么字号/光晕要乘地图缩放比：geo 里的字号是按原图 896pt 的地图设计的；把同一批
- * 标注直接放到 A4 左栏约 590pt 的地图上，会相对放大 1.5~1.7 倍而导致压字。
- * `scale = map.width_pt / geo.base.width_pt`（§5.1 的 s）把字号与光晕换算到纸面，
- * 与原图观感一致；字号夹到 4..40pt，避免极小/极大两端不可读。用户仍可逐条改回。
- * 注意：地名只跟地图缩放 s，不跟纸张自适应比例 k（两者语义不同）。
+ * 输入约定：`label.y` 是文字块垂直中心（生成端不再算基线）；`label.x` 是水平锚点。
+ * 换算公式（§4）：
+ *   step        = size × line_height
+ *   offsetPaper = baseline_ratio × size − (行数−1) × step / 2
+ *   item.y      = label.y + offsetPaper / mapScale
+ * 为什么这么换：旧实现把 `0.36*size - (n-1)*step/2` 直接烤进 map 坐标；v2 把同一偏移换成
+ * 纸面 pt 再除以 mapScale 加回去，底图坐标 → 纸面后的视觉位置与旧图一致（多行统一 1.2 行高，
+ * 整块中心最多 ≤1pt 位移，可接受）。
+ * 字号/描边换算：geo 字号按原图 896pt 地图设计，放到 A4 左栏需乘地图缩放 s；字号夹到 4..40pt
+ * 避免不可读；描边宽度是纸面常量（不随 s 缩放）。颜色/斜体/字重/字距/行高全部来自
+ * `config/text-style.ts`。地名只跟地图缩放 s，不跟纸张自适应比例 k（两者语义不同）。
+ * 生成端不再给旋转：`rotation_deg` 固定 0（编辑器里仍可旋转）。
  */
-function makeLabelItem(id: number, label: GeoLabel, style: PageStyle, mapScale: number): TextItem {
-  const rawLines = label.lines.length > 0 ? label.lines : [label.text];
-  const lines = rawLines
+function makeLabelItem(id: number, label: GeoLabel, mapScale: number): TextItem {
+  const lines = label.text
+    .split('\n')
     .slice(0, PAGE_MAX_TEXT_LINES)
     .map((line) => line.slice(0, PAGE_MAX_TEXT_LINE_CHARS));
   const sourceSize = label.font_size_pt > 0 ? label.font_size_pt : 12;
   const scaledSize = Math.min(40, Math.max(4, sourceSize * mapScale));
-  const halo = haloOf(label.halo);
+  // 防御式回退：正常路径已由 validateGeo 保证 role 在枚举内，坏数据落到 area 也不崩。
+  const roleStyle = MAP_LABEL_ROLE_STYLES[label.role] ?? MAP_LABEL_ROLE_STYLES.area;
+  const step = scaledSize * MAP_LABEL_STYLE.line_height;
+  const offsetPaper = MAP_LABEL_STYLE.baseline_ratio * scaledSize - ((lines.length - 1) * step) / 2;
+  const scale = mapScale > 0 ? mapScale : 1;
   return {
     id,
     kind: 'text',
     space: 'map',
     role: 'label',
     x: label.x,
-    y: label.y,
+    y: label.y + offsetPaper / scale,
     lines,
     font_size_pt: scaledSize,
     font_family: null,
-    color: label.color || style.color,
+    color: roleStyle.color,
     anchor: label.anchor,
-    rotation_deg: label.rotation_deg,
-    line_height: PAGE_LABEL_LINE_HEIGHT,
-    italic: label.italic,
-    bold: false,
-    halo:
-      halo === null ? null : { color: halo.color, width_pt: Math.max(0, halo.width_pt * mapScale) },
+    rotation_deg: 0,
+    line_height: MAP_LABEL_STYLE.line_height,
+    italic: roleStyle.italic,
+    font_weight: MAP_LABEL_STYLE.font_weight,
+    letter_spacing_em: MAP_LABEL_STYLE.letter_spacing_em,
+    halo: { color: MAP_LABEL_STYLE.halo_color, width_pt: MAP_LABEL_STYLE.halo_width_pt },
   };
 }
 
@@ -998,7 +1050,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
       40,
       contentWidth - legendWidth - leadingGap - (hasColorbar ? colorbarWidth + columnGap : 0),
     );
-    const noteFont = fontShorthand(noteSize, style.font_family);
+    const noteFont = fontShorthand(noteSize, style.font_family, PAGE_TEXT_STYLES.note.font_weight);
     const noteLines = wrapParagraphs(geo.suggestions.notes, noteFont, notesWidth, measure).filter(
       (line) => line.length > 0,
     );
@@ -1019,7 +1071,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
           color: style.color,
         }),
       );
-      noteBlockHeight = noteLines.length * noteSize * PAGE_TEXT_LINE_HEIGHT;
+      noteBlockHeight = noteLines.length * noteSize * PAGE_TEXT_STYLES.note.line_height;
     }
 
     if (hasColorbar && relief !== null) {
@@ -1068,7 +1120,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     }
 
     const noteSize = PAGE_NOTE_SIZE_PT * k;
-    const noteFont = fontShorthand(noteSize, style.font_family);
+    const noteFont = fontShorthand(noteSize, style.font_family, PAGE_TEXT_STYLES.note.font_weight);
     const noteLines = wrapParagraphs(geo.suggestions.notes, noteFont, rightWidth, measure).filter(
       (line) => line.length > 0,
     );
@@ -1081,7 +1133,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
           color: style.color,
         }),
       );
-      notesBottom = notesY + noteLines.length * noteSize * PAGE_TEXT_LINE_HEIGHT;
+      notesBottom = notesY + noteLines.length * noteSize * PAGE_TEXT_STYLES.note.line_height;
     }
 
     if (hasColorbar && relief !== null) {
@@ -1110,7 +1162,11 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
 
   // 4) 来源（页底一行或折行后多行，最后一行基线贴住页边距）
   const sourceSize = PAGE_SOURCE_SIZE_PT * k;
-  const sourceFont = fontShorthand(sourceSize, style.font_family);
+  const sourceFont = fontShorthand(
+    sourceSize,
+    style.font_family,
+    PAGE_TEXT_STYLES.source.font_weight,
+  );
   const sourceLines = wrapParagraphs(
     geo.suggestions.source.length > 0 ? [geo.suggestions.source] : [],
     sourceFont,
@@ -1119,7 +1175,8 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   ).filter((line) => line.length > 0);
   if (sourceLines.length > 0) {
     const baselines = sourceLines.length;
-    const firstY = paper.height_pt - margin - (baselines - 1) * sourceSize * PAGE_TEXT_LINE_HEIGHT;
+    const firstY =
+      paper.height_pt - margin - (baselines - 1) * sourceSize * PAGE_TEXT_STYLES.source.line_height;
     items.push(
       makeTextItem(nextId++, 'source', paper.width_pt / 2, firstY, sourceLines, sourceSize, {
         anchor: 'middle',
@@ -1131,7 +1188,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   // 5) 地名标注：按 geo 原始绘制顺序铺成 map 空间文字（字号/光晕按地图缩放比 s 换算）
   const mapScale = geo.base.width_pt > 0 ? mapWidth / geo.base.width_pt : 1;
   const labels = [...geo.labels].sort((a, b) => a.order - b.order);
-  for (const label of labels) items.push(makeLabelItem(nextId++, label, style, mapScale));
+  for (const label of labels) items.push(makeLabelItem(nextId++, label, mapScale));
 
   return {
     paper,

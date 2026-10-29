@@ -9,7 +9,9 @@
  * 数字口径：全部是 pt（1 用户单位 = 1pt），写进 SVG 时最多 3 位小数、去尾零（见
  * `render/page-format.ts` 与 `docs/PAGE-EDITOR.md` §5）。
  * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地；
- *         2026-10-29 增加成品 SVG 内嵌源/ marker 版本常量。
+ *         2026-10-29 增加成品 SVG 内嵌源/ marker 版本常量；
+ *         2026-10-29 geo 升 v2（labels 的样式归 `config/text-style.ts` 的 role 表，本文件不再有
+ *         行高/字重/描边等文字样式常量）。
  */
 
 /* ---------------- 文档标识 ---------------- */
@@ -21,8 +23,12 @@
  */
 export const PAGE_GEO_FORMAT = 'mapdoc-geo';
 
-/** 版本：必须精确匹配；排版块是同一 v1 文档里的可选 `page` 键（不升版本，保持 Cartopy 兼容） */
-export const PAGE_GEO_VERSION = 1;
+/**
+ * 版本：必须精确匹配。geo v2 的 `labels[]` 只含 role/text/位置/锚点/字号，
+ * 样式由 `config/text-style.ts` 决定；旧 v1 产物直接拒绝（提示用更新的 Cartopy 重新生成）。
+ * 排版块仍是同一份文档里的可选 `page` 键，不参与 geo 版本号。
+ */
+export const PAGE_GEO_VERSION = 2;
 
 /**
  * 成品 SVG 内嵌可编辑源的格式标识（`<metadata id="mapdoc-source">`）与版本。
@@ -176,17 +182,12 @@ export const PAGE_LAYOUT_SCALE_MAX = 1.6;
 /** 色标在默认排版里的最小高度（pt）：再小就压成一条线，不如与注记留 8pt 后贴底 */
 export const PAGE_MIN_COLORBAR_HEIGHT_PT = 40;
 
-/** 文字默认行高（倍数） */
-export const PAGE_TEXT_LINE_HEIGHT = 1.35;
-/** map 空间地名默认行高（多行地名更紧一点） */
-export const PAGE_LABEL_LINE_HEIGHT = 1.2;
-
 /* ---------------- 默认样式（page.style / page.frame） ---------------- */
 
 /**
  * 默认字体栈（契约 §4 示例原样）。
  * 为什么用「CJK 等宽 → 拉丁等宽 → DejaVu → sans-serif」：印刷图的中英文混排需要
- * 一套主字体兜底一套通用字体；v1 不内嵌字体（契约 §11 已知限制）。
+ * 一套主字体兜底一套通用字体；字体不内嵌（契约 §11 已知限制，v2 仍未做）。
  */
 export const PAGE_DEFAULT_FONT_FAMILY =
   "'Noto Sans Mono CJK SC', 'JetBrains Mono Slashed Medium', 'DejaVu Sans', sans-serif";

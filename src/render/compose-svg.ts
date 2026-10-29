@@ -21,6 +21,7 @@ import {
   PAGE_FINAL_SOURCE_FORMAT,
   PAGE_FINAL_SOURCE_VERSION,
 } from '../config/page';
+import { PAGE_TEXT_STYLES } from '../config/text-style';
 import { encodeBase64Utf8 } from '../core/base64';
 import type { PageDocument } from '../core/document';
 import {
@@ -52,8 +53,10 @@ import {
   dashArray,
   escapeXmlAttribute,
   escapeXmlText,
+  fontWeightValue,
   formatPageNumber,
   gradientOffset,
+  letterSpacingValue,
   opacityValue,
 } from './page-format';
 
@@ -103,21 +106,33 @@ function group(id: string, children: readonly string[]): string {
   return `<g id="${id}">\n${children.join('\n')}\n</g>`;
 }
 
+/**
+ * 图例/色标/刻度文字（不是 TextItem）的默认字重与字距：沿用页面正文（annotation）的默认值。
+ * 为什么不写死 400/0：字重/字距的唯一真源在 `config/text-style.ts`（样式常量集中）。
+ */
+const PLAIN_TEXT_WEIGHT = PAGE_TEXT_STYLES.annotation.font_weight;
+const PLAIN_TEXT_LETTER_SPACING_EM = PAGE_TEXT_STYLES.annotation.letter_spacing_em;
+
 interface TextElementOptions {
   readonly anchor: string;
   readonly family: string;
   readonly fontSize: number;
   readonly fill: string;
   readonly italic: boolean;
-  readonly bold: boolean;
+  /** 数字字重；400 不写 font-weight 属性（§3 的渲染口径） */
+  readonly fontWeight: number;
+  /** 字距（em）；0 不写 letter-spacing 属性 */
+  readonly letterSpacingEm: number;
   /** 非 null 时这是 halo 副本：fill/stroke 都用光晕色并带 paint-order=stroke */
   readonly halo: { readonly color: string; readonly width_pt: number } | null;
 }
 
 /**
  * 一个 `<text>` 元素（§5.3）。
- * 属性顺序沿用旧 compose：x/y → text-anchor → font-family → font-size → 字重/斜体 → fill →
- * halo 的 stroke/stroke-width/paint-order。halo 副本同时填光晕色，才能在浅色底图上描边。
+ * 属性顺序（预览与成品同口径，且成品字节须确定）：x/y → text-anchor → font-family → font-size
+ * → font-style（italic）→ font-weight → letter-spacing → fill → halo 的
+ * stroke/stroke-width/paint-order。字重 400 / 字距 0 时不写属性；halo 副本同时填光晕色，
+ * 才能在浅色底图上描边。
  */
 function textElement(x: number, y: number, value: string, options: TextElementOptions): string {
   const attributes = [
@@ -128,7 +143,10 @@ function textElement(x: number, y: number, value: string, options: TextElementOp
     `font-size="${num(options.fontSize)}"`,
   ];
   if (options.italic) attributes.push('font-style="italic"');
-  if (options.bold) attributes.push('font-weight="bold"');
+  const fontWeight = fontWeightValue(options.fontWeight);
+  if (fontWeight !== undefined) attributes.push(`font-weight="${fontWeight}"`);
+  const letterSpacing = letterSpacingValue(options.letterSpacingEm, options.fontSize);
+  if (letterSpacing !== undefined) attributes.push(`letter-spacing="${letterSpacing}"`);
   attributes.push(`fill="${attr(options.fill)}"`);
   if (options.halo !== null) {
     attributes.push(`stroke="${attr(options.halo.color)}"`);
@@ -160,7 +178,8 @@ function renderTextItem(item: TextItem, layout: PageLayout, geo: Geo): string[] 
           fontSize: item.font_size_pt,
           fill: item.halo.color,
           italic: item.italic,
-          bold: item.bold,
+          fontWeight: item.font_weight,
+          letterSpacingEm: item.letter_spacing_em,
           halo: item.halo,
         }),
       );
@@ -172,7 +191,8 @@ function renderTextItem(item: TextItem, layout: PageLayout, geo: Geo): string[] 
         fontSize: item.font_size_pt,
         fill: item.color,
         italic: item.italic,
-        bold: item.bold,
+        fontWeight: item.font_weight,
+        letterSpacingEm: item.letter_spacing_em,
         halo: null,
       }),
     );
@@ -267,7 +287,8 @@ function renderLegendItem(item: LegendItem, layout: PageLayout, geo: Geo): strin
         fontSize: item.title_size_pt,
         fill: layout.style.color,
         italic: false,
-        bold: false,
+        fontWeight: PLAIN_TEXT_WEIGHT,
+        letterSpacingEm: PLAIN_TEXT_LETTER_SPACING_EM,
         halo: null,
       }),
     );
@@ -316,7 +337,8 @@ function renderLegendItem(item: LegendItem, layout: PageLayout, geo: Geo): strin
         fontSize: item.font_size_pt,
         fill: layout.style.color,
         italic: false,
-        bold: false,
+        fontWeight: PLAIN_TEXT_WEIGHT,
+        letterSpacingEm: PLAIN_TEXT_LETTER_SPACING_EM,
         halo: null,
       }),
     );
@@ -349,7 +371,8 @@ function renderColorbarItem(
         fontSize: item.title_size_pt,
         fill: layout.style.color,
         italic: false,
-        bold: false,
+        fontWeight: PLAIN_TEXT_WEIGHT,
+        letterSpacingEm: PLAIN_TEXT_LETTER_SPACING_EM,
         halo: null,
       }),
     );
@@ -371,7 +394,8 @@ function renderColorbarItem(
         fontSize: item.label_size_pt,
         fill: layout.style.color,
         italic: false,
-        bold: false,
+        fontWeight: PLAIN_TEXT_WEIGHT,
+        letterSpacingEm: PLAIN_TEXT_LETTER_SPACING_EM,
         halo: null,
       }),
     );
@@ -408,7 +432,8 @@ function renderFrame(layout: PageLayout, geo: Geo): string {
           fontSize: frame.tick_font_size_pt,
           fill: frame.tick_color,
           italic: false,
-          bold: false,
+          fontWeight: PLAIN_TEXT_WEIGHT,
+          letterSpacingEm: PLAIN_TEXT_LETTER_SPACING_EM,
           halo: null,
         }),
       );

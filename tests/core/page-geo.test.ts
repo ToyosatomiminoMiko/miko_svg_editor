@@ -103,7 +103,7 @@ describe('serializeMapDocFile（导出单文件 geo.json）', () => {
     const keys = Object.keys(parsed);
     expect(keys).toEqual([...keys].sort());
     expect(parsed['format']).toBe('mapdoc-geo');
-    expect(parsed['version']).toBe(1);
+    expect(parsed['version']).toBe(2);
     // page 数字规范化到 3 位小数：A4 横向 841.889764 → 841.89
     const page = parsed['page'] as { paper: Record<string, number> };
     expect(page.paper['width_pt']).toBe(841.89);

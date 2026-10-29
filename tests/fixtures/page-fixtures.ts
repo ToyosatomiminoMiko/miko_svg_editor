@@ -25,14 +25,14 @@ export const BASE_SHA256: string = sha256OfBytes(BASE_BYTES);
 /** 底图契约解析结果（errors 为空才允许打开） */
 export const BASE_INFO = readBaseSvg(BASE_SVG_TEXT);
 /**
- * 构造一份完整的 200×100 geo：2 条经度 + 2 条纬度刻度、2 个地名（含 halo/旋转/多行）、
- * 高程色标、5 种图例条目（line/rect/point×3 marker）、完整默认文案。
+ * 构造一份完整的 200×100 geo：2 条经度 + 2 条纬度刻度、2 个地名（单行 + 多行，样式全由 role
+ * 决定）、高程色标、5 种图例条目（line/rect/point×3 marker）、完整默认文案。
  * 每次调用返回新对象，测试可以放心改字段。
  */
 export function makeGeo(): Geo {
   return {
     format: 'mapdoc-geo',
-    version: 1,
+    version: 2,
     base: {
       sha256: BASE_SHA256,
       view_box: [0, 0, 200, 100],
@@ -53,32 +53,22 @@ export function makeGeo(): Geo {
     labels: [
       {
         id: 'label-country-A',
-        kind: 'country',
+        role: 'country',
         text: '甲国',
-        lines: ['甲国'],
         x: 100,
         y: 50,
-        rotation_deg: 0,
         anchor: 'middle',
         font_size_pt: 12,
-        color: '#3a3a3a',
-        italic: false,
-        halo: { color: '#ffffff', width_pt: 3 },
         order: 0,
       },
       {
         id: 'label-river-B',
-        kind: 'river',
+        role: 'river',
         text: '乙河\n第二行',
-        lines: ['乙河', '第二行'],
         x: 160,
         y: 80,
-        rotation_deg: -30,
         anchor: 'start',
         font_size_pt: 9,
-        color: '#335577',
-        italic: true,
-        halo: null,
         order: 1,
       },
     ],

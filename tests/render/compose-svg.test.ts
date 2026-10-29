@@ -229,15 +229,16 @@ describe('composeFinalSvg：text/map 空间（§5.1/§5.3）', () => {
   it('map 空间文字只变换起点、字号不乘 s；halo 先描边后填充', () => {
     const { document, layout, result } = setup();
     const geo = document.geo;
-    const label = firstText(layout, 'label');
-    // 合成前会 normalizePage（3 位小数），地图缩放比要用规范化后的 map.width_pt
-    const map = normalizePage(layout).map;
+    // 合成前会 normalizePage（3 位小数）：坐标比较必须用规范化后的 item 与 map
+    const normalized = normalizePage(layout);
+    const label = firstText(normalized, 'label');
+    const map = normalized.map;
     const s = map.width_pt / geo.base.width_pt;
     const px = map.x + label.x * s;
     const py = map.y + label.y * s;
     expect(label.space).toBe('map');
-    // 起点过 §5.1；font-size 仍是 pt（不乘 s）
-    const family = escapeXmlAttribute(layout.style.font_family);
+    // 起点过 §5.1；font-size 仍是 pt（不乘 s）；描边宽度是纸面常量（2pt，不乘 s）
+    const family = escapeXmlAttribute(normalized.style.font_family);
     expect(result.svg).toContain(
       `<text x="${num(px)}" y="${num(py)}" text-anchor="${label.anchor}" ` +
         `font-family="${family}" ` +
@@ -248,7 +249,7 @@ describe('composeFinalSvg：text/map 空间（§5.1/§5.3）', () => {
   });
 
   it('多行 + 旋转：整组绕第一行锚点旋转，行距 = 字号 × 行高', () => {
-    const { document, layout, result } = setup();
+    const { document, layout } = setup();
     const geo = document.geo;
     const label = layout.items.find(
       (item): item is TextItem =>
@@ -256,36 +257,69 @@ describe('composeFinalSvg：text/map 空间（§5.1/§5.3）', () => {
     );
     expect(label).toBeDefined();
     if (label === undefined) return;
-    const map = normalizePage(layout).map;
+    // geo v2 的生成端不再给旋转（默认 0）；这里手动设置，验证 TextItem 仍支持旋转渲染
+    label.rotation_deg = -30;
+    const result = composeFinalSvg(document, layout);
+    // compose 先 normalizePage，坐标比较用规范化后的同 id item
+    const normalized = normalizePage(layout);
+    const flatLabel = normalized.items.find(
+      (item): item is TextItem => item.kind === 'text' && item.id === label.id,
+    );
+    expect(flatLabel).toBeDefined();
+    if (flatLabel === undefined) return;
+    const map = normalized.map;
     const s = map.width_pt / geo.base.width_pt;
-    const px = map.x + label.x * s;
-    const py = map.y + label.y * s;
+    const px = map.x + flatLabel.x * s;
+    const py = map.y + flatLabel.y * s;
     const group = new RegExp(
-      `<g transform="rotate\\(${num(label.rotation_deg)} ${num(px)} ${num(py)}\\)">([\\s\\S]*?)</g>`,
+      `<g transform="rotate\\(${num(flatLabel.rotation_deg)} ${num(px)} ${num(py)}\\)">([\\s\\S]*?)</g>`,
     ).exec(result.svg);
     expect(group).not.toBeNull();
     const body = group?.[1] ?? '';
     const y1 = py;
-    const y2 = py + label.font_size_pt * label.line_height;
+    const y2 = py + flatLabel.font_size_pt * flatLabel.line_height;
     expect(body).toContain(`y="${num(y1)}"`);
     expect(body).toContain(`y="${num(y2)}"`);
     expect(body).toContain('>乙河</text>');
     expect(body).toContain('>第二行</text>');
-    expect(body.match(/<text /g)).toHaveLength(2);
+    // v2 地名统一带光晕：每行 1 个 halo 副本 + 1 个填充副本
+    expect(body.match(/<text /g)).toHaveLength(4);
+    expect(body.match(/paint-order="stroke"/g)).toHaveLength(2);
   });
 
-  it('斜体/粗体/字体族与 XML 转义（文本只转 & < >）', () => {
+  it('斜体/字重/字体族与 XML 转义（文本只转 & < >）', () => {
     const { document, layout } = setup();
     const title = firstText(layout, 'title');
     title.lines = ['a & <b> "c" \'d\''];
     title.italic = true;
-    title.bold = true;
+    title.font_weight = 700;
     title.font_family = "Noto 'X' &";
     const result = composeFinalSvg(document, layout);
     expect(result.svg).toContain('font-style="italic"');
-    expect(result.svg).toContain('font-weight="bold"');
+    expect(result.svg).toContain('font-weight="700"');
     expect(result.svg).toContain('font-family="Noto &apos;X&apos; &amp;"');
     expect(result.svg).toContain(`>a &amp; &lt;b&gt; "c" 'd'</text>`);
+  });
+
+  it('字距进入 letter-spacing 属性（3 位小数）且属性顺序在 fill 之前', () => {
+    const { document, layout } = setup();
+    const title = firstText(layout, 'title');
+    title.font_weight = 700;
+    title.letter_spacing_em = 0.1;
+    const result = composeFinalSvg(document, layout);
+    const spacing = num(title.letter_spacing_em * title.font_size_pt);
+    expect(spacing).toBe('1.8');
+    expect(result.svg).toMatch(
+      new RegExp(
+        `font-family="[^"]*" font-size="${num(title.font_size_pt)}" font-weight="700" ` +
+          `letter-spacing="${spacing}" fill=`,
+      ),
+    );
+    // 400/0 是默认值：不写属性（保持旧成品字节布局）
+    const subtitleTag = /<text [^>]*>副标题文本<\/text>/.exec(result.svg)?.[0] ?? '';
+    expect(subtitleTag).not.toBe('');
+    expect(subtitleTag).not.toContain('font-weight');
+    expect(subtitleTag).not.toContain('letter-spacing');
   });
 });
 

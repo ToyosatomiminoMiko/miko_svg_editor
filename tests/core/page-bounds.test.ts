@@ -13,6 +13,7 @@ import type { ColorbarItem, LegendItem, TextItem } from '../../src/core/page';
 import {
   defaultPageLayout,
   fallbackTextMeasure,
+  fontShorthand,
   itemBoundsPt,
   itemPlacement,
   legendLayout,
@@ -152,7 +153,11 @@ describe('字体行盒回退口径', () => {
   });
 });
 
-/** 与 itemBoundsPt 内部一致的字体简写（item.font_family 优先，否则 layout.style） */
+/** 与 itemBoundsPt 内部一致的字体简写（item.font_family 优先，否则 layout.style；含字重） */
 function fontOf(item: TextItem): string {
-  return `${item.font_size_pt}px ${item.font_family ?? layout.style.font_family}`;
+  return fontShorthand(
+    item.font_size_pt,
+    item.font_family ?? layout.style.font_family,
+    item.font_weight,
+  );
 }
