@@ -1,13 +1,15 @@
 /**
  * 出版排版编辑器（map.html）的常量与默认值。
  *
- * 是什么：单文件地图文档 `<stem>.geo.json`（format `mapdoc-geo`）的格式标识、上传/下载参数、
- * 纸张预设、默认页边距/字号/图框/图例/色标参数、校验上下限与交互缩放系数。
+ * 是什么：单文件地图文档 `<stem>.geo.json`（format `mapdoc-geo`）与成品 SVG 内嵌可编辑源
+ * （format `mapdoc-final-source`）的格式标识、上传/下载参数、纸张预设、默认页边距/字号/图框/
+ * 图例/色标参数、校验上下限与交互缩放系数。
  * 为什么集中在这里：预览（浏览器 DOM）与成品（浏览器内 `render/compose-svg.ts`）必须共享同一套
  * 默认值；把它们放在 config 层，core/render/ui/app 只读不写，避免「预览与成品标定不一致」。
  * 数字口径：全部是 pt（1 用户单位 = 1pt），写进 SVG 时最多 3 位小数、去尾零（见
  * `render/page-format.ts` 与 `docs/PAGE-EDITOR.md` §5）。
- * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地。
+ * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地；
+ *         2026-10-29 增加成品 SVG 内嵌源/ marker 版本常量。
  */
 
 /* ---------------- 文档标识 ---------------- */
@@ -21,6 +23,17 @@ export const PAGE_GEO_FORMAT = 'mapdoc-geo';
 
 /** 版本：必须精确匹配；排版块是同一 v1 文档里的可选 `page` 键（不升版本，保持 Cartopy 兼容） */
 export const PAGE_GEO_VERSION = 1;
+
+/**
+ * 成品 SVG 内嵌可编辑源的格式标识（`<metadata id="mapdoc-source">`）与版本。
+ * 为什么单独一个 format：内嵌的是「导出时的整份 geo.json 原文 + 底图前后缀」，
+ * 与 geo.json 自身（mapdoc-geo）是两种载荷，必须能分别识别版本、分别拒绝坏数据。
+ */
+export const PAGE_FINAL_SOURCE_FORMAT = 'mapdoc-final-source';
+export const PAGE_FINAL_SOURCE_VERSION = 1;
+
+/** 成品 SVG 尾部 marker（`<!-- mapdoc-final:… -->`）的版本；v2 起排版摘要键名是 `page` */
+export const PAGE_FINAL_MARKER_VERSION = 2;
 
 /* ---------------- 上传与下载（文件 I/O，无后端） ---------------- */
 

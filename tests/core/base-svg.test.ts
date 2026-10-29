@@ -38,6 +38,14 @@ describe('readBaseSvg：合格底图', () => {
     ).toBe(BASE_SVG_TEXT);
   });
 
+  it('prefix / inner / suffix 首尾相接就是完整原文（成品内嵌源逐字节还原用）', () => {
+    const info = check(BASE_SVG_TEXT);
+    expect(info.prefix.startsWith('<?xml version="1.0" encoding="utf-8"?>\n<svg ')).toBe(true);
+    expect(info.prefix.endsWith('>')).toBe(true);
+    expect(info.suffix).toBe('</svg>\n');
+    expect(`${info.prefix}${info.inner}${info.suffix}`).toBe(BASE_SVG_TEXT);
+  });
+
   it('根标签属性值里的 > 不会提前结束起始标签', () => {
     const info = check(
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 20" data-note="a>b"><rect/></svg>',
@@ -45,6 +53,9 @@ describe('readBaseSvg：合格底图', () => {
     expect(info.errors).toEqual([]);
     expect(info.view_box).toEqual([0, 0, 10, 20]);
     expect(info.inner).toBe('<rect/>');
+    expect(`${info.prefix}${info.inner}${info.suffix}`).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 20" data-note="a>b"><rect/></svg>',
+    );
   });
 
   it('只接受小写 <svg 且后面必须是空白、/ 或 >', () => {
@@ -72,12 +83,17 @@ describe('readBaseSvg：C1（根 svg / viewBox / 尺寸）', () => {
     expect(info.errors).toContain('C3: </svg> 应恰好出现 1 次, 实际 0 次');
     expect(info.view_box).toBeNull();
     expect(info.inner).toBe('');
+    // 连根标签都不可信时，底图前后缀也留空（成品内嵌源不能拿半坏切片去还原字节）
+    expect(info.prefix).toBe('');
+    expect(info.suffix).toBe('');
   });
 
   it('根起始标签没闭合时报 C1', () => {
     const info = check('<svg viewBox="0 0 10 10"');
     expect(info.errors[0]).toBe('C1: 根 <svg> 起始标签没有闭合');
     expect(info.inner).toBe('');
+    expect(info.prefix).toBe('');
+    expect(info.suffix).toBe('');
   });
 
   it('缺少 viewBox 或 viewBox 形状不对时报 C1', () => {

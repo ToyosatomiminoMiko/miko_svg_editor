@@ -8,12 +8,14 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { decodeBase64Utf8 } from '../../src/core/base64';
 import { readBaseSvg } from '../../src/core/base-svg';
 import type { PageDocument } from '../../src/core/document';
 import {
   geoDigest,
   normalizePage,
   pageDigest,
+  serializeMapDocFile,
   type ColorbarItem,
   type Geo,
   type LegendItem,
@@ -480,5 +482,45 @@ describe('composeFinalSvg：错误路径', () => {
         'transform="translate(28,72) scale(3.099)">',
     );
     expect(normalizePage(layout).map.x).toBe(28);
+  });
+});
+
+describe('composeFinalSvg：内嵌可编辑源（§6.2）', () => {
+  /** 解出 `<metadata id="mapdoc-source">` 的 payload（载荷含中文，必须按 UTF-8 解码） */
+  function decodeSource(svg: string): Record<string, unknown> {
+    const match = /<metadata id="mapdoc-source">([^<]*)<\/metadata>/.exec(svg);
+    expect(match).not.toBeNull();
+    return JSON.parse(decodeBase64Utf8(match?.[1] ?? '')) as Record<string, unknown>;
+  }
+
+  it('metadata 紧跟纸张底色、位于 defs 之前，载荷含完整 geo.json 与底图前后缀', () => {
+    const { document, layout, result } = setup();
+    const svg = result.svg;
+    const rectIndex = svg.indexOf('<rect x="0" y="0"');
+    const metaIndex = svg.indexOf('<metadata id="mapdoc-source">');
+    const defsIndex = svg.indexOf('<defs>');
+    expect(rectIndex).toBeGreaterThan(0);
+    expect(metaIndex).toBeGreaterThan(rectIndex);
+    expect(metaIndex).toBeLessThan(defsIndex);
+
+    const payload = decodeSource(svg);
+    expect(payload['format']).toBe('mapdoc-final-source');
+    expect(payload['version']).toBe(1);
+    // 与「导出 geo.json」完全同一份文本（含 page 块），重新打开即可恢复排版
+    expect(payload['document']).toBe(serializeMapDocFile(document.geo, layout));
+    expect(payload['document']).toContain('"page"');
+    const base = payload['base'] as Record<string, unknown>;
+    expect(base['prefix']).toBe(document.base.prefix);
+    expect(base['suffix']).toBe(document.base.suffix);
+    expect(base['sha256']).toBe(document.baseSha256);
+    expect(base['exact']).toBe(true);
+  });
+
+  it('内嵌源不影响 marker/确定性：两次合成字节一致', () => {
+    const { document, layout } = setup();
+    const first = composeFinalSvg(document, layout).svg;
+    const second = composeFinalSvg(document, layout).svg;
+    expect(second).toBe(first);
+    expect(first.match(/<metadata id="mapdoc-source">/g)).toHaveLength(1);
   });
 });

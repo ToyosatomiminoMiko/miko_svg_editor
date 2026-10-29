@@ -12,11 +12,13 @@
  * 为什么 base 同时保留 bytes 与解析结果：bytes 用于预览的 objectURL 和 sha256（必须对原始
  * 字节求摘要）；`base.inner`（根标签内的原文）是成品内联底图的唯一来源。
  * 元信息：作者 lead，2026-10-28，无后端数据流（上传 base.svg + geo.json）；
- *         同日合并 geo.json/scene.json 为单文件（只保留 geo.json）。
+ *         同日合并 geo.json/scene.json 为单文件（只保留 geo.json）；
+ *         2026-10-29 增加 `createPageDocument`（三条打开路径共用的校验/固化入口）。
  */
 
-import type { BaseSvgInfo } from './base-svg';
-import type { Geo } from './page';
+import { PAGE_BASE_SIZE_TOLERANCE_PT } from '../config/page';
+import { readBaseSvg, type BaseSvgInfo } from './base-svg';
+import { sha256OfBytes, type Geo } from './page';
 
 /** 一次「打开地图」得到的不可变文档；排版（page 块）由编辑器另外持有 */
 export interface PageDocument {
@@ -32,6 +34,68 @@ export interface PageDocument {
   readonly base: BaseSvgInfo;
   /** 规范化后的 geo（可选块已补默认值，见 core/page.ts 的 normalizeGeo） */
   readonly geo: Geo;
+}
+
+/** `createPageDocument` 的口径开关 */
+export interface CreatePageDocumentOptions {
+  /**
+   * 是否要求底图字节的 sha256 与 `geo.base.sha256` 一致（默认 true）。
+   * 什么时候允许关掉：旧版成品 SVG 没有内嵌底图前后缀，只能按内联图层 + geo.base 合成外壳，
+   * 还原出的字节与原底图必然不同；此时仍可用 `inner` 正常编辑/导出，但不能声称字节一致。
+   */
+  readonly verifyBaseSha256?: boolean;
+}
+
+/** 浮点容差比较（底图与 geo 的尺寸声明，容差见 config PAGE_BASE_SIZE_TOLERANCE_PT） */
+function nearPt(left: number, right: number): boolean {
+  return Math.abs(left - right) <= PAGE_BASE_SIZE_TOLERANCE_PT;
+}
+
+/**
+ * 把「底图原文 + geo」固化成 `PageDocument`，并做一致性校验：
+ * 底图 C1–C4、字节 sha256（可关闭）== geo.base.sha256、viewBox / width_pt / height_pt 在容差内一致。
+ *
+ * 为什么统一入口：底图 + geo、成品 SVG 单文件、成品 SVG + geo 三条打开路径最终都落到同一份
+ * 一致性校验，避免其中一条悄悄跳过尺寸/ sha 对照（那会让成品与预览在不同精度上分叉）。
+ */
+export function createPageDocument(
+  baseFileName: string,
+  baseText: string,
+  geo: Geo,
+  options: CreatePageDocumentOptions = {},
+): PageDocument {
+  const baseBytes = new TextEncoder().encode(baseText);
+  const base = readBaseSvg(baseText);
+  if (base.errors.length > 0) {
+    throw new Error(`底图不符合契约：${base.errors.slice(0, 3).join('；')}`);
+  }
+  const baseSha256 = sha256OfBytes(baseBytes);
+  if (options.verifyBaseSha256 !== false && geo.base.sha256.toLowerCase() !== baseSha256) {
+    throw new Error(
+      '底图与 geo.json 不配套（sha256 不一致）：请用 Cartopy 重新生成同名的 base.svg + geo.json',
+    );
+  }
+  const baseBox = base.view_box;
+  if (baseBox === null) throw new Error('底图根标签缺少合法的 viewBox，无法确定地图尺寸');
+  const geoBox = geo.base.view_box;
+  if (!geoBox.every((value, index) => nearPt(value, baseBox[index] ?? Number.NaN))) {
+    throw new Error(
+      `geo.json 与底图的 viewBox 不一致（底图 ${baseBox.join(' ')}，geo ${geoBox.join(' ')}）：请重新生成配套文件`,
+    );
+  }
+  if (!nearPt(geo.base.width_pt, base.width_pt) || !nearPt(geo.base.height_pt, base.height_pt)) {
+    throw new Error(
+      `geo.json 与底图的尺寸不一致（底图 ${base.width_pt}×${base.height_pt}pt，geo ${geo.base.width_pt}×${geo.base.height_pt}pt）：请重新生成配套文件`,
+    );
+  }
+  return {
+    baseFileName,
+    baseStem: baseStemOf(baseFileName),
+    baseBytes,
+    baseSha256,
+    base,
+    geo,
+  };
 }
 
 /** 上传文件的候选类型：按文件名后缀分桶，JSON 内容再按 `format` 字段校验 */

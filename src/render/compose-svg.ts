@@ -3,7 +3,8 @@
  *
  * 是什么：把底图根标签内的原文原样嵌进带 `clip-path` 的 `<g id="mapdoc-map">`，再按
  * `docs/PAGE-EDITOR.md` §6 的图层顺序拼出纸张、图框刻度、items 与 `mapdoc-final` marker；
- * 同时给出元素计数、越界告警与越界 item id（`report`）。
+ * 同时在 `<metadata id="mapdoc-source">` 写入「整份 geo.json 原文 + 底图前后缀」，让成品
+ * 单文件就能被重新打开继续编辑（§6.2）。此外给出元素计数、越界告警与越界 item id（`report`）。
  * 为什么在 render 层而不是 core：输出是 SVG 字符串，要复用 `render/page-format.ts` 的数值/
  * 转义口径；排版几何仍全部来自 `core/page-layout.ts`（与 `render/page-svg.ts` 预览同一套公式）。
  * 确定性：不读 DOM、时间、随机数；同一 (base.inner, baseSha256, geo, layout) 输入两次得到同字节。
@@ -11,15 +12,23 @@
  * page-layout 统一提供，所以不要求与旧输出逐字节一致；数值格式仍走 formatPageNumber。
  * 为什么 map group 必须 `clip-path`：底图根内自带覆盖整个 Figure 的图幅白底 path，预览用
  * `<image>` 天然只显示地图矩形，成品不裁剪会在非白纸色下把白底铺满整页（见 §6）。
- * 元信息：作者 compose，2026-10-28，无后端数据流（浏览器内导出成品）。
+ * 元信息：作者 compose，2026-10-28，无后端数据流（浏览器内导出成品）；
+ *         2026-10-29 增加内嵌可编辑源 metadata（成品可再次编辑，见 core/final-svg.ts）。
  */
 
+import {
+  PAGE_FINAL_MARKER_VERSION,
+  PAGE_FINAL_SOURCE_FORMAT,
+  PAGE_FINAL_SOURCE_VERSION,
+} from '../config/page';
+import { encodeBase64Utf8 } from '../core/base64';
 import type { PageDocument } from '../core/document';
 import {
   canonicalJson,
   geoDigest,
   normalizePage,
   pageDigest,
+  serializeMapDocFile,
   type ColorbarItem,
   type Geo,
   type GeoRelief,
@@ -75,8 +84,6 @@ export interface ComposeResult {
 const BBOX_EPS = 1e-6;
 /** 五角星内半径 ÷ 外接半径 = (3-√5)/2 ≈ 0.381966（matplotlib 五角星比例，预览同值） */
 const STAR_INNER_RATIO = (3 - Math.sqrt(5)) / 2;
-/** base64 字母表（标准编码，marker 用；见 encodeBase64） */
-const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 /** 数字 → SVG 文本（统一走 page-format，成品与预览同一口径） */
 const num = (value: number): string => formatPageNumber(value);
@@ -533,31 +540,12 @@ function countItems(items: readonly PageItem[]): ComposeCounts {
   return { text: textCount, legend: legendCount, colorbar: colorbarCount, total: items.length };
 }
 
-/* =========================== marker =========================== */
+/* =========================== marker 与内嵌可编辑源 =========================== */
 
 /**
- * 标准 base64 编码（带 padding）。
- * 为什么不直接用 `btoa`：core/render 要能在 node 单测里跑，`btoa` 在旧 node 上不存在；
- * 而 marker payload 只含 ASCII（键/数字/十六进制摘要），所以按字节编码即可，无需 UTF-8 往返。
+ * final marker：`<!-- mapdoc-final:BASE64(canonicalJson(payload)) -->`（§6.1）。
  * 为什么用 base64 包 JSON：XML 注释里不能出现 `--`，而 JSON 文本完全可能。
  */
-function encodeBase64(textValue: string): string {
-  const bytes = new TextEncoder().encode(textValue);
-  let output = '';
-  for (let index = 0; index < bytes.length; index += 3) {
-    const remaining = bytes.length - index;
-    const byte0 = bytes[index] ?? 0;
-    const byte1 = remaining > 1 ? (bytes[index + 1] ?? 0) : 0;
-    const byte2 = remaining > 2 ? (bytes[index + 2] ?? 0) : 0;
-    output += BASE64_ALPHABET.charAt(byte0 >> 2);
-    output += BASE64_ALPHABET.charAt(((byte0 & 0x03) << 4) | (byte1 >> 4));
-    output += remaining > 1 ? BASE64_ALPHABET.charAt(((byte1 & 0x0f) << 2) | (byte2 >> 6)) : '=';
-    output += remaining > 2 ? BASE64_ALPHABET.charAt(byte2 & 0x3f) : '=';
-  }
-  return output;
-}
-
-/** final marker：`<!-- mapdoc-final:BASE64(canonicalJson(payload)) -->`（§6.1） */
 function makeMarker(counts: ComposeCounts, geo: Geo, layout: PageLayout): string {
   const payload = {
     counts: {
@@ -568,9 +556,38 @@ function makeMarker(counts: ComposeCounts, geo: Geo, layout: PageLayout): string
     },
     geo: geoDigest(geo),
     page: pageDigest(layout),
-    version: 2,
+    version: PAGE_FINAL_MARKER_VERSION,
   };
-  return `<!-- mapdoc-final:${encodeBase64(canonicalJson(payload))} -->`;
+  return `<!-- mapdoc-final:${encodeBase64Utf8(canonicalJson(payload))} -->`;
+}
+
+/**
+ * 内嵌可编辑源：`<metadata id="mapdoc-source">BASE64(canonicalJson(payload))</metadata>`（§6.2）。
+ *
+ * payload = 整份 geo.json 原文（`serializeMapDocFile(geo, layout)` 的字节）+ 底图 `prefix`/`suffix`
+ * + 还原后的底图摘要 `base.sha256` 与来源标志 `base.exact`。
+ * 为什么把 geo.json 原文整段放进 metadata：重新打开时排版与地理块都来自同一次导出的字节，
+ * 「导出 → 重新打开 → 再导出」可以做到字节幂等，不需要从渲染结果反推排版。
+ * 为什么底图只存前后缀：`inner` 已在 `mapdoc-map` 组内，前后缀只有几十字节；
+ * 两者首尾相接就能逐字节还原底图，让 `geo.base.sha256` 继续成立。
+ * 为什么还要 `exact`：旧版成品迁移时底图外壳是合成的（字节与原 base.svg 不同），
+ * 重开时不能再拿 `geo.base.sha256` 校验，只能对照内嵌的 `base.sha256`。
+ */
+function makeSourceMetadata(document: PageDocument, layout: PageLayout): string {
+  const baseSha256 = document.baseSha256.toLowerCase();
+  const exact = baseSha256 === document.geo.base.sha256.toLowerCase();
+  const payload = {
+    base: {
+      prefix: document.base.prefix,
+      suffix: document.base.suffix,
+      sha256: baseSha256,
+      exact,
+    },
+    document: serializeMapDocFile(document.geo, layout),
+    format: PAGE_FINAL_SOURCE_FORMAT,
+    version: PAGE_FINAL_SOURCE_VERSION,
+  };
+  return `<metadata id="mapdoc-source">${encodeBase64Utf8(canonicalJson(payload))}</metadata>\n`;
 }
 
 /* =========================== 合成入口 =========================== */
@@ -637,9 +654,11 @@ export function composeFinalSvg(document: PageDocument, layout: PageLayout): Com
   const counts = countItems(normalized.items);
   const marker = makeMarker(counts, geo, normalized);
 
-  // 图层顺序与空组写法沿用旧 compose：head 末尾已有换行；defs 始终存在（含底图裁剪）。
+  // 图层顺序与空组写法沿用旧 compose：head 末尾已有换行；
+  // metadata（内嵌可编辑源）紧跟纸张底色，defs 始终存在（含底图裁剪）。
   const parts = [
     head,
+    makeSourceMetadata(document, normalized),
     `${defs}\n`,
     mapOpen,
     document.base.inner,
