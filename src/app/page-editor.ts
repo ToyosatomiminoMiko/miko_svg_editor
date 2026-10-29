@@ -1,11 +1,12 @@
 /**
  * 出版排版编辑器的状态机：选择/拖拽/缩放/平移/脏标记/导出。
  *
- * 是什么：持有当前 `Scene`（唯一真值）与打开时的 `PageDocument`（底图字节 + geo），把画布
- * 指针/键盘手势翻译成对 scene 的修改，组织预览重绘与侧栏同步；导出两个文件——
- * `exportScene()` 写 `<stem>.scene.json`，`exportFinal()` 调 `render/compose-svg.ts` 在浏览器内
- * 合成 `<stem>.svg` 后下载。本文件不认识任何 HTTP 接口。
- * 为什么拖拽/缩放只改 scene 而不改底图：地理层只读（契约 §1），map 空间 item 的位置
+ * 是什么：持有当前 `PageLayout`（唯一真值）与打开时的 `PageDocument`（底图字节 + geo），把画布
+ * 指针/键盘手势翻译成对 layout 的修改，组织预览重绘与侧栏同步；导出两个文件——
+ * `exportGeo()` 把 geo + page 写成 `<stem>.geo.json`（再次打开即可继续编辑），
+ * `exportFinal()` 调 `render/compose-svg.ts` 在浏览器内合成 `<stem>.svg` 后下载。
+ * 本文件不认识任何 HTTP 接口。
+ * 为什么拖拽/缩放只改 layout 而不改底图：地理层只读（契约 §1），map 空间 item 的位置
  * 写回底图坐标；预览与成品共用 `core/page-layout.ts` 的同一套 §5 公式。
  * 缩放/平移通过根 `<svg>` 的 `viewBox` 实现；指针坐标转换统一走 `getScreenCTM().inverse()`，
  * 这样 letterbox（preserveAspectRatio）与设备像素比都不需要自己算。
@@ -25,24 +26,27 @@ import {
   PAGE_ZOOM_MAX,
   PAGE_ZOOM_MIN,
 } from '../config/page';
-import { sceneFileNameOf, finalFileNameOf, type PageDocument } from '../core/document';
+import { geoFileNameOf, finalFileNameOf, type PageDocument } from '../core/document';
 import {
   allocateItemId,
   countItems,
   itemById,
-  normalizeScene,
+  normalizePage,
   removeItem,
   roundToPageDecimals,
-  serializeSceneFile,
+  serializeMapDocFile,
   type ColorbarItem,
   type Geo,
   type LegendItem,
-  type Scene,
-  type SceneBase,
+  type PageLayout,
   type TextItem,
   type TextRole,
 } from '../core/page';
-import { defaultScene, mapTransform, type DefaultSceneOptions } from '../core/page-layout';
+import {
+  defaultPageLayout,
+  mapTransform,
+  type DefaultPageLayoutOptions,
+} from '../core/page-layout';
 import { formatPageNumber } from '../render/page-format';
 import { composeFinalSvg, type ComposeReport } from '../render/compose-svg';
 import { renderPageSvg } from '../render/page-svg';
@@ -51,23 +55,14 @@ import { downloadText } from '../ui/download';
 import { isEditableTarget, type PageSidebar } from '../ui/page-sidebar';
 import type { PageNotifier } from '../ui/page-notify';
 
-/** JSON 导出的 MIME（浏览器据此识别 `scene.json`） */
-const SCENE_MIME = 'application/json';
+/** JSON 导出的 MIME（浏览器据此识别 `<stem>.geo.json`） */
+const GEO_MIME = 'application/json';
 /** SVG 导出的 MIME */
 const SVG_MIME = 'image/svg+xml';
 
 /** 把异常转成可直接展示的一行中文 */
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** scene 声明的底图身份：来自打开时的 `PageDocument`（sha256 + 契约解析出的 pt 尺寸） */
-export function sceneBaseOf(document: PageDocument): SceneBase {
-  return {
-    sha256: document.baseSha256,
-    width_pt: document.base.width_pt,
-    height_pt: document.base.height_pt,
-  };
 }
 
 /** 视图窗口（根 svg 的 viewBox） */
@@ -108,8 +103,8 @@ export interface PageEditorDeps {
   readonly document: PageDocument;
   /** 底图预览的 objectURL（由组合根创建并在关闭时 revoke） */
   readonly baseUrl: string;
-  readonly scene: Scene;
-  /** 初次打开时 scene 是否来自 defaultScene（尚未导出） */
+  readonly layout: PageLayout;
+  /** 初次打开时 layout 是否来自 defaultPageLayout（尚未导出） */
   readonly dirty?: boolean;
 }
 
@@ -122,7 +117,7 @@ export class PageEditor {
   private readonly document: PageDocument;
   private readonly baseUrl: string;
   private readonly geo: Geo;
-  private scene: Scene;
+  private layout: PageLayout;
 
   private selectedId: number | null = null;
   private view: ViewBox = { x: 0, y: 0, w: 1, h: 1 };
@@ -139,7 +134,7 @@ export class PageEditor {
     this.document = deps.document;
     this.baseUrl = deps.baseUrl;
     this.geo = deps.document.geo;
-    this.scene = deps.scene;
+    this.layout = deps.layout;
     this.dirty = deps.dirty ?? false;
 
     this.svg.classList.add('page-canvas');
@@ -197,16 +192,16 @@ export class PageEditor {
     this.svg.replaceChildren();
   }
 
-  /** 当前 scene 的只读引用（page-main 装配侧栏需要） */
-  get currentScene(): Scene {
-    return this.scene;
+  /** 当前 layout 的只读引用（page-main 装配侧栏需要） */
+  get currentLayout(): PageLayout {
+    return this.layout;
   }
 
   /* =========================== 修改入口 =========================== */
 
-  /** 应用一次 scene 修改：mutator 直接改 scene，然后重绘/同步侧栏/记脏 */
-  applySceneChange(mutate: (scene: Scene, geo: Geo) => void): void {
-    mutate(this.scene, this.geo);
+  /** 应用一次 layout 修改：mutator 直接改 layout，然后重绘/同步侧栏/记脏 */
+  applyPageChange(mutate: (layout: PageLayout, geo: Geo) => void): void {
+    mutate(this.layout, this.geo);
     this.dirty = true;
     this.renderAll();
   }
@@ -220,46 +215,44 @@ export class PageEditor {
 
   /** 删除一个元素 */
   deleteItem(id: number): void {
-    if (itemById(this.scene, id) === null) return;
+    if (itemById(this.layout, id) === null) return;
     if (this.selectedId === id) this.selectedId = null;
-    this.applySceneChange((scene) => {
-      removeItem(scene, id);
+    this.applyPageChange((layout) => {
+      removeItem(layout, id);
     });
   }
 
   /* =========================== 导出 =========================== */
 
   /**
-   * 导出 `scene.json`（Ctrl+S 的入口）：规范化后下载，成功即清脏标记。
-   * 为什么先 `normalizeScene`：导出文件是「当前排版」的持久化，3 位小数口径必须与
-   * 合成/签名一致；再交给 `serializeSceneFile` 产出键排序、可 diff 的 2 空格缩进 JSON。
+   * 导出 `<stem>.geo.json`（Ctrl+S 的入口）：geo 全字段 + page 排版块，成功即清脏标记。
+   * 为什么先 `normalizePage`：page 的数字口径必须是 3 位小数（与预览/签名一致）；
+   * geo 块保持原精度（Cartopy 的 view_box 可能有 6 位小数），由 `serializeMapDocFile` 分别处理。
    */
-  exportScene(): boolean {
-    const fileName = sceneFileNameOf(this.document);
+  exportGeo(): boolean {
+    const fileName = geoFileNameOf(this.document);
     try {
-      const scene = normalizeScene(this.scene);
-      // figure 是「这张图叫什么」：无后端后统一记为上传的底图文件名（旧 scene 的路径也在这里覆盖）
-      scene.figure = this.document.baseFileName;
-      downloadText(serializeSceneFile(scene), fileName, SCENE_MIME);
+      const layout = normalizePage(this.layout);
+      downloadText(serializeMapDocFile(this.geo, layout), fileName, GEO_MIME);
       this.dirty = false;
       this.updateChrome();
       this.notifier.info(`已导出 ${fileName}`);
       return true;
     } catch (error) {
-      this.notifier.error(`导出 JSON 失败：${errorMessage(error)}`);
+      this.notifier.error(`导出 geo.json 失败：${errorMessage(error)}`);
       return false;
     }
   }
 
   /**
    * 导出 `final.svg`：浏览器内合成后下载，展示合成报告里的告警。
-   * 为什么不清脏标记：导出 SVG 不改变排版数据，scene.json 仍可能没导出；
-   * 是否「干净」以 JSON 落盘为准。
+   * 为什么不清脏标记：导出 SVG 不改变排版数据，geo.json 仍可能没导出；
+   * 是否「干净」以 geo.json 落盘为准。
    */
   exportFinal(): void {
     const fileName = finalFileNameOf(this.document);
     try {
-      const result = composeFinalSvg(this.document, this.scene);
+      const result = composeFinalSvg(this.document, this.layout);
       downloadText(result.svg, fileName, SVG_MIME);
       this.reportWarnings(result.report);
       this.notifier.info(`已导出 ${fileName}（${result.report.counts.total} 个元素）`);
@@ -273,23 +266,23 @@ export class PageEditor {
   /** 适应页面：纸张四周留 4% 空白 */
   fitPage(): void {
     const pad =
-      Math.max(this.scene.paper.width_pt, this.scene.paper.height_pt) * PAGE_FIT_PADDING_RATIO;
+      Math.max(this.layout.paper.width_pt, this.layout.paper.height_pt) * PAGE_FIT_PADDING_RATIO;
     this.view = {
       x: -pad,
       y: -pad,
-      w: this.scene.paper.width_pt + pad * 2,
-      h: this.scene.paper.height_pt + pad * 2,
+      w: this.layout.paper.width_pt + pad * 2,
+      h: this.layout.paper.height_pt + pad * 2,
     };
     this.applyView();
   }
 
   /** 1:1：1pt = 1 屏幕像素，以纸张中心为锚点 */
   actualSize(): void {
-    const width = this.svg.clientWidth > 0 ? this.svg.clientWidth : this.scene.paper.width_pt;
-    const height = this.svg.clientHeight > 0 ? this.svg.clientHeight : this.scene.paper.height_pt;
+    const width = this.svg.clientWidth > 0 ? this.svg.clientWidth : this.layout.paper.width_pt;
+    const height = this.svg.clientHeight > 0 ? this.svg.clientHeight : this.layout.paper.height_pt;
     this.view = {
-      x: this.scene.paper.width_pt / 2 - width / 2,
-      y: this.scene.paper.height_pt / 2 - height / 2,
+      x: this.layout.paper.width_pt / 2 - width / 2,
+      y: this.layout.paper.height_pt / 2 - height / 2,
       w: width,
       h: height,
     };
@@ -301,9 +294,9 @@ export class PageEditor {
   /** 添加文字元素（role 决定默认位置/字号） */
   addText(role: TextRole): void {
     let newId = 0;
-    this.applySceneChange((scene) => {
-      newId = allocateItemId(scene);
-      scene.items.push(this.newTextItem(scene, newId, role));
+    this.applyPageChange((layout) => {
+      newId = allocateItemId(layout);
+      layout.items.push(this.newTextItem(layout, newId, role));
     });
     this.select(newId);
   }
@@ -316,13 +309,13 @@ export class PageEditor {
   /** 添加空图例（默认右栏顶部） */
   addLegend(): void {
     let newId = 0;
-    this.applySceneChange((scene) => {
-      newId = allocateItemId(scene);
-      const paper = scene.paper;
-      const margin = scene.map.x;
+    this.applyPageChange((layout) => {
+      newId = allocateItemId(layout);
+      const paper = layout.paper;
+      const margin = layout.map.x;
       const rightX = Math.min(
         Math.max(
-          scene.map.x + scene.map.width_pt + 16,
+          layout.map.x + layout.map.width_pt + 16,
           paper.width_pt - margin - PAGE_NEW_LEGEND_WIDTH_PT,
         ),
         paper.width_pt - margin - 20,
@@ -336,7 +329,7 @@ export class PageEditor {
         kind: 'legend',
         space: 'page',
         x: rightX,
-        y: scene.map.y,
+        y: layout.map.y,
         width_pt: width,
         title: '图例',
         entries: [],
@@ -354,7 +347,7 @@ export class PageEditor {
           opacity: PAGE_LEGEND_DEFAULTS.frame_opacity,
         },
       };
-      scene.items.push(legend);
+      layout.items.push(legend);
     });
     this.select(newId);
   }
@@ -367,9 +360,9 @@ export class PageEditor {
       return;
     }
     let newId = 0;
-    this.applySceneChange((scene) => {
-      newId = allocateItemId(scene);
-      const paper = scene.paper;
+    this.applyPageChange((layout) => {
+      newId = allocateItemId(layout);
+      const paper = layout.paper;
       const x = paper.width_pt - 72;
       const height = Math.min(PAGE_NEW_COLORBAR_HEIGHT_PT, Math.max(60, paper.height_pt - 120));
       const colorbar: ColorbarItem = {
@@ -387,24 +380,23 @@ export class PageEditor {
         title_size_pt: 8,
         label_size_pt: 7,
       };
-      scene.items.push(colorbar);
+      layout.items.push(colorbar);
     });
     this.select(newId);
   }
 
-  /** 用当前页边距重新生成默认版式（脏时先确认；会替换整份 scene） */
+  /** 用当前页边距重新生成默认版式（脏时先确认；会替换整份 layout） */
   async relayoutDefault(marginPt = PAGE_DEFAULT_MARGIN_PT): Promise<void> {
     if (this.dirty) {
       const accepted = await this.notifier.ask('重新生成默认版式会覆盖当前排版，继续？');
       if (!accepted) return;
     }
-    const options: DefaultSceneOptions = {
-      figure: this.scene.figure,
+    const options: DefaultPageLayoutOptions = {
       margin_pt: marginPt,
-      paper: { ...this.scene.paper },
+      paper: { ...this.layout.paper },
       measureText: this.measureText.width,
     };
-    this.scene = defaultScene(this.geo, sceneBaseOf(this.document), options);
+    this.layout = defaultPageLayout(this.geo, options);
     this.selectedId = null;
     this.dirty = true;
     this.fitPage();
@@ -416,19 +408,19 @@ export class PageEditor {
 
   /** 重绘预览、同步侧栏、更新标题/状态栏 */
   renderAll(): void {
-    renderPageSvg(this.svg, this.scene, this.geo, {
+    renderPageSvg(this.svg, this.layout, this.geo, {
       baseUrl: this.baseUrl,
       selectedId: this.selectedId,
       measureText: this.measureText,
       interactive: true,
     });
-    this.sidebar.sync(this.scene, this.geo, this.selectedId);
+    this.sidebar.sync(this.layout, this.geo, this.selectedId);
     this.updateChrome();
   }
 
-  /** 标题与状态栏：文档名用底图文件名；脏标记表示「当前排版还没导出 JSON」 */
+  /** 标题与状态栏：文档名用底图文件名；脏标记表示「当前排版还没导出 geo.json」 */
   private updateChrome(): void {
-    const count = countItems(this.scene);
+    const count = countItems(this.layout);
     document.title = `${this.document.baseFileName} · ${count} 元素${this.dirty ? ' *' : ''}`;
     const selection = this.selectedId === null ? '' : ` · 选中 #${this.selectedId}`;
     this.notifier.setState(`${count} 个元素${selection} · ${this.dirty ? '未导出' : '已导出'}`);
@@ -505,7 +497,7 @@ export class PageEditor {
       return;
     }
     this.select(id);
-    const item = itemById(this.scene, id);
+    const item = itemById(this.layout, id);
     const page = this.clientToPage(event.clientX, event.clientY);
     if (!item || !page) return;
     this.gesture = {
@@ -538,7 +530,7 @@ export class PageEditor {
       this.applyView();
       return;
     }
-    const item = itemById(this.scene, gesture.id);
+    const item = itemById(this.layout, gesture.id);
     const page = this.clientToPage(event.clientX, event.clientY);
     if (!item || !page) return;
     let dx = page.x - gesture.startPageX;
@@ -549,7 +541,7 @@ export class PageEditor {
       else dx = 0;
     }
     if (gesture.space === 'map') {
-      const transform = mapTransform(this.geo, this.scene.map);
+      const transform = mapTransform(this.geo, this.layout.map);
       dx /= transform.s;
       dy /= transform.s;
     }
@@ -577,7 +569,7 @@ export class PageEditor {
   private readonly onDoubleClick = (event: MouseEvent): void => {
     const id = this.hitTest(event.target);
     if (id === null) return;
-    const item = itemById(this.scene, id);
+    const item = itemById(this.layout, id);
     if (item?.kind !== 'text') return;
     event.preventDefault();
     this.select(id);
@@ -594,7 +586,7 @@ export class PageEditor {
 
   /** 以纸张坐标 anchor 为中心缩放（缩放范围见 config PAGE_ZOOM_MIN/MAX） */
   private zoomAt(factor: number, anchor: { x: number; y: number }): void {
-    const width = this.svg.clientWidth > 0 ? this.svg.clientWidth : this.scene.paper.width_pt;
+    const width = this.svg.clientWidth > 0 ? this.svg.clientWidth : this.layout.paper.width_pt;
     const minWidth = width / PAGE_ZOOM_MAX;
     const maxWidth = width / PAGE_ZOOM_MIN;
     const nextWidth = Math.min(maxWidth, Math.max(minWidth, this.view.w / factor));
@@ -612,10 +604,10 @@ export class PageEditor {
   /* =========================== 键盘 =========================== */
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    // Ctrl+S 优先于「输入框里不响应快捷键」：导出 JSON 是全局命令
+    // Ctrl+S 优先于「输入框里不响应快捷键」：导出 geo.json 是全局命令
     if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's') {
       event.preventDefault();
-      this.exportScene();
+      this.exportGeo();
       return;
     }
     if (isEditableTarget(event.target)) return;
@@ -674,9 +666,9 @@ export class PageEditor {
   private moveSelectedBy(dxPage: number, dyPage: number): void {
     const id = this.selectedId;
     if (id === null) return;
-    const item = itemById(this.scene, id);
+    const item = itemById(this.layout, id);
     if (!item) return;
-    const scale = item.space === 'map' ? mapTransform(this.geo, this.scene.map).s : 1;
+    const scale = item.space === 'map' ? mapTransform(this.geo, this.layout.map).s : 1;
     if (scale <= 0) return;
     item.x = roundToPageDecimals(item.x + dxPage / scale);
     item.y = roundToPageDecimals(item.y + dyPage / scale);
@@ -687,8 +679,8 @@ export class PageEditor {
   /* =========================== 新建元素 =========================== */
 
   /** 文字模板：按 role 给默认位置/字号/对齐（用户随后可改） */
-  private newTextItem(scene: Scene, id: number, role: TextRole): TextItem {
-    const paper = scene.paper;
+  private newTextItem(layout: PageLayout, id: number, role: TextRole): TextItem {
+    const paper = layout.paper;
     const centerX = paper.width_pt / 2;
     const base = {
       id,
@@ -696,7 +688,7 @@ export class PageEditor {
       space: 'page' as const,
       role,
       font_family: null,
-      color: scene.style.color,
+      color: layout.style.color,
       rotation_deg: 0,
       line_height: 1.35,
       italic: false,
@@ -708,7 +700,7 @@ export class PageEditor {
         return {
           ...base,
           x: centerX,
-          y: scene.map.y - 26,
+          y: layout.map.y - 26,
           lines: ['新标题'],
           font_size_pt: 18,
           anchor: 'middle',
@@ -717,7 +709,7 @@ export class PageEditor {
         return {
           ...base,
           x: centerX,
-          y: scene.map.y - 10,
+          y: layout.map.y - 10,
           lines: ['副标题'],
           font_size_pt: 9,
           anchor: 'middle',

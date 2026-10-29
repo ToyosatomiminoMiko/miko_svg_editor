@@ -3,11 +3,11 @@
  *
  * 是什么：页面（纸张/方向/宽高/页边距/重新排默认版式）、地图（摆放/图框/刻度）、
  * 元素列表、选中项属性（text / legend / colorbar 分支）、图例条目编辑。
- * 为什么这样组织：所有控件都只是「读当前 scene → 写回 mutator」的薄封装，真正的状态
+ * 为什么这样组织：所有控件都只是「读当前 layout → 写回 mutator」的薄封装，真正的状态
  * 在 `app/page-editor.ts`；面板在每次 sync 时只刷新「未聚焦」的控件，所以拖动/输入时
  * 不会打断用户正在编辑的输入框。元素列表与属性面板按选中 id 重建，避免控件状态漂移。
- * 已知限制：契约 §4.1 的图例条目没有 visible 字段，因此「隐藏条目」= 从 scene 中移除，
- * 仅在本会话的侧栏里记住，重新显示时按原位置插回（不会写进 scene）。
+ * 已知限制：契约 §4.1 的图例条目没有 visible 字段，因此「隐藏条目」= 从 layout 中移除，
+ * 仅在本会话的侧栏里记住，重新显示时按原位置插回（不会写进 layout）。
  * 元信息：作者 frontend，2026-10-27。
  */
 
@@ -49,21 +49,21 @@ import {
   type LegendEntry,
   type LegendItem,
   type PageItem,
-  type Scene,
+  type PageLayout,
   type TextAnchor,
   type TextItem,
   type TextRole,
 } from '../core/page';
 
-/** 侧栏回调：编辑器负责把 mutator 应用到自己的 scene 并重绘/记脏 */
+/** 侧栏回调：编辑器负责把 mutator 应用到自己的 layout 并重绘/记脏 */
 export interface PageSidebarHandlers {
-  getScene(): Scene;
+  getLayout(): PageLayout;
   getGeo(): Geo;
-  /** 应用一次修改：mutator 直接改入参 scene（编辑器随后重绘并同步侧栏） */
-  onChange(mutate: (scene: Scene, geo: Geo) => void): void;
+  /** 应用一次修改：mutator 直接改入参 layout（编辑器随后重绘并同步侧栏） */
+  onChange(mutate: (layout: PageLayout, geo: Geo) => void): void;
   onSelect(id: number | null): void;
   onDelete(id: number): void;
-  /** 用给定页边距重新生成默认版式（由编辑器确认后替换 scene） */
+  /** 用给定页边距重新生成默认版式（由编辑器确认后替换 layout） */
   onRelayout(marginPt: number): void;
   /** 轻提示（状态行）：纸张改变时提醒「重新排默认版式」 */
   notify(message: string): void;
@@ -147,8 +147,8 @@ export class PageSidebar {
   private readonly elementList: HTMLElement;
   private readonly propertyBody: HTMLElement;
 
-  /** sync 时的最新 scene/geo；登记项的 read 闭包都从这里取最新值 */
-  private scene: Scene;
+  /** sync 时的最新 layout/geo；登记项的 read 闭包都从这里取最新值 */
+  private layout: PageLayout;
   private geo: Geo;
   private selectedId: number | null = null;
 
@@ -170,14 +170,14 @@ export class PageSidebar {
   private mapHeightEl: HTMLElement | null = null;
   /** 元素计数读数 */
   private elementCountEl: HTMLElement | null = null;
-  /** 上次「重新排默认版式」用的页边距（面板本地状态，不落 scene） */
+  /** 上次「重新排默认版式」用的页边距（面板本地状态，不落 layout） */
   private marginPt = PAGE_DEFAULT_MARGIN_PT;
   /** 会话内隐藏的图例条目：legend id → 被移除的条目与原位置 */
   private readonly hiddenLegendEntries = new Map<number, { entry: LegendEntry; index: number }[]>();
 
   constructor(host: HTMLElement, handlers: PageSidebarHandlers) {
     this.hosts = handlers;
-    this.scene = handlers.getScene();
+    this.layout = handlers.getLayout();
     this.geo = handlers.getGeo();
 
     const pagePanel = createPanel({ title: '页面', class: 'page-sidebar-panel' });
@@ -195,14 +195,14 @@ export class PageSidebar {
 
     this.buildPagePanel();
     this.buildMapPanel();
-    this.sync(this.scene, this.geo, this.selectedId);
+    this.sync(this.layout, this.geo, this.selectedId);
   }
 
   /* =========================== 外部同步 =========================== */
 
   /** 刷新整个侧栏：页面/地图控件值、元素列表、属性面板（按需重建） */
-  sync(scene: Scene, geo: Geo, selectedId: number | null): void {
-    this.scene = scene;
+  sync(layout: PageLayout, geo: Geo, selectedId: number | null): void {
+    this.layout = layout;
     this.geo = geo;
     this.selectedId = selectedId;
     this.refreshControls();
@@ -232,7 +232,7 @@ export class PageSidebar {
     const presetSegmented = createSegmented<PaperPresetId>({
       columns: 5,
       ariaLabel: '纸张预设',
-      value: this.scene.paper.preset,
+      value: this.layout.paper.preset,
       items: [
         ...PAGE_PAPER_PRESETS.map((preset) => ({ value: preset.id, label: preset.label })),
         { value: 'Custom', label: '自定义' },
@@ -241,7 +241,7 @@ export class PageSidebar {
     presetSegmented.onChange((id) => this.applyPaperPreset(id));
     this.registerSegmented(
       'page.preset',
-      () => this.scene.paper.preset,
+      () => this.layout.paper.preset,
       (value) => presetSegmented.set(value as PaperPresetId),
     );
     presetRow.append(presetSegmented.element);
@@ -250,7 +250,7 @@ export class PageSidebar {
     const orientationSegmented = createSegmented<PaperOrientation>({
       columns: 2,
       ariaLabel: '纸张方向',
-      value: this.scene.paper.orientation,
+      value: this.layout.paper.orientation,
       items: [
         { value: 'portrait', label: '纵向' },
         { value: 'landscape', label: '横向' },
@@ -259,7 +259,7 @@ export class PageSidebar {
     orientationSegmented.onChange((orientation) => this.applyOrientation(orientation));
     this.registerSegmented(
       'page.orientation',
-      () => this.scene.paper.orientation,
+      () => this.layout.paper.orientation,
       (value) => orientationSegmented.set(value as PaperOrientation),
     );
     this.pageBody.append(createControlGroup('方向', orientationSegmented.element));
@@ -269,7 +269,7 @@ export class PageSidebar {
       sizeRow,
       'page.width',
       '宽（pt）',
-      () => this.scene.paper.width_pt,
+      () => this.layout.paper.width_pt,
       (value) => this.setPaperSize('width_pt', value),
       { min: 50, max: 5000, step: 0.5, onCommit: () => this.notifyPaperChanged() },
     );
@@ -277,7 +277,7 @@ export class PageSidebar {
       sizeRow,
       'page.height',
       '高（pt）',
-      () => this.scene.paper.height_pt,
+      () => this.layout.paper.height_pt,
       (value) => this.setPaperSize('height_pt', value),
       { min: 50, max: 5000, step: 0.5, onCommit: () => this.notifyPaperChanged() },
     );
@@ -313,14 +313,14 @@ export class PageSidebar {
   }
 
   private applyPaperPreset(id: PaperPresetId): void {
-    this.hosts.onChange((scene) => {
-      scene.paper.preset = id;
+    this.hosts.onChange((layout) => {
+      layout.paper.preset = id;
       if (id === 'Custom') return;
       const preset = findPaperPreset(id);
       if (!preset) return;
-      const size = presetSize(preset, scene.paper.orientation);
-      scene.paper.width_pt = size.width_pt;
-      scene.paper.height_pt = size.height_pt;
+      const size = presetSize(preset, layout.paper.orientation);
+      layout.paper.width_pt = size.width_pt;
+      layout.paper.height_pt = size.height_pt;
     });
     this.notifyPaperChanged();
   }
@@ -331,29 +331,29 @@ export class PageSidebar {
   }
 
   private applyOrientation(orientation: PaperOrientation): void {
-    this.hosts.onChange((scene) => {
-      const before = scene.paper.orientation;
-      scene.paper.orientation = orientation;
-      const preset = findPaperPreset(scene.paper.preset);
+    this.hosts.onChange((layout) => {
+      const before = layout.paper.orientation;
+      layout.paper.orientation = orientation;
+      const preset = findPaperPreset(layout.paper.preset);
       if (preset) {
         const size = presetSize(preset, orientation);
-        scene.paper.width_pt = size.width_pt;
-        scene.paper.height_pt = size.height_pt;
+        layout.paper.width_pt = size.width_pt;
+        layout.paper.height_pt = size.height_pt;
       } else if (before !== orientation) {
         // 自定义尺寸没有「纵向原值」可查：按当前宽高交换，直观且可逆
-        const width = scene.paper.width_pt;
-        scene.paper.width_pt = scene.paper.height_pt;
-        scene.paper.height_pt = width;
+        const width = layout.paper.width_pt;
+        layout.paper.width_pt = layout.paper.height_pt;
+        layout.paper.height_pt = width;
       }
     });
     this.notifyPaperChanged();
   }
 
   private setPaperSize(key: 'width_pt' | 'height_pt', value: number): void {
-    this.hosts.onChange((scene) => {
-      scene.paper[key] = value;
+    this.hosts.onChange((layout) => {
+      layout.paper[key] = value;
       // 手改尺寸后预设不再成立，统一记成 Custom（避免预设标签与数字不一致）
-      scene.paper.preset = 'Custom';
+      layout.paper.preset = 'Custom';
     });
   }
 
@@ -365,24 +365,24 @@ export class PageSidebar {
       positionRow,
       'map.x',
       'x（pt）',
-      () => this.scene.map.x,
-      (value) => this.hosts.onChange((scene) => (scene.map.x = value)),
+      () => this.layout.map.x,
+      (value) => this.hosts.onChange((layout) => (layout.map.x = value)),
       { step: 1 },
     );
     this.addNumberRow(
       positionRow,
       'map.y',
       'y（pt）',
-      () => this.scene.map.y,
-      (value) => this.hosts.onChange((scene) => (scene.map.y = value)),
+      () => this.layout.map.y,
+      (value) => this.hosts.onChange((layout) => (layout.map.y = value)),
       { step: 1 },
     );
     this.addNumberRow(
       positionRow,
       'map.width',
       '宽（pt）',
-      () => this.scene.map.width_pt,
-      (value) => this.hosts.onChange((scene) => (scene.map.width_pt = value)),
+      () => this.layout.map.width_pt,
+      (value) => this.hosts.onChange((layout) => (layout.map.width_pt = value)),
       { min: 2, step: 1 },
     );
     this.mapBody.append(positionRow);
@@ -394,15 +394,15 @@ export class PageSidebar {
       frameRow,
       'map.frameShow',
       '显示图框',
-      () => this.scene.frame.show,
-      (value) => this.hosts.onChange((scene) => (scene.frame.show = value)),
+      () => this.layout.frame.show,
+      (value) => this.hosts.onChange((layout) => (layout.frame.show = value)),
     );
     this.addSwitchRow(
       frameRow,
       'map.frameTicks',
       '显示刻度',
-      () => this.scene.frame.ticks,
-      (value) => this.hosts.onChange((scene) => (scene.frame.ticks = value)),
+      () => this.layout.frame.ticks,
+      (value) => this.hosts.onChange((layout) => (layout.frame.ticks = value)),
     );
     this.mapBody.append(createControlGroup('图框', frameRow));
 
@@ -411,47 +411,47 @@ export class PageSidebar {
       frameStyleRow,
       'map.stroke',
       '图框颜色',
-      () => this.scene.frame.stroke,
-      (value) => this.hosts.onChange((scene) => (scene.frame.stroke = value)),
+      () => this.layout.frame.stroke,
+      (value) => this.hosts.onChange((layout) => (layout.frame.stroke = value)),
     );
     this.addNumberRow(
       frameStyleRow,
       'map.strokeWidth',
       '图框线宽',
-      () => this.scene.frame.width_pt,
-      (value) => this.hosts.onChange((scene) => (scene.frame.width_pt = value)),
+      () => this.layout.frame.width_pt,
+      (value) => this.hosts.onChange((layout) => (layout.frame.width_pt = value)),
       { min: 0, step: 0.1 },
     );
     this.addNumberRow(
       frameStyleRow,
       'map.tickLength',
       '刻度长',
-      () => this.scene.frame.tick_length_pt,
-      (value) => this.hosts.onChange((scene) => (scene.frame.tick_length_pt = value)),
+      () => this.layout.frame.tick_length_pt,
+      (value) => this.hosts.onChange((layout) => (layout.frame.tick_length_pt = value)),
       { min: 0, step: 0.5 },
     );
     this.addNumberRow(
       frameStyleRow,
       'map.tickFont',
       '刻度字号',
-      () => this.scene.frame.tick_font_size_pt,
-      (value) => this.hosts.onChange((scene) => (scene.frame.tick_font_size_pt = value)),
+      () => this.layout.frame.tick_font_size_pt,
+      (value) => this.hosts.onChange((layout) => (layout.frame.tick_font_size_pt = value)),
       { min: 1, step: 0.5 },
     );
     this.addNumberRow(
       frameStyleRow,
       'map.tickGap',
       '刻度间距',
-      () => this.scene.frame.tick_gap_pt,
-      (value) => this.hosts.onChange((scene) => (scene.frame.tick_gap_pt = value)),
+      () => this.layout.frame.tick_gap_pt,
+      (value) => this.hosts.onChange((layout) => (layout.frame.tick_gap_pt = value)),
       { min: 0, step: 0.5 },
     );
     this.addColorRow(
       frameStyleRow,
       'map.tickColor',
       '刻度颜色',
-      () => this.scene.frame.tick_color,
-      (value) => this.hosts.onChange((scene) => (scene.frame.tick_color = value)),
+      () => this.layout.frame.tick_color,
+      (value) => this.hosts.onChange((layout) => (layout.frame.tick_color = value)),
     );
     this.mapBody.append(createControlGroup('样式', frameStyleRow));
   }
@@ -460,7 +460,7 @@ export class PageSidebar {
 
   private rebuildElementList(): void {
     const rows: HTMLElement[] = [];
-    for (const item of this.scene.items) {
+    for (const item of this.layout.items) {
       const row = create_element(
         { tag: 'div' },
         {
@@ -504,7 +504,7 @@ export class PageSidebar {
     this.elementCountEl = create_element(
       { tag: 'p' },
       { class: 'page-hint' },
-      `共 ${this.scene.items.length} 个元素`,
+      `共 ${this.layout.items.length} 个元素`,
     );
     this.elementList.replaceChildren(...rows, this.elementCountEl);
   }
@@ -515,7 +515,7 @@ export class PageSidebar {
     this.clearRegistry('prop.');
     this.textEditor = null;
     const body = this.propertyBody;
-    const item = this.selectedId === null ? null : itemById(this.scene, this.selectedId);
+    const item = this.selectedId === null ? null : itemById(this.layout, this.selectedId);
     if (!item) {
       body.replaceChildren(
         create_element({ tag: 'p' }, { class: 'page-hint' }, '在画布或上方列表里选中一个元素。'),
@@ -551,14 +551,14 @@ export class PageSidebar {
       ],
     });
     spaceSegmented.onChange((space) =>
-      this.hosts.onChange((scene) => {
-        const target = itemById(scene, item.id);
+      this.hosts.onChange((layout) => {
+        const target = itemById(layout, item.id);
         if (target) target.space = space;
       }),
     );
     this.registerSegmented(
       'prop.space',
-      () => itemById(this.scene, item.id)?.space ?? 'page',
+      () => itemById(this.layout, item.id)?.space ?? 'page',
       (value) => spaceSegmented.set(value as ItemSpace),
     );
     container.append(createControlGroup('坐标空间', spaceSegmented.element));
@@ -568,10 +568,10 @@ export class PageSidebar {
       positionRow,
       'prop.x',
       item.space === 'map' ? 'x（底图）' : 'x（pt）',
-      () => itemById(this.scene, item.id)?.x ?? 0,
+      () => itemById(this.layout, item.id)?.x ?? 0,
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target) target.x = value;
         }),
       { step: 1 },
@@ -580,10 +580,10 @@ export class PageSidebar {
       positionRow,
       'prop.y',
       item.space === 'map' ? 'y（底图）' : 'y（pt）',
-      () => itemById(this.scene, item.id)?.y ?? 0,
+      () => itemById(this.layout, item.id)?.y ?? 0,
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target) target.y = value;
         }),
       { step: 1 },
@@ -601,15 +601,15 @@ export class PageSidebar {
     textArea.id = nextWidgetId('page-text');
     textArea.addEventListener('input', () => {
       const lines = textArea.value.split('\n');
-      this.hosts.onChange((scene) => {
-        const target = itemById(scene, item.id);
+      this.hosts.onChange((layout) => {
+        const target = itemById(layout, item.id);
         if (target?.kind !== 'text') return;
         target.lines = lines;
       });
     });
     this.textEditor = textArea;
     this.registerText('prop.lines', textArea, () => {
-      const target = itemById(this.scene, item.id);
+      const target = itemById(this.layout, item.id);
       return target?.kind === 'text' ? target.lines.join('\n') : '';
     });
     const textRow = createRow(createFieldLabel('内容', textArea.id), textArea);
@@ -626,15 +626,15 @@ export class PageSidebar {
       })),
     });
     roleSegmented.onChange((role) =>
-      this.hosts.onChange((scene) => {
-        const target = itemById(scene, item.id);
+      this.hosts.onChange((layout) => {
+        const target = itemById(layout, item.id);
         if (target?.kind === 'text') target.role = role;
       }),
     );
     this.registerSegmented(
       'prop.role',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'text' ? target.role : 'annotation';
       },
       (value) => roleSegmented.set(value as TextRole),
@@ -647,12 +647,12 @@ export class PageSidebar {
       'prop.fontSize',
       '字号（pt）',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'text' ? target.font_size_pt : 12;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'text') target.font_size_pt = value;
         }),
       { min: 0.5, step: 0.5 },
@@ -662,12 +662,12 @@ export class PageSidebar {
       'prop.lineHeight',
       '行高（倍数）',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'text' ? target.line_height : 1.35;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'text') target.line_height = value;
         }),
       { min: 0.5, step: 0.05 },
@@ -677,12 +677,12 @@ export class PageSidebar {
       'prop.rotation',
       '旋转（°）',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'text' ? target.rotation_deg : 0;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'text') target.rotation_deg = value;
         }),
       { step: 1 },
@@ -692,12 +692,12 @@ export class PageSidebar {
       'prop.textColor',
       '文字颜色',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'text' ? target.color : '#111111';
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'text') target.color = value;
         }),
     );
@@ -713,15 +713,15 @@ export class PageSidebar {
       })),
     });
     anchorSegmented.onChange((anchor) =>
-      this.hosts.onChange((scene) => {
-        const target = itemById(scene, item.id);
+      this.hosts.onChange((layout) => {
+        const target = itemById(layout, item.id);
         if (target?.kind === 'text') target.anchor = anchor;
       }),
     );
     this.registerSegmented(
       'prop.anchor',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'text' ? target.anchor : 'middle';
       },
       (value) => anchorSegmented.set(value as TextAnchor),
@@ -734,12 +734,12 @@ export class PageSidebar {
       'prop.italic',
       '斜体',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'text' ? target.italic : false;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'text') target.italic = value;
         }),
     );
@@ -748,12 +748,12 @@ export class PageSidebar {
       'prop.bold',
       '加粗',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'text' ? target.bold : false;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'text') target.bold = value;
         }),
     );
@@ -762,12 +762,12 @@ export class PageSidebar {
       'prop.halo',
       '文字光晕',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'text' && target.halo !== null;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind !== 'text') return;
           target.halo = value ? { color: '#ffffff', width_pt: 3 } : null;
         }),
@@ -777,12 +777,12 @@ export class PageSidebar {
       'prop.haloColor',
       '光晕颜色',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'text' && target.halo ? target.halo.color : '#ffffff';
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind !== 'text') return;
           target.halo = { color: value, width_pt: target.halo?.width_pt ?? 3 };
         }),
@@ -792,12 +792,12 @@ export class PageSidebar {
       'prop.haloWidth',
       '光晕宽度',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'text' && target.halo ? target.halo.width_pt : 3;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind !== 'text') return;
           target.halo = { color: target.halo?.color ?? '#ffffff', width_pt: value };
         }),
@@ -816,12 +816,12 @@ export class PageSidebar {
       'prop.legendTitle',
       '标题',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'legend' ? target.title : '';
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'legend') target.title = value;
         }),
     );
@@ -830,12 +830,12 @@ export class PageSidebar {
       'prop.legendWidth',
       '宽度（pt）',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'legend' ? target.width_pt : PAGE_NEW_LEGEND_WIDTH_PT;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'legend') target.width_pt = value;
         }),
       { min: 1, step: 1 },
@@ -845,12 +845,12 @@ export class PageSidebar {
       'prop.legendFont',
       '字号（pt）',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'legend' ? target.font_size_pt : PAGE_LEGEND_DEFAULTS.font_size_pt;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'legend') target.font_size_pt = value;
         }),
       { min: 0.5, step: 0.5 },
@@ -860,14 +860,14 @@ export class PageSidebar {
       'prop.legendTitleSize',
       '标题字号',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'legend'
           ? target.title_size_pt
           : PAGE_LEGEND_DEFAULTS.title_size_pt;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'legend') target.title_size_pt = value;
         }),
       { min: 0.5, step: 0.5 },
@@ -877,14 +877,14 @@ export class PageSidebar {
       'prop.legendRowHeight',
       '行高（pt）',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'legend'
           ? target.row_height_pt
           : PAGE_LEGEND_DEFAULTS.row_height_pt;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'legend') target.row_height_pt = value;
         }),
       { min: 1, step: 1 },
@@ -894,12 +894,12 @@ export class PageSidebar {
       'prop.legendPadding',
       '内边距',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'legend' ? target.padding_pt : PAGE_LEGEND_DEFAULTS.padding_pt;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'legend') target.padding_pt = value;
         }),
       { min: 0, step: 0.5 },
@@ -909,14 +909,14 @@ export class PageSidebar {
       'prop.legendSwatch',
       '色块宽',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'legend'
           ? target.swatch_width_pt
           : PAGE_LEGEND_DEFAULTS.swatch_width_pt;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'legend') target.swatch_width_pt = value;
         }),
       { min: 1, step: 1 },
@@ -926,14 +926,14 @@ export class PageSidebar {
       'prop.legendGap',
       '色块间距',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'legend'
           ? target.swatch_gap_pt
           : PAGE_LEGEND_DEFAULTS.swatch_gap_pt;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'legend') target.swatch_gap_pt = value;
         }),
       { min: 0, step: 1 },
@@ -946,12 +946,12 @@ export class PageSidebar {
       'prop.legendFrameShow',
       '显示外框',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'legend' ? target.frame.show : true;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'legend') target.frame.show = value;
         }),
     );
@@ -960,12 +960,12 @@ export class PageSidebar {
       'prop.legendFrameStroke',
       '外框颜色',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'legend' ? target.frame.stroke : '#bbbbbb';
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'legend') target.frame.stroke = value;
         }),
     );
@@ -974,12 +974,12 @@ export class PageSidebar {
       'prop.legendFrameFill',
       '底色',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'legend' ? target.frame.fill : '#ffffff';
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'legend') target.frame.fill = value;
         }),
     );
@@ -988,12 +988,12 @@ export class PageSidebar {
       'prop.legendFrameWidth',
       '框线宽',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'legend' ? target.frame.width_pt : 0.8;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'legend') target.frame.width_pt = value;
         }),
       { min: 0, step: 0.1 },
@@ -1003,12 +1003,12 @@ export class PageSidebar {
       'prop.legendFrameOpacity',
       '底色透明度',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'legend' ? target.frame.opacity : 0.94;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'legend') target.frame.opacity = value;
         }),
       { min: 0, max: 1, step: 0.01 },
@@ -1019,7 +1019,7 @@ export class PageSidebar {
     return fragments;
   }
 
-  /** 图例条目编辑：label / 显隐 / 删除 / 新增（隐藏 = 从 scene 移除，会话内记住） */
+  /** 图例条目编辑：label / 显隐 / 删除 / 新增（隐藏 = 从 layout 移除，会话内记住） */
   private buildLegendEntries(item: LegendItem): HTMLElement {
     const container = create_element({ tag: 'div' }, { class: 'page-legend-entries' });
     const list = create_element({ tag: 'div' }, { class: 'page-legend-list' });
@@ -1033,15 +1033,15 @@ export class PageSidebar {
       );
       input.id = nextWidgetId('page-legend');
       input.addEventListener('input', () => {
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind !== 'legend') return;
           const current = target.entries[index];
           if (current) current.label = input.value;
         });
       });
       this.registerText(`prop.entryLabel.${index}`, input, () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'legend' ? (target.entries[index]?.label ?? '') : '';
       });
       row.append(
@@ -1050,7 +1050,7 @@ export class PageSidebar {
       );
 
       const visible = createSwitch({ value: true });
-      visible.input.title = '隐藏该条目（从 scene 移除，可再次显示）';
+      visible.input.title = '隐藏该条目（从 layout 移除，可再次显示）';
       visible.onChange(() => this.hideLegendEntry(item.id, index));
       row.append(visible.element);
 
@@ -1081,7 +1081,7 @@ export class PageSidebar {
         if (!entries) return;
         entries.splice(hiddenIndex, 1);
         this.forcePropertyRebuild = true;
-        this.sync(this.scene, this.geo, this.selectedId);
+        this.sync(this.layout, this.geo, this.selectedId);
       });
       row.append(remove.element);
       list.append(row);
@@ -1091,7 +1091,7 @@ export class PageSidebar {
       create_element(
         { tag: 'p' },
         { class: 'page-hint' },
-        `条目按数组顺序绘制；契约没有 visible 字段，隐藏条目不会写进 scene。`,
+        `条目按数组顺序绘制；契约没有 visible 字段，隐藏条目不会写进 layout。`,
       ),
       list,
     );
@@ -1099,8 +1099,8 @@ export class PageSidebar {
     const addButton = createButton({ text: '添加条目', title: '在末尾追加一个线型图例条目' });
     addButton.onClick(() => {
       this.forcePropertyRebuild = true;
-      this.hosts.onChange((scene) => {
-        const target = itemById(scene, item.id);
+      this.hosts.onChange((layout) => {
+        const target = itemById(layout, item.id);
         if (target?.kind === 'legend') target.entries.push(defaultLegendEntry());
       });
     });
@@ -1110,8 +1110,8 @@ export class PageSidebar {
 
   private hideLegendEntry(legendId: number, index: number): void {
     this.forcePropertyRebuild = true;
-    this.hosts.onChange((scene) => {
-      const target = itemById(scene, legendId);
+    this.hosts.onChange((layout) => {
+      const target = itemById(layout, legendId);
       if (target?.kind !== 'legend') return;
       const removed = target.entries.splice(index, 1)[0];
       if (!removed) return;
@@ -1124,8 +1124,8 @@ export class PageSidebar {
 
   private showLegendEntry(legendId: number, hiddenIndex: number): void {
     this.forcePropertyRebuild = true;
-    this.hosts.onChange((scene) => {
-      const target = itemById(scene, legendId);
+    this.hosts.onChange((layout) => {
+      const target = itemById(layout, legendId);
       if (target?.kind !== 'legend') return;
       const list = this.hiddenLegendEntries.get(legendId);
       const stored = list?.[hiddenIndex];
@@ -1139,8 +1139,8 @@ export class PageSidebar {
 
   private deleteLegendEntry(legendId: number, index: number): void {
     this.forcePropertyRebuild = true;
-    this.hosts.onChange((scene) => {
-      const target = itemById(scene, legendId);
+    this.hosts.onChange((layout) => {
+      const target = itemById(layout, legendId);
       if (target?.kind === 'legend') target.entries.splice(index, 1);
     });
   }
@@ -1153,12 +1153,12 @@ export class PageSidebar {
       'prop.cbarTitle',
       '标题',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'colorbar' ? target.title : '';
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'colorbar') target.title = value;
         }),
     );
@@ -1167,12 +1167,12 @@ export class PageSidebar {
       'prop.cbarUnit',
       '单位',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'colorbar' ? target.unit : '';
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'colorbar') target.unit = value;
         }),
     );
@@ -1181,12 +1181,12 @@ export class PageSidebar {
       'prop.cbarWidth',
       '宽（pt）',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'colorbar' ? target.width_pt : PAGE_COLORBAR_WIDTH_PT;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'colorbar') target.width_pt = value;
         }),
       { min: 1, step: 1 },
@@ -1196,12 +1196,12 @@ export class PageSidebar {
       'prop.cbarHeight',
       '高（pt）',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'colorbar' ? target.height_pt : PAGE_COLORBAR_HEIGHT_PT;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'colorbar') target.height_pt = value;
         }),
       { min: 1, step: 1 },
@@ -1211,12 +1211,12 @@ export class PageSidebar {
       'prop.cbarTitleSize',
       '标题字号',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'colorbar' ? target.title_size_pt : 8;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'colorbar') target.title_size_pt = value;
         }),
       { min: 0.5, step: 0.5 },
@@ -1226,12 +1226,12 @@ export class PageSidebar {
       'prop.cbarLabelSize',
       '刻度字号',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'colorbar' ? target.label_size_pt : 7;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'colorbar') target.label_size_pt = value;
         }),
       { min: 0.5, step: 0.5 },
@@ -1244,12 +1244,12 @@ export class PageSidebar {
       'prop.cbarShowTitle',
       '显示标题',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'colorbar' ? target.show_title : true;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'colorbar') target.show_title = value;
         }),
     );
@@ -1258,12 +1258,12 @@ export class PageSidebar {
       'prop.cbarShowTicks',
       '显示刻度',
       () => {
-        const target = itemById(this.scene, item.id);
+        const target = itemById(this.layout, item.id);
         return target?.kind === 'colorbar' ? target.show_ticks : true;
       },
       (value) =>
-        this.hosts.onChange((scene) => {
-          const target = itemById(scene, item.id);
+        this.hosts.onChange((layout) => {
+          const target = itemById(layout, item.id);
           if (target?.kind === 'colorbar') target.show_ticks = value;
         }),
     );
@@ -1272,7 +1272,7 @@ export class PageSidebar {
       create_element(
         { tag: 'p' },
         { class: 'page-hint' },
-        '配色与刻度来自 geo.relief，不落 scene。',
+        '配色与刻度来自 geo.relief，不落 layout。',
       ),
     );
     return fragments;
@@ -1376,7 +1376,7 @@ export class PageSidebar {
   /** 把最新值写回未聚焦的控件（聚焦中的控件保留用户正在输入的文本） */
   private refreshControls(): void {
     if (this.mapHeightEl) {
-      const height = (this.scene.map.width_pt * this.geo.base.height_pt) / this.geo.base.width_pt;
+      const height = (this.layout.map.width_pt * this.geo.base.height_pt) / this.geo.base.width_pt;
       this.mapHeightEl.textContent = `地图高度（派生）：${height.toFixed(1)}pt`;
     }
     const active = document.activeElement;

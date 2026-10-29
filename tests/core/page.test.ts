@@ -12,21 +12,21 @@ import {
   countItems,
   itemById,
   itemSummary,
-  normalizeScene,
+  normalizePage,
   roundToPageDecimals,
-  sceneDigest,
-  serializeScene,
+  pageDigest,
+  serializePage,
   sha256Hex,
   validateGeo,
-  validateScene,
+  validatePage,
   type Geo,
-  type Scene,
+  type PageLayout,
   type TextItem,
 } from '../../src/core/page';
 import {
   colorbarLayout,
   colorbarTitleText,
-  defaultScene,
+  defaultPageLayout,
   fallbackMeasureText,
   fontShorthand,
   frameTickLayout,
@@ -164,11 +164,9 @@ function makeGeo(): Geo {
   };
 }
 
-const BASE = { sha256: 'b'.repeat(64), width_pt: 896.350289, height_pt: 712.3824 };
-
 /** 默认排版结果（多数用例共用） */
-function makeScene(): Scene {
-  return defaultScene(makeGeo(), BASE, { figure: 'demo/figures/Volga/map.svg' });
+function makeScene(): PageLayout {
+  return defaultPageLayout(makeGeo());
 }
 
 describe('formatPageNumber（与 Python 侧同语义）', () => {
@@ -210,26 +208,26 @@ describe('规范化与序列化', () => {
     expect(roundToPageDecimals(28.0000001)).toBe(28);
   });
 
-  it('serializeScene 键排序、无空白、数字 3 位小数', () => {
-    const scene = makeScene();
-    const text = serializeScene(scene);
-    expect(text.startsWith('{"base":')).toBe(true);
+  it('serializePage 键排序、无空白、数字 3 位小数', () => {
+    const layout = makeScene();
+    const text = serializePage(layout);
+    expect(text.startsWith('{"frame":')).toBe(true);
     // 无缩进/分隔空白（字符串内部的空格不算，如字体栈与副标题）
     expect(text).not.toContain('": ');
     expect(text).not.toContain('", "');
     expect(text).not.toContain('\n');
     // 规范化：A4 宽度 841.889764 → 841.89
     expect(text).toContain('"width_pt":841.89');
-    // 键序稳定：同一 scene 两次序列化结果一致
-    expect(serializeScene(makeScene())).toBe(text);
+    // 键序稳定：同一 layout 两次序列化结果一致
+    expect(serializePage(makeScene())).toBe(text);
   });
 
-  it('normalizeScene 不修改入参且 3 位小数', () => {
-    const scene = makeScene();
-    const normalized = normalizeScene(scene);
-    expect(normalized).not.toBe(scene);
+  it('normalizePage 不修改入参且 3 位小数', () => {
+    const layout = makeScene();
+    const normalized = normalizePage(layout);
+    expect(normalized).not.toBe(layout);
     expect(normalized.paper.width_pt).toBe(841.89);
-    expect(scene.paper.width_pt).toBe(841.889764);
+    expect(layout.paper.width_pt).toBe(841.889764);
   });
 
   it('sha256Hex 标准向量', () => {
@@ -239,93 +237,90 @@ describe('规范化与序列化', () => {
     );
   });
 
-  it('sceneDigest 稳定且对改动敏感', () => {
-    const scene = makeScene();
-    const digest = sceneDigest(scene);
+  it('pageDigest 稳定且对改动敏感', () => {
+    const layout = makeScene();
+    const digest = pageDigest(layout);
     expect(digest).toMatch(/^[0-9a-f]{64}$/);
-    expect(sceneDigest(normalizeScene(scene))).toBe(digest);
-    scene.map.x += 1;
-    expect(sceneDigest(scene)).not.toBe(digest);
+    expect(pageDigest(normalizePage(layout))).toBe(digest);
+    layout.map.x += 1;
+    expect(pageDigest(layout)).not.toBe(digest);
   });
 });
 
-describe('validateScene', () => {
-  it('defaultScene 通过校验且 geo 校验无错误', () => {
+describe('validatePage', () => {
+  it('defaultPageLayout 通过校验且 geo 校验无错误', () => {
     const geometry = makeGeo();
     expect(validateGeo(geometry)).toEqual([]);
-    const scene = defaultScene(geometry, BASE);
-    const result = validateScene(scene, geometry);
+    const layout = defaultPageLayout(geometry);
+    const result = validatePage(layout, geometry);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.scene.items.length).toBeGreaterThan(5);
+      expect(result.layout.items.length).toBeGreaterThan(5);
       expect(result.warnings).toEqual([]);
     }
   });
 
   it('拒绝非法纸张尺寸、重复 id、seq 不大于最大 id', () => {
-    const scene = makeScene();
-    scene.paper.width_pt = 10;
-    expect(validateScene(scene).ok).toBe(false);
+    const layout = makeScene();
+    layout.paper.width_pt = 10;
+    expect(validatePage(layout).ok).toBe(false);
 
     const duplicate = makeScene();
     duplicate.items.push({ ...duplicate.items[0]! });
-    expect(validateScene(duplicate).ok).toBe(false);
+    expect(validatePage(duplicate).ok).toBe(false);
 
     const badSeq = makeScene();
     badSeq.seq = 1;
-    expect(validateScene(badSeq).ok).toBe(false);
+    expect(validatePage(badSeq).ok).toBe(false);
   });
 
   it('拒绝非法颜色与空 lines', () => {
-    const scene = makeScene();
-    const text = scene.items.find((item): item is TextItem => item.kind === 'text')!;
+    const layout = makeScene();
+    const text = layout.items.find((item): item is TextItem => item.kind === 'text')!;
     text.color = 'red';
-    expect(validateScene(scene).ok).toBe(false);
+    expect(validatePage(layout).ok).toBe(false);
 
     const empty = makeScene();
     const firstText = empty.items.find((item): item is TextItem => item.kind === 'text')!;
     firstText.lines = [];
-    expect(validateScene(empty).ok).toBe(false);
+    expect(validatePage(empty).ok).toBe(false);
   });
 
   it('地图越界只告警不报错', () => {
-    const scene = makeScene();
-    scene.map.x = -50;
-    const result = validateScene(scene, makeGeo());
+    const layout = makeScene();
+    layout.map.x = -50;
+    const result = validatePage(layout, makeGeo());
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.warnings.length).toBeGreaterThan(0);
   });
 
   it('元素辅助函数', () => {
-    const scene = makeScene();
-    expect(countItems(scene)).toBe(scene.items.length);
-    expect(itemById(scene, scene.items[0]!.id)).toBe(scene.items[0]);
-    const before = scene.seq;
-    const id = allocateItemId(scene);
+    const layout = makeScene();
+    expect(countItems(layout)).toBe(layout.items.length);
+    expect(itemById(layout, layout.items[0]!.id)).toBe(layout.items[0]);
+    const before = layout.seq;
+    const id = allocateItemId(layout);
     expect(id).toBe(before);
-    expect(scene.seq).toBe(before + 1);
-    expect(itemSummary(scene.items[0]!).length).toBeGreaterThan(0);
+    expect(layout.seq).toBe(before + 1);
+    expect(itemSummary(layout.items[0]!).length).toBeGreaterThan(0);
   });
 });
 
-describe('defaultScene（§9 初始排版）', () => {
+describe('defaultPageLayout（§9 初始排版）', () => {
   it('A4 横向、页边距 28、地图占左侧、右栏三块、标题/副标题/来源都在', () => {
-    const scene = makeScene();
-    expect(scene.format).toBe('mapdoc-page');
-    expect(scene.version).toBe(1);
-    expect(scene.figure).toBe('demo/figures/Volga/map.svg');
-    expect(scene.paper).toEqual({
+    const layout = makeScene();
+    expect(layout.paper).toEqual({
       preset: 'A4',
       orientation: 'landscape',
       width_pt: 841.889764,
       height_pt: 595.275591,
     });
-    expect(scene.map.x).toBe(28);
-    expect(scene.map.y).toBe(72);
-    expect(scene.map.width_pt).toBeGreaterThan(1);
-    expect(scene.map.x + scene.map.width_pt).toBeLessThan(841.889764);
+    expect(layout.map.x).toBe(28);
+    expect(layout.map.y).toBe(72);
+    expect(layout.map.width_pt).toBeGreaterThan(1);
+    expect(layout.map.x + layout.map.width_pt).toBeLessThan(841.889764);
 
-    const roles = scene.items
+    const roles = layout.items
       .filter((item): item is TextItem => item.kind === 'text' && item.space === 'page')
       .map((item) => item.role);
     expect(roles).toContain('title');
@@ -333,13 +328,13 @@ describe('defaultScene（§9 初始排版）', () => {
     expect(roles).toContain('note');
     expect(roles).toContain('source');
 
-    const legend = scene.items.find((item) => item.kind === 'legend')!;
-    const colorbar = scene.items.find((item) => item.kind === 'colorbar')!;
+    const legend = layout.items.find((item) => item.kind === 'legend')!;
+    const colorbar = layout.items.find((item) => item.kind === 'colorbar')!;
     expect(legend.kind).toBe('legend');
     expect(colorbar.kind).toBe('colorbar');
     // 右栏：legend → notes → colorbar 自上而下
     if (legend.kind === 'legend' && colorbar.kind === 'colorbar') {
-      const note = scene.items.find(
+      const note = layout.items.find(
         (item) => item.kind === 'text' && item.role === 'note',
       ) as TextItem;
       expect(legend.y).toBeLessThan(note.y);
@@ -349,46 +344,46 @@ describe('defaultScene（§9 初始排版）', () => {
   });
 
   it('全部地名都作为 map 空间文字铺上，id 唯一、seq 大于最大 id', () => {
-    const scene = makeScene();
-    const labels = scene.items.filter(
+    const layout = makeScene();
+    const labels = layout.items.filter(
       (item): item is TextItem => item.kind === 'text' && item.space === 'map',
     );
     expect(labels).toHaveLength(makeGeo().labels.length);
     expect(labels[0]!.lines).toEqual(['甲国']);
     // 地名字号/光晕按地图缩放比换算（Lead 联调结论：否则相对原图放大 1.7 倍压字）
-    const scale = scene.map.width_pt / makeGeo().base.width_pt;
+    const scale = layout.map.width_pt / makeGeo().base.width_pt;
     expect(labels[0]!.font_size_pt).toBeCloseTo(12 * scale, 9);
     expect(labels[0]!.halo?.color).toBe('#ffffff');
     expect(labels[0]!.halo?.width_pt).toBeCloseTo(3 * scale, 9);
     expect(labels[1]!.rotation_deg).toBe(30);
     expect(labels[1]!.anchor).toBe('start');
 
-    const ids = scene.items.map((item) => item.id);
+    const ids = layout.items.map((item) => item.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(scene.seq).toBe(Math.max(...ids) + 1);
+    expect(layout.seq).toBe(Math.max(...ids) + 1);
   });
 
   it('notes 按右栏宽度折行写入 lines（不自动换行）', () => {
-    const scene = makeScene();
-    const note = scene.items.find(
+    const layout = makeScene();
+    const note = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'note',
     )!;
     expect(note.lines.length).toBeGreaterThan(2);
     expect(note.anchor).toBe('start');
-    const legend = scene.items.find((item) => item.kind === 'legend')!;
-    const font = fontShorthand(note.font_size_pt, scene.style.font_family);
+    const legend = layout.items.find((item) => item.kind === 'legend')!;
+    const font = fontShorthand(note.font_size_pt, layout.style.font_family);
     for (const line of note.lines) {
       expect(fallbackMeasureText(line, font)).toBeLessThanOrEqual(legend.width_pt);
     }
   });
 
   it('legend width 按最长 label 测量，右栏宽度足够', () => {
-    const scene = makeScene();
-    const legend = scene.items.find((item) => item.kind === 'legend');
+    const layout = makeScene();
+    const legend = layout.items.find((item) => item.kind === 'legend');
     expect(legend?.kind).toBe('legend');
     if (legend?.kind !== 'legend') return;
     const geo = makeGeo();
-    const font = fontShorthand(legend.font_size_pt, scene.style.font_family);
+    const font = fontShorthand(legend.font_size_pt, layout.style.font_family);
     const maxLabel = Math.max(
       ...geo.legend.entries.map((entry) => fallbackMeasureText(entry.label, font)),
     );
@@ -404,14 +399,14 @@ describe('defaultScene（§9 初始排版）', () => {
       width_pt: 595.275591,
       height_pt: 419.527559,
     };
-    const scene = defaultScene(makeGeo(), BASE, { paper, margin_pt: 20 });
-    expect(scene.paper).toEqual(paper);
-    expect(scene.paper).not.toBe(paper);
-    expect(scene.map.x).toBe(20);
+    const layout = defaultPageLayout(makeGeo(), { paper, margin_pt: 20 });
+    expect(layout.paper).toEqual(paper);
+    expect(layout.paper).not.toBe(paper);
+    expect(layout.map.x).toBe(20);
   });
 });
 
-describe('纸张自适应（defaultScene 的 k）', () => {
+describe('纸张自适应（defaultPageLayout 的 k）', () => {
   it('A5 横向重新排默认版式：注记与色标不重叠、不越过页底预留区', () => {
     const geo = makeGeo();
     const a5 = {
@@ -420,14 +415,14 @@ describe('纸张自适应（defaultScene 的 k）', () => {
       width_pt: 595.275591,
       height_pt: 419.527559,
     };
-    const scene = defaultScene(geo, BASE, { paper: a5, margin_pt: 28 });
-    const result = validateScene(scene, geo);
+    const layout = defaultPageLayout(geo, { paper: a5, margin_pt: 28 });
+    const result = validatePage(layout, geo);
     expect(result.ok).toBe(true);
 
-    const note = scene.items.find(
+    const note = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'note',
     );
-    const colorbar = scene.items.find((item) => item.kind === 'colorbar');
+    const colorbar = layout.items.find((item) => item.kind === 'colorbar');
     expect(note).toBeDefined();
     expect(colorbar?.kind).toBe('colorbar');
     if (!note || colorbar?.kind !== 'colorbar') return;
@@ -447,33 +442,33 @@ describe('纸张自适应（defaultScene 的 k）', () => {
     expect(colorbar.height_pt).toBeGreaterThanOrEqual(40);
 
     // 图例/注记/来源字号按 k 缩小；地名字号只跟地图缩放 s
-    const legend = scene.items.find((item) => item.kind === 'legend');
+    const legend = layout.items.find((item) => item.kind === 'legend');
     if (legend?.kind === 'legend') expect(legend.font_size_pt).toBeCloseTo(9 * k, 9);
     expect(note.font_size_pt).toBeCloseTo(7.5 * k, 9);
-    const label = scene.items.find(
+    const label = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.space === 'map',
     );
-    expect(label?.font_size_pt).toBeCloseTo(12 * (scene.map.width_pt / geo.base.width_pt), 9);
+    expect(label?.font_size_pt).toBeCloseTo(12 * (layout.map.width_pt / geo.base.width_pt), 9);
 
     // 来源仍在页内、且地图不越过来源预留区
-    const source = scene.items.find(
+    const source = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'source',
     );
     expect(source?.y).toBeLessThanOrEqual(a5.height_pt - 28);
     expect(
-      scene.map.y + (scene.map.width_pt * geo.base.height_pt) / geo.base.width_pt,
+      layout.map.y + (layout.map.width_pt * geo.base.height_pt) / geo.base.width_pt,
     ).toBeLessThan(a5.height_pt - 28);
   });
 
   it('A4 横向 k=1：版式与既有默认值一致', () => {
-    const scene = makeScene();
-    const legend = scene.items.find((item) => item.kind === 'legend');
+    const layout = makeScene();
+    const legend = layout.items.find((item) => item.kind === 'legend');
     if (legend?.kind === 'legend') expect(legend.font_size_pt).toBeCloseTo(9, 9);
-    const note = scene.items.find(
+    const note = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'note',
     );
     expect(note?.font_size_pt).toBeCloseTo(7.5, 9);
-    expect(scene.map.y).toBe(72);
+    expect(layout.map.y).toBe(72);
   });
   it('A4/A5 纵向：地图用满内容宽、下方一排三块、互不覆盖且不越界', () => {
     const geo = makeGeo();
@@ -496,8 +491,8 @@ describe('纸张自适应（defaultScene 的 k）', () => {
       },
     ];
     for (const { paper } of cases) {
-      const scene = defaultScene(geo, BASE, { paper, margin_pt: 28 });
-      expect(validateScene(scene, geo).ok).toBe(true);
+      const layout = defaultPageLayout(geo, { paper, margin_pt: 28 });
+      expect(validatePage(layout, geo).ok).toBe(true);
 
       const longSide = Math.max(paper.width_pt, paper.height_pt);
       const shortSide = Math.min(paper.width_pt, paper.height_pt);
@@ -507,29 +502,30 @@ describe('纸张自适应（defaultScene 的 k）', () => {
       );
 
       // 地图用满内容宽度，标题仍在页顶
-      expect(scene.map.x).toBe(28);
-      expect(scene.map.width_pt).toBeCloseTo(paper.width_pt - 56, 9);
-      expect(scene.map.y).toBeCloseTo(28 + 44 * k, 9);
+      expect(layout.map.x).toBe(28);
+      expect(layout.map.width_pt).toBeCloseTo(paper.width_pt - 56, 9);
+      expect(layout.map.y).toBeCloseTo(28 + 44 * k, 9);
 
-      const legend = scene.items.find((item) => item.kind === 'legend');
-      const note = scene.items.find(
+      const legend = layout.items.find((item) => item.kind === 'legend');
+      const note = layout.items.find(
         (item): item is TextItem => item.kind === 'text' && item.role === 'note',
       );
-      const colorbar = scene.items.find((item) => item.kind === 'colorbar');
+      const colorbar = layout.items.find((item) => item.kind === 'colorbar');
       expect(legend?.kind).toBe('legend');
       expect(note).toBeDefined();
       expect(colorbar?.kind).toBe('colorbar');
       if (legend?.kind !== 'legend' || !note || colorbar?.kind !== 'colorbar') continue;
 
       const legendHeight = legendLayout(legend).height;
-      const mapBottom = scene.map.y + (scene.map.width_pt * geo.base.height_pt) / geo.base.width_pt;
+      const mapBottom =
+        layout.map.y + (layout.map.width_pt * geo.base.height_pt) / geo.base.width_pt;
       // 纵向一排要让开经度刻度标签（tick 字号不随 k 缩），并额外留出注记字形上沿：
       // notes 首行基线 = rowY，group 上沿约再高 0.9em。
       const noteSize = note.font_size_pt;
-      const tickExtent = scene.frame.ticks
-        ? scene.frame.tick_length_pt +
-          scene.frame.tick_gap_pt +
-          scene.frame.tick_font_size_pt +
+      const tickExtent = layout.frame.ticks
+        ? layout.frame.tick_length_pt +
+          layout.frame.tick_gap_pt +
+          layout.frame.tick_font_size_pt +
           Math.max(16 * k, noteSize * 0.9 + 4)
         : 0;
       expect(legend.y).toBeCloseTo(mapBottom + Math.max(12 * k, tickExtent), 9);
@@ -538,10 +534,10 @@ describe('纸张自适应（defaultScene 的 k）', () => {
       // 三块中最靠上的上沿（注记含 ascent）要高于刻度标签底部 + 4
       const tickLabelBottom =
         mapBottom +
-        scene.frame.tick_length_pt +
-        scene.frame.tick_gap_pt +
-        scene.frame.tick_font_size_pt +
-        scene.frame.tick_font_size_pt * 0.2;
+        layout.frame.tick_length_pt +
+        layout.frame.tick_gap_pt +
+        layout.frame.tick_font_size_pt +
+        layout.frame.tick_font_size_pt * 0.2;
       const noteTop = note.y - note.font_size_pt * 0.8;
       const topmost = Math.min(legend.y, colorbar.y, noteTop);
       expect(topmost).toBeGreaterThanOrEqual(tickLabelBottom + 4 - 1e-6);
@@ -553,7 +549,7 @@ describe('纸张自适应（defaultScene 的 k）', () => {
       expect(note.x).toBeLessThan(colorbar.x);
       expect(colorbar.x + colorbar.width_pt).toBeCloseTo(paper.width_pt - 28, 9);
 
-      const noteFont = fontShorthand(note.font_size_pt, scene.style.font_family);
+      const noteFont = fontShorthand(note.font_size_pt, layout.style.font_family);
       const noteWidth = Math.max(...note.lines.map((line) => fallbackMeasureText(line, noteFont)));
       expect(note.x + noteWidth).toBeLessThanOrEqual(colorbar.x + 1e-6);
 
@@ -578,7 +574,7 @@ describe('纸张自适应（defaultScene 的 k）', () => {
       const noteBottom = note.y + (note.lines.length - 1) * note.font_size_pt * note.line_height;
       expect(noteBottom).toBeLessThanOrEqual(rowBottom + 1e-6);
 
-      const source = scene.items.find(
+      const source = layout.items.find(
         (item): item is TextItem => item.kind === 'text' && item.role === 'source',
       );
       expect(source?.y).toBeLessThanOrEqual(paper.height_pt - 28);
@@ -589,16 +585,16 @@ describe('纸张自适应（defaultScene 的 k）', () => {
 describe('§5.1 坐标变换', () => {
   it('底图坐标 → 纸张坐标并反解', () => {
     const geo = makeGeo();
-    const scene = makeScene();
-    const transform = mapTransform(geo, scene.map);
-    const s = scene.map.width_pt / geo.base.width_pt;
+    const layout = makeScene();
+    const transform = mapTransform(geo, layout.map);
+    const s = layout.map.width_pt / geo.base.width_pt;
     expect(transform.s).toBeCloseTo(s, 12);
-    expect(transform.tx).toBeCloseTo(scene.map.x - geo.base.view_box[0] * s, 9);
-    expect(transform.ty).toBeCloseTo(scene.map.y - geo.base.view_box[1] * s, 9);
+    expect(transform.tx).toBeCloseTo(layout.map.x - geo.base.view_box[0] * s, 9);
+    expect(transform.ty).toBeCloseTo(layout.map.y - geo.base.view_box[1] * s, 9);
 
     const page = mapPointToPage(transform, { x: geo.base.view_box[0], y: geo.base.view_box[1] });
-    expect(page.x).toBeCloseTo(scene.map.x, 9);
-    expect(page.y).toBeCloseTo(scene.map.y, 9);
+    expect(page.x).toBeCloseTo(layout.map.x, 9);
+    expect(page.y).toBeCloseTo(layout.map.y, 9);
 
     const back = pagePointToMap(transform, { x: page.x + 100 * s, y: page.y + 50 * s });
     expect(back.x).toBeCloseTo(geo.base.view_box[0] + 100, 9);
@@ -607,9 +603,9 @@ describe('§5.1 坐标变换', () => {
 
   it('地图高度按纵横比派生', () => {
     const geo = makeGeo();
-    const scene = makeScene();
-    expect(mapHeightPt(geo, scene.map)).toBeCloseTo(
-      (scene.map.width_pt * geo.base.height_pt) / geo.base.width_pt,
+    const layout = makeScene();
+    expect(mapHeightPt(geo, layout.map)).toBeCloseTo(
+      (layout.map.width_pt * geo.base.height_pt) / geo.base.width_pt,
       12,
     );
   });
@@ -618,21 +614,21 @@ describe('§5.1 坐标变换', () => {
 describe('§5.2 图框/刻度', () => {
   it('经度 bottom：线向下、基线 = 框底 + 刻度长 + gap + 字号', () => {
     const geo = makeGeo();
-    const scene = makeScene();
-    const ticks = frameTickLayout(scene, geo);
+    const layout = makeScene();
+    const ticks = frameTickLayout(layout, geo);
     const lon = ticks.filter((tick) => tick.axis === 'lon');
     expect(lon).toHaveLength(2);
     const first = lon[0]!;
-    const transform = mapTransform(geo, scene.map);
-    const mapBottom = scene.map.y + mapHeightPt(geo, scene.map);
+    const transform = mapTransform(geo, layout.map);
+    const mapBottom = layout.map.y + mapHeightPt(geo, layout.map);
     expect(first.x1).toBeCloseTo(transform.tx + geo.graticule.lon[0]!.x * transform.s, 9);
     expect(first.y1).toBeCloseTo(mapBottom, 9);
-    expect(first.y2).toBeCloseTo(mapBottom + scene.frame.tick_length_pt, 9);
+    expect(first.y2).toBeCloseTo(mapBottom + layout.frame.tick_length_pt, 9);
     expect(first.textY).toBeCloseTo(
       mapBottom +
-        scene.frame.tick_length_pt +
-        scene.frame.tick_gap_pt +
-        scene.frame.tick_font_size_pt,
+        layout.frame.tick_length_pt +
+        layout.frame.tick_gap_pt +
+        layout.frame.tick_font_size_pt,
       9,
     );
     expect(first.anchor).toBe('middle');
@@ -640,51 +636,51 @@ describe('§5.2 图框/刻度', () => {
 
   it('纬度 left/right：线向外、基线 = py + 字号×0.35', () => {
     const geo = makeGeo();
-    const scene = makeScene();
-    const ticks = frameTickLayout(scene, geo).filter((tick) => tick.axis === 'lat');
+    const layout = makeScene();
+    const ticks = frameTickLayout(layout, geo).filter((tick) => tick.axis === 'lat');
     expect(ticks).toHaveLength(2);
     const left = ticks.find((tick) => tick.side === 'left')!;
     const right = ticks.find((tick) => tick.side === 'right')!;
-    const transform = mapTransform(geo, scene.map);
+    const transform = mapTransform(geo, layout.map);
     const py = transform.ty + geo.graticule.lat[0]!.y * transform.s;
-    expect(left.x1).toBeCloseTo(scene.map.x, 9);
-    expect(left.x2).toBeCloseTo(scene.map.x - scene.frame.tick_length_pt, 9);
+    expect(left.x1).toBeCloseTo(layout.map.x, 9);
+    expect(left.x2).toBeCloseTo(layout.map.x - layout.frame.tick_length_pt, 9);
     expect(left.textX).toBeCloseTo(
-      scene.map.x - scene.frame.tick_length_pt - scene.frame.tick_gap_pt,
+      layout.map.x - layout.frame.tick_length_pt - layout.frame.tick_gap_pt,
       9,
     );
-    expect(left.textY).toBeCloseTo(py + scene.frame.tick_font_size_pt * 0.35, 9);
+    expect(left.textY).toBeCloseTo(py + layout.frame.tick_font_size_pt * 0.35, 9);
     expect(left.anchor).toBe('end');
     expect(right.anchor).toBe('start');
     expect(right.textX).toBeCloseTo(
-      scene.map.x + scene.map.width_pt + scene.frame.tick_length_pt + scene.frame.tick_gap_pt,
+      layout.map.x + layout.map.width_pt + layout.frame.tick_length_pt + layout.frame.tick_gap_pt,
       9,
     );
   });
 
   it('纸张外的刻度被过滤', () => {
     const geo = makeGeo();
-    const scene = makeScene();
+    const layout = makeScene();
     geo.graticule.lon.push({ value: 1, label: '1°E', x: 100000, y: 0, side: 'bottom' });
-    expect(frameTickLayout(scene, geo).filter((tick) => tick.axis === 'lon')).toHaveLength(2);
+    expect(frameTickLayout(layout, geo).filter((tick) => tick.axis === 'lon')).toHaveLength(2);
   });
 });
 
 describe('§5.4 图例', () => {
   it('高度公式与行位置', () => {
-    const scene = makeScene();
-    const legend = scene.items.find((item) => item.kind === 'legend');
+    const layout = makeScene();
+    const legend = layout.items.find((item) => item.kind === 'legend');
     if (legend?.kind !== 'legend') throw new Error('缺少图例');
-    const layout = legendLayout(legend);
+    const legendBox = legendLayout(legend);
     const padding = legend.padding_pt;
     const rowHeight = Math.max(legend.row_height_pt, legend.font_size_pt * 1.5);
     const titleHeight = legend.title.length > 0 ? legend.title_size_pt * 1.4 : 0;
-    expect(layout.height).toBeCloseTo(
+    expect(legendBox.height).toBeCloseTo(
       padding * 2 + titleHeight + legend.entries.length * rowHeight,
       9,
     );
-    expect(layout.titleBaseline).toBeCloseTo(legend.y + padding + legend.title_size_pt, 9);
-    const firstRow = layout.rows[0]!;
+    expect(legendBox.titleBaseline).toBeCloseTo(legend.y + padding + legend.title_size_pt, 9);
+    const firstRow = legendBox.rows[0]!;
     expect(firstRow.centerY).toBeCloseTo(legend.y + padding + titleHeight + rowHeight * 0.5, 9);
     expect(firstRow.labelBaseline).toBeCloseTo(firstRow.centerY + legend.font_size_pt * 0.35, 9);
     expect(firstRow.swatchX0).toBeCloseTo(legend.x + padding, 9);
@@ -695,16 +691,16 @@ describe('§5.4 图例', () => {
 
 describe('§5.5 色标', () => {
   it('tick 位置按 vmin/vmax 线性映射，标题居中且带单位', () => {
-    const scene = makeScene();
-    const colorbar = scene.items.find((item) => item.kind === 'colorbar');
+    const layout = makeScene();
+    const colorbar = layout.items.find((item) => item.kind === 'colorbar');
     if (colorbar?.kind !== 'colorbar') throw new Error('缺少色标');
     // fixture 的 geo 一定带 relief；类型上 relief 可空（无色标的 geo），这里取非空断言
     const relief = makeGeo().relief!;
-    const layout = colorbarLayout(colorbar, relief);
-    expect(layout.titleText).toBe('高程 / 水深 (m)');
-    expect(layout.titleX).toBeCloseTo(colorbar.x + colorbar.width_pt / 2, 9);
-    expect(layout.titleBaseline).toBeCloseTo(colorbar.y - 4, 9);
-    const tick0 = layout.ticks[0]!;
+    const bar = colorbarLayout(colorbar, relief);
+    expect(bar.titleText).toBe('高程 / 水深 (m)');
+    expect(bar.titleX).toBeCloseTo(colorbar.x + colorbar.width_pt / 2, 9);
+    expect(bar.titleBaseline).toBeCloseTo(colorbar.y - 4, 9);
+    const tick0 = bar.ticks[0]!;
     expect(tick0.ty).toBeCloseTo(
       colorbar.y +
         colorbar.height_pt * (1 - (tick0.value - relief.vmin) / (relief.vmax - relief.vmin)),
@@ -717,8 +713,8 @@ describe('§5.5 色标', () => {
   });
 
   it('色标标题不重复单位', () => {
-    const scene = makeScene();
-    const colorbar = scene.items.find((item) => item.kind === 'colorbar');
+    const layout = makeScene();
+    const colorbar = layout.items.find((item) => item.kind === 'colorbar');
     if (colorbar?.kind !== 'colorbar') throw new Error('缺少色标');
     const withUnit = { ...colorbar, title: '高程 (m)' };
     expect(colorbarTitleText(withUnit)).toBe('高程 (m)');
@@ -729,18 +725,18 @@ describe('§5.5 色标', () => {
 describe('§5.3 文字布局', () => {
   it('多行基线 = 首行 + i × 字号 × 行高；map 空间过变换', () => {
     const geo = makeGeo();
-    const scene = makeScene();
-    const label = scene.items.find(
+    const layout = makeScene();
+    const label = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.space === 'map',
     )!;
-    const layout = textLayout(label, geo, scene);
-    const transform = mapTransform(geo, scene.map);
-    expect(layout.px).toBeCloseTo(transform.tx + label.x * transform.s, 9);
-    expect(layout.py).toBeCloseTo(transform.ty + label.y * transform.s, 9);
-    expect(layout.lines[0]!.y).toBeCloseTo(layout.py, 9);
+    const text = textLayout(label, geo, layout);
+    const transform = mapTransform(geo, layout.map);
+    expect(text.px).toBeCloseTo(transform.tx + label.x * transform.s, 9);
+    expect(text.py).toBeCloseTo(transform.ty + label.y * transform.s, 9);
+    expect(text.lines[0]!.y).toBeCloseTo(text.py, 9);
 
     const multi = { ...label, lines: ['一', '二', '三'], line_height: 1.5 };
-    const multiLayout = textLayout(multi, geo, scene);
+    const multiLayout = textLayout(multi, geo, layout);
     const step = multi.font_size_pt * 1.5;
     expect(multiLayout.lines.map((line) => line.y)).toEqual([
       expect.closeTo(multiLayout.py, 9),

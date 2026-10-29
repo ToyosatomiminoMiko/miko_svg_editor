@@ -178,7 +178,7 @@ export type MeasureText = (text: string, font: string) => number;
  * 基线上下的行盒高度（浏览器取 canvas 的 `fontBoundingBoxAscent/Descent`，即 CSS font
  * 的实际字体度量；无 canvas 时按字号比例回退）。
  * 为什么需要它：文本 item 的几何框 = §5.3 的行基线 + 字体行盒高度；宽度可由前进宽度得到，
- * 高度只能来自字体度量。有了它，选中框/命中盒就能从 scene.json + CSS 字体确定地推出，
+ * 高度只能来自字体度量。有了它，选中框/命中盒就能从 page 排版块 + CSS 字体确定地推出，
  * 而不是依赖 DOM `getBBox()`（它不含元素自身的 transform，旋转文字会画错位）。
  */
 export interface TextMeasure {

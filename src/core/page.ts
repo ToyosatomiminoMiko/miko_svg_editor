@@ -1,14 +1,18 @@
 /**
- * `scene.json` / `geo.json` 的类型、校验、规范化、序列化与摘要（纯逻辑，不碰 DOM）。
+ * 单文件地图文档（`<stem>.geo.json`）的类型、校验、规范化、序列化与摘要（纯逻辑，不碰 DOM）。
  *
- * 是什么：`docs/PAGE-EDITOR.md` §3/§4 的数据契约在 TS 侧的唯一实现——`Scene` 联合类型、
- * `validateScene`（契约 §4 的约束）、`normalizeScene`（3 位小数）、
- * `serializeScene`（键排序、无空白，供签名/摘要）、`sceneDigest`（SHA-256）。
- * 为什么放在 core 且不碰 DOM：预览与成品合成必须对同一份 scene 得出同一份语义；
+ * 是什么：`docs/PAGE-EDITOR.md` §3/§4 的数据契约在 TS 侧的唯一实现——地理块 `Geo`、
+ * 排版块 `PageLayout`（纸张/地图摆放/图框/样式/items）、`validateGeo` + `validatePage`（契约约束）、
+ * `normalizeGeo` / `normalizePage`（可选块补默认、page 数字 3 位小数）、
+ * `serializeMapDocFile`（导出文件文本）、`pageDigest` / `geoDigest`（SHA-256）。
+ * 为什么放在 core 且不碰 DOM：预览与成品合成必须对同一份 layout 得出同一份语义；
  * 校验/规范化/摘要都要能在 node 里单测，且浏览器与导出共用同一实现。
+ * 为什么 geo 与 page 合成一个文件：用户只需要保存/再次打开一份 geo.json（见 §1 数据流）；
+ * 文件身份与底图身份各只有一份（顶层 format/version、geo.base），不再有重复声明。
  * 注意：摘要用纯 TS SHA-256 实现（不依赖 Web Crypto / node:crypto），只用于本地签名与
  * 成品 marker（`render/compose-svg.ts` 的 `makeMarker`）。
- * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地。
+ * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地；
+ *         2026-10-28 合并 scene.json 为 geo.json 的 page 块（去掉独立 scene 格式与重复 base）。
  */
 
 import {
@@ -21,8 +25,6 @@ import {
   PAGE_MIN_MAP_WIDTH_PT,
   PAGE_PAPER_MAX_PT,
   PAGE_PAPER_MIN_PT,
-  PAGE_SCENE_FORMAT,
-  PAGE_SCENE_VERSION,
 } from '../config/page';
 import type { PaperOrientation, PaperPresetId } from '../config/page';
 
@@ -64,7 +66,7 @@ export interface TextItem extends ItemBase {
   y: number;
   lines: string[];
   font_size_pt: number;
-  /** null = 用 scene.style.font_family */
+  /** null = 用 layout.style.font_family */
   font_family: string | null;
   color: string;
   anchor: TextAnchor;
@@ -97,7 +99,7 @@ export interface LegendFrame {
   opacity: number;
 }
 
-/** 图例元素：高度由 §5.4 公式派生，不落 scene */
+/** 图例元素：高度由 §5.4 公式派生，不落 layout */
 export interface LegendItem extends ItemBase {
   kind: 'legend';
   /** 契约把 space 定义为公共字段；page/map 都允许（map 空间由渲染侧缩放尺寸） */
@@ -116,7 +118,7 @@ export interface LegendItem extends ItemBase {
   frame: LegendFrame;
 }
 
-/** 色标元素：配色/刻度来自 geo.relief，scene 只存摆放与文字 */
+/** 色标元素：配色/刻度来自 geo.relief，layout 只存摆放与文字 */
 export interface ColorbarItem extends ItemBase {
   kind: 'colorbar';
   /** 同 LegendItem.space：map 空间时成品合成按地图缩放比缩放宽高 */
@@ -169,20 +171,12 @@ export interface PageStyle {
   color: string;
 }
 
-/** scene 里声明的底图身份（打开时与上传底图的 sha256/尺寸对照，只告警并更新） */
-export interface SceneBase {
-  sha256: string;
-  width_pt: number;
-  height_pt: number;
-}
-
-/** scene.json 顶层（契约 §4） */
-export interface Scene {
-  format: typeof PAGE_SCENE_FORMAT;
-  version: number;
-  /** final 的图路径（figure key 由 URL 查询参数决定，这里是展示/回传用途） */
-  figure: string;
-  base: SceneBase;
+/**
+ * `geo.json` 的排版块（契约 §4）：纸张、地图摆放、图框/样式、items 与 id 序列。
+ * 为什么没有 format/version/figure/base：文件身份与底图身份只在顶层（format/version、geo.base），
+ * 同一份底图的排版不会出现第二套声明，也就没有「两份 base 不一致」的分支。
+ */
+export interface PageLayout {
   paper: PagePaper;
   map: MapPlacement;
   frame: PageFrame;
@@ -284,7 +278,7 @@ export interface GeoBase {
   height_pt: number;
 }
 
-/** geo.json（§3，只读） */
+/** geo.json（§3，只读地理块；Cartopy 直出） */
 export interface Geo {
   format: typeof PAGE_GEO_FORMAT;
   version: number;
@@ -301,6 +295,14 @@ export interface Geo {
   suggestions: GeoSuggestions;
 }
 
+/** 磁盘上排版块的键名（geo.json 顶层；Cartopy 产物没有这个键） */
+export const MAP_DOC_PAGE_KEY = 'page';
+
+/** 磁盘上的单文件地图文档形状：geo 块 + 可选的排版块（编辑器导出时一定写 page） */
+export interface MapDoc extends Geo {
+  page?: PageLayout;
+}
+
 /* =========================== 数值与序列化 =========================== */
 
 /** 非有限值（NaN/Infinity）不进 SVG：统一落到 0，避免 NaN 污染字符串 */
@@ -309,8 +311,8 @@ const finiteOrZero = (value: number): number => (Number.isFinite(value) ? value 
 /**
  * 四舍五入到 `PAGE_DECIMALS` 位小数并归一负零。
  *
- * 为什么是 `Math.round(v*1000)/1000`：预览、scene 摘要与导出的 final.svg 必须共用同一套
- * 舍入（否则同一 scene 会得到不同字节）；`.xxx5` 边界按 JS `Math.round` 语义处理。
+ * 为什么是 `Math.round(v*1000)/1000`：预览、page 摘要与导出的 final.svg 必须共用同一套
+ * 舍入（否则同一 layout 会得到不同字节）；`.xxx5` 边界按 JS `Math.round` 语义处理。
  */
 export function roundToPageDecimals(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -336,9 +338,9 @@ function roundNumbersDeep<T>(value: T): T {
   return value;
 }
 
-/** 规范化 scene（3 位小数、新对象）；保存前与摘要前都走它 */
-export function normalizeScene(scene: Scene): Scene {
-  return roundNumbersDeep(scene);
+/** 规范化 layout（3 位小数、新对象）；保存前与摘要前都走它 */
+export function normalizePage(layout: PageLayout): PageLayout {
+  return roundNumbersDeep(layout);
 }
 
 /** 把值变成键排序、无空白、数字 3 位小数的 JSON 结构（递归） */
@@ -356,32 +358,53 @@ function canonicalValue(value: unknown): unknown {
 
 /**
  * 任意值 → 键排序、无空白、数字 3 位小数的 canonical JSON 串（geo digest / marker 用）。
- * 复用 scene 的 `canonicalValue`，保证 scene 与 geo 两种文档只有一套规范化口径。
+ * 复用 layout 的 `canonicalValue`，保证 layout 与 geo 两种文档只有一套规范化口径。
  */
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalValue(value)) ?? 'null';
 }
 
 /**
- * 规范化 scene → 键排序、无空白的 JSON 串。
+ * 规范化 layout → 键排序、无空白的 JSON 串。
  * 签名/摘要用它做「打开后是否改过」的比较，因此必须确定性（键序、数字精度都固定）。
  */
-export function serializeScene(scene: Scene): string {
-  return JSON.stringify(canonicalValue(normalizeScene(scene)));
+export function serializePage(layout: PageLayout): string {
+  return JSON.stringify(canonicalValue(normalizePage(layout)));
 }
 
 /**
- * 导出 scene.json 的文本：规范化 + 2 空格缩进 + 末尾一个换行。
- * 为什么不用 `serializeScene`：那是签名用的紧凑串（无空白、不可读）；落盘的文件要可
- * diff，所以单独一份。JSON.stringify 的键序由 canonicalValue 固定，因此确定性成立。
+ * 任意值 → 键排序、无空白、**保留数字精度**的 JSON 结构（只把非有限值落 0）。
+ * 为什么单独一份：导出文件的 geo 块必须保持 Cartopy 原精度（`base.view_box` 可能有 6 位小数），
+ * 否则导出后再被 Cartopy 侧的一致性校验判成「与底图根标签不一致」；page 块已先 normalizePage
+ * 统一到 3 位小数，所以复用同一套键排序即可。
  */
-export function serializeSceneFile(scene: Scene): string {
-  return `${JSON.stringify(canonicalValue(normalizeScene(scene)), null, 2)}\n`;
+function canonicalValueExact(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((entry) => canonicalValueExact(entry));
+  if (typeof value === 'object' && value !== null) {
+    const record = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(record).sort()) out[key] = canonicalValueExact(record[key]);
+    return out;
+  }
+  if (typeof value === 'number') return finiteOrZero(value);
+  return value;
 }
 
-/** scene 签名：摘要用 3 位小数规范化后的 canonical JSON */
-export function sceneDigest(scene: Scene): string {
-  return sha256Hex(serializeScene(scene));
+/**
+ * 导出单文件地图文档（`<stem>.geo.json`）的文本：geo 全字段 + `page` 排版块。
+ *
+ * 文件即「可再次编辑的地图」：重新打开时 `page` 块恢复排版，geo 块仍作为只读地理输入。
+ * 键排序 + 2 空格缩进 + 末尾一个换行（可 diff、可版本化）；同一输入字节稳定，
+ * 且「导出 → 重新打开 → 再导出」必须字节一致（幂等，geo 精度与 page 舍入都不漂移）。
+ */
+export function serializeMapDocFile(geo: Geo, layout: PageLayout): string {
+  const doc: MapDoc = { ...geo, [MAP_DOC_PAGE_KEY]: normalizePage(layout) };
+  return `${JSON.stringify(canonicalValueExact(doc), null, 2)}\n`;
+}
+
+/** layout 签名：摘要用 3 位小数规范化后的 canonical JSON */
+export function pageDigest(layout: PageLayout): string {
+  return sha256Hex(serializePage(layout));
 }
 
 /** geo 签名（写进 final marker 的 "geo" 字段）：规范化 geo 的 canonical JSON 的 sha256 */
@@ -495,9 +518,9 @@ export function sha256Hex(text: string): string {
 
 /* =========================== 校验 =========================== */
 
-/** 校验结果：ok 分支的 scene 已通过结构检查（未规范化） */
-export type SceneValidation =
-  | { readonly ok: true; readonly scene: Scene; readonly warnings: readonly string[] }
+/** 校验结果：ok 分支的 layout 已通过结构检查（未规范化） */
+export type PageValidation =
+  | { readonly ok: true; readonly layout: PageLayout; readonly warnings: readonly string[] }
   | {
       readonly ok: false;
       readonly errors: readonly string[];
@@ -567,7 +590,7 @@ function checkHalo(value: unknown, path: string, errors: string[]): void {
   }
 }
 
-/** 校验 scene.items 里的一个元素；返回 false 表示该元素（或它的 id）已不可用 */
+/** 校验 layout.items 里的一个元素；返回 false 表示该元素（或它的 id）已不可用 */
 function validateItem(value: unknown, index: number, errors: string[]): void {
   const path = `items[${index}]`;
   if (!isObject(value)) {
@@ -706,39 +729,21 @@ function validateColorbarItem(item: Record<string, unknown>, path: string, error
 }
 
 /**
- * 校验 scene（结构与取值范围，按契约 §4）。
+ * 校验 `page` 块（结构与取值范围，按契约 §4）。
  *
- * @param value 来自上传文件/本地构造的未知 JSON
+ * @param value 来自上传文件里的 `page` 键（未知 JSON）
  * @param geo 可选：提供时补一条「地图是否完整落在纸张内」的告警（越界只告警不报错）
  */
-export function validateScene(value: unknown, geo?: Geo | null): SceneValidation {
+export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
   const errors: string[] = [];
   const warnings: string[] = [];
 
   if (!isObject(value)) {
-    return { ok: false, errors: ['scene: 顶层必须是 JSON 对象'], warnings };
-  }
-
-  if (value.format !== PAGE_SCENE_FORMAT) errors.push(`format: 必须是 "${PAGE_SCENE_FORMAT}"`);
-  if (value.version !== PAGE_SCENE_VERSION) errors.push(`version: 必须是 ${PAGE_SCENE_VERSION}`);
-  if (typeof value.figure !== 'string') errors.push('figure: 必须是字符串');
-
-  const base = value.base;
-  if (!isObject(base)) {
-    errors.push('base: 必须是对象');
-  } else {
-    if (typeof base.sha256 !== 'string' || base.sha256.length === 0) {
-      errors.push('base.sha256: 必须是非空字符串');
-    }
-    if (!isFiniteNumber(base.width_pt) || base.width_pt <= 0) {
-      errors.push('base.width_pt: 必须是正数');
-    }
-    if (!isFiniteNumber(base.height_pt) || base.height_pt <= 0) {
-      errors.push('base.height_pt: 必须是正数');
-    }
+    return { ok: false, errors: ['page: 必须是 JSON 对象'], warnings };
   }
 
   const paper = value.paper;
+
   if (!isObject(paper)) {
     errors.push('paper: 必须是对象');
   } else {
@@ -829,7 +834,10 @@ export function validateScene(value: unknown, geo?: Geo | null): SceneValidation
     isFiniteNumber(map.y) &&
     isFiniteNumber(map.width_pt)
   ) {
-    const ratio = baseRatio(geo, base);
+    const ratio =
+      geo !== null && geo !== undefined && geo.base.width_pt > 0
+        ? geo.base.height_pt / geo.base.width_pt
+        : null;
     const mapHeight = ratio === null ? 0 : map.width_pt * ratio;
     if (
       map.x < 0 ||
@@ -842,27 +850,14 @@ export function validateScene(value: unknown, geo?: Geo | null): SceneValidation
   }
 
   if (errors.length > 0) return { ok: false, errors, warnings };
-  return { ok: true, scene: value as unknown as Scene, warnings };
-}
-
-/**
- * 底图纵横比（height/width）：优先用 geo.base，其次用 scene.base。
- * 返回 null 表示参数不足以派生高度。
- */
-function baseRatio(geo: Geo | null | undefined, base: unknown): number | null {
-  if (geo && geo.base.width_pt > 0) return geo.base.height_pt / geo.base.width_pt;
-  if (isObject(base)) {
-    const width = base.width_pt;
-    const height = base.height_pt;
-    if (isFiniteNumber(width) && isFiniteNumber(height) && width > 0) return height / width;
-  }
-  return null;
+  return { ok: true, layout: value as unknown as PageLayout, warnings };
 }
 
 /**
  * 轻量校验 geo：只查前端渲染默认排版必需的字段，返回错误清单（空 = 可用）。
  * relief/legend/suggestions 是可选块（Cartopy 不画就没有对应的键）：缺省合法，
  * 存在时只做基础结构检查；归一化默认值由 `normalizeGeo` 负责。
+ * 注意：这里也负责文件身份（format/version）；`page` 块不在这里校验（见 `validatePage`）。
  */
 export function validateGeo(value: unknown): string[] {
   const errors: string[] = [];
@@ -983,7 +978,7 @@ export function validateGeo(value: unknown): string[] {
 
 /* =========================== geo 归一化（可选块补默认） =========================== */
 
-/** 空 suggestions：Cartopy 没有默认文案时的全空块（defaultScene 据此不生成标题/注记/来源） */
+/** 空 suggestions：Cartopy 没有默认文案时的全空块（defaultPageLayout 据此不生成标题/注记/来源） */
 function emptySuggestions(): GeoSuggestions {
   return {
     title: '',
@@ -1032,7 +1027,7 @@ function normalizeGraticule(raw: GeoGraticule): GeoGraticule {
 /**
  * 归一化 relief：结构不完整一律 null。
  * 为什么坏结构不保留：色标依赖 vmax>vmin、stops 至少一条、数值有限；缺任何一项都无法
- * 画出有意义的色标，不如让默认排版不生成色标、让 scene 里的 colorbar 给出明确错误。
+ * 画出有意义的色标，不如让默认排版不生成色标、让 layout 里的 colorbar 给出明确错误。
  */
 function normalizeRelief(raw: unknown): GeoRelief | null {
   if (!isObject(raw)) return null;
@@ -1056,7 +1051,7 @@ function normalizeRelief(raw: unknown): GeoRelief | null {
   return { title, unit, vmin, vmax, stops: normalizedStops, ticks };
 }
 
-/** 归一化 legend：缺省/结构坏 → 空图例（标题固定「图例」，defaultScene 不会生图例框） */
+/** 归一化 legend：缺省/结构坏 → 空图例（标题固定「图例」，defaultPageLayout 不会生图例框） */
 function normalizeLegend(raw: unknown): GeoLegend {
   if (!isObject(raw) || !Array.isArray(raw.entries)) return { title: '图例', entries: [] };
   if (!raw.entries.every(isObject)) return { title: '图例', entries: [] };
@@ -1083,9 +1078,9 @@ function normalizeSuggestions(raw: unknown): GeoSuggestions {
 /**
  * 把上传的 geo 收敛成前端可安全消费的形状：可选块补默认值，返回新对象。
  *
- * - legend 缺省/结构坏 → `{title:'图例', entries: []}`（defaultScene 因此不生成空图例框）；
- * - suggestions 缺省/结构坏 → 全空（defaultScene 因此不生成标题/注记/来源）；
- * - relief 缺省/结构坏 → null（defaultScene 因此不生成色标）；
+ * - legend 缺省/结构坏 → `{title:'图例', entries: []}`（defaultPageLayout 因此不生成空图例框）；
+ * - suggestions 缺省/结构坏 → 全空（defaultPageLayout 因此不生成标题/注记/来源）；
+ * - relief 缺省/结构坏 → null（defaultPageLayout 因此不生成色标）；
  * - graticule 的 lon/lat 原样保留，style 缺省时补中性值；
  * - base/labels 不补：validateGeo 已要求，缺了属于调用方漏校验。
  * 为什么返回新对象：`PageDocument.geo` 是打开后共享的只读真值，不能与用户上传的原始
@@ -1108,28 +1103,28 @@ export function normalizeGeo(raw: Geo): Geo {
 /* =========================== 查询/编辑辅助 =========================== */
 
 /** 按 id 找元素 */
-export function itemById(scene: Scene, id: number): PageItem | null {
-  return scene.items.find((item) => item.id === id) ?? null;
+export function itemById(layout: PageLayout, id: number): PageItem | null {
+  return layout.items.find((item) => item.id === id) ?? null;
 }
 
 /** 删除元素（按 id），返回是否删到；不处理选中态 */
-export function removeItem(scene: Scene, id: number): boolean {
-  const index = scene.items.findIndex((item) => item.id === id);
+export function removeItem(layout: PageLayout, id: number): boolean {
+  const index = layout.items.findIndex((item) => item.id === id);
   if (index < 0) return false;
-  scene.items.splice(index, 1);
+  layout.items.splice(index, 1);
   return true;
 }
 
 /** 分配一个新的元素 id 并推进 seq（调用方负责把元素插进 items） */
-export function allocateItemId(scene: Scene): number {
-  const id = scene.seq;
-  scene.seq += 1;
+export function allocateItemId(layout: PageLayout): number {
+  const id = layout.seq;
+  layout.seq += 1;
   return id;
 }
 
 /** 走查元素数量（状态栏/标题用） */
-export function countItems(scene: Scene): number {
-  return scene.items.length;
+export function countItems(layout: PageLayout): number {
+  return layout.items.length;
 }
 
 /** 元素类型的中文名（UI 列表与状态提示共用） */

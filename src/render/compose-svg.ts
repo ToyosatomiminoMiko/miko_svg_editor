@@ -1,12 +1,12 @@
 /**
- * 浏览器内合成 final.svg：`PageDocument + scene → SVG 字符串 + report`（纯函数，node 可测）。
+ * 浏览器内合成 final.svg：`PageDocument + layout → SVG 字符串 + report`（纯函数，node 可测）。
  *
  * 是什么：把底图根标签内的原文原样嵌进带 `clip-path` 的 `<g id="mapdoc-map">`，再按
  * `docs/PAGE-EDITOR.md` §6 的图层顺序拼出纸张、图框刻度、items 与 `mapdoc-final` marker；
  * 同时给出元素计数、越界告警与越界 item id（`report`）。
  * 为什么在 render 层而不是 core：输出是 SVG 字符串，要复用 `render/page-format.ts` 的数值/
  * 转义口径；排版几何仍全部来自 `core/page-layout.ts`（与 `render/page-svg.ts` 预览同一套公式）。
- * 确定性：不读 DOM、时间、随机数；同一 (base.inner, baseSha256, geo, scene) 输入两次得到同字节。
+ * 确定性：不读 DOM、时间、随机数；同一 (base.inner, baseSha256, geo, layout) 输入两次得到同字节。
  * 与无后端改造前的合成实现相比：图层顺序、空组写法、marker 形状沿用其字节布局，但排版几何改由
  * page-layout 统一提供，所以不要求与旧输出逐字节一致；数值格式仍走 formatPageNumber。
  * 为什么 map group 必须 `clip-path`：底图根内自带覆盖整个 Figure 的图幅白底 path，预览用
@@ -18,15 +18,15 @@ import type { PageDocument } from '../core/document';
 import {
   canonicalJson,
   geoDigest,
-  normalizeScene,
-  sceneDigest,
+  normalizePage,
+  pageDigest,
   type ColorbarItem,
   type Geo,
   type GeoRelief,
   type LegendEntry,
   type LegendItem,
   type PageItem,
-  type Scene,
+  type PageLayout,
   type TextItem,
 } from '../core/page';
 import {
@@ -139,15 +139,15 @@ function textElement(x: number, y: number, value: string, options: TextElementOp
  * 「上一行 halo 盖住下一行填充」的视觉差（单行时两种顺序等价）。
  * 多行整体绕第一行锚点旋转；不旋转时直接输出各行（与旧 compose 相同，不额外包组）。
  */
-function renderTextItem(item: TextItem, scene: Scene, geo: Geo): string[] {
-  const layout = textLayout(item, geo, scene);
-  const family = item.font_family ?? scene.style.font_family;
+function renderTextItem(item: TextItem, layout: PageLayout, geo: Geo): string[] {
+  const text = textLayout(item, geo, layout);
+  const family = item.font_family ?? layout.style.font_family;
   const haloChildren: string[] = [];
   const fillChildren: string[] = [];
-  for (const line of layout.lines) {
+  for (const line of text.lines) {
     if (item.halo !== null) {
       haloChildren.push(
-        textElement(layout.px, line.y, line.text, {
+        textElement(text.px, line.y, line.text, {
           anchor: item.anchor,
           family,
           fontSize: item.font_size_pt,
@@ -159,7 +159,7 @@ function renderTextItem(item: TextItem, scene: Scene, geo: Geo): string[] {
       );
     }
     fillChildren.push(
-      textElement(layout.px, line.y, line.text, {
+      textElement(text.px, line.y, line.text, {
         anchor: item.anchor,
         family,
         fontSize: item.font_size_pt,
@@ -173,7 +173,7 @@ function renderTextItem(item: TextItem, scene: Scene, geo: Geo): string[] {
   const children = [...haloChildren, ...fillChildren];
   if (item.rotation_deg !== 0) {
     return [
-      `<g transform="rotate(${num(item.rotation_deg)} ${num(layout.px)} ${num(layout.py)})">`,
+      `<g transform="rotate(${num(item.rotation_deg)} ${num(text.px)} ${num(text.py)})">`,
       ...children,
       '</g>',
     ];
@@ -234,12 +234,12 @@ function pointMarker(entry: LegendEntry, cx: number, cy: number, fontSize: numbe
   }
 }
 
-/** 一个 legend item：底板、标题、逐行 swatch+label；高度由 §5.4 公式派生（不落 scene） */
-function renderLegendItem(item: LegendItem, scene: Scene, geo: Geo): string[] {
-  const placement = itemPlacement(item, scene, geo);
+/** 一个 legend item：底板、标题、逐行 swatch+label；高度由 §5.4 公式派生（不落 layout） */
+function renderLegendItem(item: LegendItem, layout: PageLayout, geo: Geo): string[] {
+  const placement = itemPlacement(item, layout, geo);
   // 只有宽度随 map 空间缩放；字号/行高/padding 是 pt，不随底图缩放（legendLayout 同口径）。
   const effective: LegendItem = { ...item, x: placement.x, y: placement.y };
-  const layout = legendLayout(effective, placement.scale);
+  const legend = legendLayout(effective, placement.scale);
   const width = item.width_pt * placement.scale;
   const children: string[] = [];
   const frame = item.frame;
@@ -247,18 +247,18 @@ function renderLegendItem(item: LegendItem, scene: Scene, geo: Geo): string[] {
     // 底板透明度是 fill-opacity，只影响白底不影响描边（与预览一致）。
     children.push(
       `<rect x="${num(placement.x)}" y="${num(placement.y)}" ` +
-        `width="${num(width)}" height="${num(layout.height)}" ` +
+        `width="${num(width)}" height="${num(legend.height)}" ` +
         `fill="${attr(frame.fill)}" fill-opacity="${opacityValue(frame.opacity)}" ` +
         `stroke="${attr(frame.stroke)}" stroke-width="${num(frame.width_pt)}"/>`,
     );
   }
   if (item.title.length > 0) {
     children.push(
-      textElement(layout.titleX, layout.titleBaseline, item.title, {
+      textElement(legend.titleX, legend.titleBaseline, item.title, {
         anchor: 'middle',
-        family: scene.style.font_family,
+        family: layout.style.font_family,
         fontSize: item.title_size_pt,
-        fill: scene.style.color,
+        fill: layout.style.color,
         italic: false,
         bold: false,
         halo: null,
@@ -266,7 +266,7 @@ function renderLegendItem(item: LegendItem, scene: Scene, geo: Geo): string[] {
     );
   }
   item.entries.forEach((entry, index) => {
-    const row = layout.rows[index];
+    const row = legend.rows[index];
     if (row === undefined) return;
     switch (entry.shape) {
       case 'line': {
@@ -305,9 +305,9 @@ function renderLegendItem(item: LegendItem, scene: Scene, geo: Geo): string[] {
     children.push(
       textElement(row.labelX, row.labelBaseline, entry.label, {
         anchor: 'start',
-        family: scene.style.font_family,
+        family: layout.style.font_family,
         fontSize: item.font_size_pt,
-        fill: scene.style.color,
+        fill: layout.style.color,
         italic: false,
         bold: false,
         halo: null,
@@ -326,21 +326,21 @@ function renderLegendItem(item: LegendItem, scene: Scene, geo: Geo): string[] {
  */
 function renderColorbarItem(
   item: ColorbarItem,
-  scene: Scene,
+  layout: PageLayout,
   geo: Geo,
   relief: GeoRelief,
 ): string[] {
-  const placement = itemPlacement(item, scene, geo);
+  const placement = itemPlacement(item, layout, geo);
   const effective: ColorbarItem = { ...item, x: placement.x, y: placement.y };
-  const layout = colorbarLayout(effective, relief, placement.scale);
+  const bar = colorbarLayout(effective, relief, placement.scale);
   const children: string[] = [];
   if (item.show_title && item.title.length > 0) {
     children.push(
-      textElement(layout.titleX, layout.titleBaseline, layout.titleText, {
+      textElement(bar.titleX, bar.titleBaseline, bar.titleText, {
         anchor: 'middle',
-        family: scene.style.font_family,
+        family: layout.style.font_family,
         fontSize: item.title_size_pt,
-        fill: scene.style.color,
+        fill: layout.style.color,
         italic: false,
         bold: false,
         halo: null,
@@ -349,20 +349,20 @@ function renderColorbarItem(
   }
   children.push(
     `<rect x="${num(placement.x)}" y="${num(placement.y)}" ` +
-      `width="${num(layout.width)}" height="${num(layout.height)}" ` +
+      `width="${num(bar.width)}" height="${num(bar.height)}" ` +
       `fill="url(#${colorbarGradientId(item.id)})"/>`,
   );
-  for (const tick of layout.ticks) {
+  for (const tick of bar.ticks) {
     children.push(
       `<line x1="${num(tick.x1)}" y1="${num(tick.ty)}" ` +
-        `x2="${num(tick.x2)}" y2="${num(tick.ty)}" stroke="${attr(scene.style.color)}"/>`,
+        `x2="${num(tick.x2)}" y2="${num(tick.ty)}" stroke="${attr(layout.style.color)}"/>`,
     );
     children.push(
       textElement(tick.labelX, tick.labelBaseline, num(tick.value), {
         anchor: 'start',
-        family: scene.style.font_family,
+        family: layout.style.font_family,
         fontSize: item.label_size_pt,
-        fill: scene.style.color,
+        fill: layout.style.color,
         italic: false,
         bold: false,
         halo: null,
@@ -375,9 +375,9 @@ function renderColorbarItem(
 /* =========================== 图框/刻度（§5.2） =========================== */
 
 /** 图框矩形 + 刻度短线 + 刻度文字；frame.show/ticks 关闭时对应部分为空 */
-function renderFrame(scene: Scene, geo: Geo): string {
+function renderFrame(layout: PageLayout, geo: Geo): string {
   const children: string[] = [];
-  const { frame, map } = scene;
+  const { frame, map } = layout;
   const height = mapHeightPt(geo, map);
   if (frame.show) {
     children.push(
@@ -387,7 +387,7 @@ function renderFrame(scene: Scene, geo: Geo): string {
     );
   }
   if (frame.ticks) {
-    for (const tick of frameTickLayout(scene, geo)) {
+    for (const tick of frameTickLayout(layout, geo)) {
       children.push(
         `<line x1="${num(tick.x1)}" y1="${num(tick.y1)}" ` +
           `x2="${num(tick.x2)}" y2="${num(tick.y2)}" stroke="${attr(frame.tick_color)}" ` +
@@ -397,7 +397,7 @@ function renderFrame(scene: Scene, geo: Geo): string {
       children.push(
         textElement(tick.textX, tick.textY, tick.label, {
           anchor: tick.anchor,
-          family: scene.style.font_family,
+          family: layout.style.font_family,
           fontSize: frame.tick_font_size_pt,
           fill: frame.tick_color,
           italic: false,
@@ -417,12 +417,12 @@ function renderFrame(scene: Scene, geo: Geo): string {
  *
  * 为什么必须裁剪：Cartopy 底图根标签内自带 matplotlib 的图幅白底（`patch_1` path 覆盖
  * 整个原始 Figure），原样内联后会溢出地图矩形铺满整页；默认白纸看不出，但
- * `scene.style.paper_color` 非白时成品与预览（`<image>` 天然按地图矩形裁剪）明显不一致。
+ * `layout.style.paper_color` 非白时成品与预览（`<image>` 天然按地图矩形裁剪）明显不一致。
  * 为什么 rect 用 `geo.base.view_box`：map group 的 transform 已把底图坐标映射到纸面，
  * 局部坐标系里地图框就是 viewBox，clip 后与预览的裁剪范围逐点一致。
  * 为什么 defs 始终输出：即使没有 colorbar 也需要 clipPath；固定结构也让成品可 diff。
  */
-function renderDefs(scene: Scene, geo: Geo, relief: GeoRelief | null): string {
+function renderDefs(layout: PageLayout, geo: Geo, relief: GeoRelief | null): string {
   const [viewX = 0, viewY = 0, viewWidth = 0, viewHeight = 0] = geo.base.view_box;
   const clipPath =
     '<clipPath id="mapdoc-map-clip">' +
@@ -430,7 +430,7 @@ function renderDefs(scene: Scene, geo: Geo, relief: GeoRelief | null): string {
     `width="${num(viewWidth)}" height="${num(viewHeight)}"/>` +
     '</clipPath>';
   const gradients: string[] = [];
-  for (const item of scene.items) {
+  for (const item of layout.items) {
     if (item.kind !== 'colorbar') continue;
     // 调用方已保证「有 colorbar ⇒ relief 非 null」；这里再判一次是为了类型收窄。
     if (relief === null) throw new Error('色标需要 geo.relief');
@@ -452,22 +452,22 @@ function renderDefs(scene: Scene, geo: Geo, relief: GeoRelief | null): string {
 /** 元素在纸张坐标里的近似包围盒（文字按锚点、不含旋转/字宽，只用于越界告警） */
 function itemBBox(
   item: PageItem,
-  scene: Scene,
+  layout: PageLayout,
   geo: Geo,
 ): readonly [number, number, number, number] {
   switch (item.kind) {
     case 'text': {
-      const layout = textLayout(item, geo, scene);
-      return [layout.px, layout.py, layout.px, layout.py];
+      const text = textLayout(item, geo, layout);
+      return [text.px, text.py, text.px, text.py];
     }
     case 'legend': {
-      const placement = itemPlacement(item, scene, geo);
-      const layout = legendLayout({ ...item, x: placement.x, y: placement.y }, placement.scale);
+      const placement = itemPlacement(item, layout, geo);
+      const legendBox = legendLayout({ ...item, x: placement.x, y: placement.y }, placement.scale);
       const width = item.width_pt * placement.scale;
-      return [placement.x, placement.y, placement.x + width, placement.y + layout.height];
+      return [placement.x, placement.y, placement.x + width, placement.y + legendBox.height];
     }
     case 'colorbar': {
-      const placement = itemPlacement(item, scene, geo);
+      const placement = itemPlacement(item, layout, geo);
       return [
         placement.x,
         placement.y,
@@ -480,15 +480,15 @@ function itemBBox(
 
 /** 越界 item id（按 items 顺序）与中文告警；只提示不拒绝（§4） */
 function analyze(
-  scene: Scene,
+  layout: PageLayout,
   geo: Geo,
 ): { readonly out_of_paper: number[]; readonly warnings: string[] } {
-  const paperWidth = scene.paper.width_pt;
-  const paperHeight = scene.paper.height_pt;
+  const paperWidth = layout.paper.width_pt;
+  const paperHeight = layout.paper.height_pt;
   const outOfPaper: number[] = [];
   const warnings: string[] = [];
-  for (const item of scene.items) {
-    const [minX, minY, maxX, maxY] = itemBBox(item, scene, geo);
+  for (const item of layout.items) {
+    const [minX, minY, maxX, maxY] = itemBBox(item, layout, geo);
     if (
       minX < -BBOX_EPS ||
       minY < -BBOX_EPS ||
@@ -500,12 +500,12 @@ function analyze(
     }
   }
   // §4: map.x/y 只要求有限，越界是告警而不是错误——成品里地图会被纸张裁掉。
-  const height = mapHeightPt(geo, scene.map);
+  const height = mapHeightPt(geo, layout.map);
   if (
-    scene.map.x < -BBOX_EPS ||
-    scene.map.y < -BBOX_EPS ||
-    scene.map.x + scene.map.width_pt > paperWidth + BBOX_EPS ||
-    scene.map.y + height > paperHeight + BBOX_EPS
+    layout.map.x < -BBOX_EPS ||
+    layout.map.y < -BBOX_EPS ||
+    layout.map.x + layout.map.width_pt > paperWidth + BBOX_EPS ||
+    layout.map.y + height > paperHeight + BBOX_EPS
   ) {
     warnings.push('地图超出纸张范围（成品会被裁切，仅告警）');
   }
@@ -558,7 +558,7 @@ function encodeBase64(textValue: string): string {
 }
 
 /** final marker：`<!-- mapdoc-final:BASE64(canonicalJson(payload)) -->`（§6.1） */
-function makeMarker(counts: ComposeCounts, geo: Geo, scene: Scene): string {
+function makeMarker(counts: ComposeCounts, geo: Geo, layout: PageLayout): string {
   const payload = {
     counts: {
       colorbar: counts.colorbar,
@@ -567,8 +567,8 @@ function makeMarker(counts: ComposeCounts, geo: Geo, scene: Scene): string {
       total: counts.total,
     },
     geo: geoDigest(geo),
-    scene: sceneDigest(scene),
-    version: 1,
+    page: pageDigest(layout),
+    version: 2,
   };
   return `<!-- mapdoc-final:${encodeBase64(canonicalJson(payload))} -->`;
 }
@@ -582,16 +582,16 @@ function makeMarker(counts: ComposeCounts, geo: Geo, scene: Scene): string {
  * → `mapdoc-map`（底图原文，按 clip 裁剪到地图框）→ `mapdoc-frame` → `mapdoc-overlay`
  * （items 按数组序）→ marker → `</svg>`。
  *
- * 为什么先 `normalizeScene`：digest 与渲染都必须只接受契约字段 + 3 位小数，
- * 避免同一语义出现多种字节；scene 合法性由编辑器保证（新建/导入时已校验）。
- * `geo.relief` 为 null 而 scene 里仍有 colorbar 时抛 `Error('色标需要 geo.relief')`：
- * 这种 scene 无法画出有意义的色标，静默跳过会让成品与预览不一致。
+ * 为什么先 `normalizePage`：digest 与渲染都必须只接受契约字段 + 3 位小数，
+ * 避免同一语义出现多种字节；layout 合法性由编辑器保证（新建/导入时已校验）。
+ * `geo.relief` 为 null 而 layout 里仍有 colorbar 时抛 `Error('色标需要 geo.relief')`：
+ * 这种 layout 无法画出有意义的色标，静默跳过会让成品与预览不一致。
  */
-export function composeFinalSvg(document: PageDocument, scene: Scene): ComposeResult {
+export function composeFinalSvg(document: PageDocument, layout: PageLayout): ComposeResult {
   if (document.base.errors.length > 0) {
     throw new Error(`底图未通过契约检查，无法合成 final.svg：${document.base.errors.join('；')}`);
   }
-  const normalized = normalizeScene(scene);
+  const normalized = normalizePage(layout);
   const geo = document.geo;
   const relief = geo.relief;
   if (relief === null && normalized.items.some((item) => item.kind === 'colorbar')) {

@@ -43,8 +43,9 @@ npm run preview      # 预览 dist/
 
 > **地图出版排版编辑器**（`map.html`）是**纯静态前端**：不需要 Python，也不需要任何后端服务。
 > `npm run dev` 后打开 `http://localhost:5173/map.html`，在 SVG / JSON 两个选择栏里分别选入
-> Cartopy_file 产出的 `base.svg` 与 `geo.json`（可选 `scene.json` 恢复排版），在浏览器内排版并
-> 导出 `scene.json` / `final.svg` 两个文件。
+> Cartopy_file 产出的 `base.svg` 与 `geo.json`，在浏览器内排版；编辑后导出**同一份
+> `<stem>.geo.json`**（geo 全部字段 + `page` 排版块）与成品 `<stem>.svg`，再次打开导出的
+> geo.json 即可恢复排版、继续编辑。
 > 开发端口唯一真值是 `vite.config.ts` 的 `SITE_PORT`（5173，`strictPort`）；`npm run build` 的
 > `dist/` 可直接放任意静态服务器。数据流、字段、文件 I/O 与校验口径见
 > [`docs/PAGE-EDITOR.md`](docs/PAGE-EDITOR.md)。
@@ -280,14 +281,15 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 [`docs/PAGE-EDITOR.md`](docs/PAGE-EDITOR.md)。
 
 **纯前端**：Cartopy 只负责地理内容（地形/水系/边界/经纬网/地理坐标点），产物是**纯地图 SVG +
-`geo.json`**；标题、图例、色标、图框、经纬度刻度数字、地名、注释、来源全部在浏览器里排版，存成
-`scene.json`；`final.svg` 也在浏览器内合成（`render/compose-svg.ts`）——没有 Python、没有 HTTP 后端。
+`geo.json`**；标题、图例、色标、图框、经纬度刻度数字、地名、注释、来源全部在浏览器里排版，编辑后
+写进**同一份 geo.json 的 `page` 块**；`final.svg` 也在浏览器内合成（`render/compose-svg.ts`）——
+没有 Python、没有 HTTP 后端。
 
 **能做什么**
 
-- 打开：在 SVG 栏与 JSON 栏里**分别**选择/拖入配套的 `base.svg` 与 `geo.json`（JSON 栏可再一起
-  选一个 `scene.json` 恢复旧排版），两栏选齐后点「打开地图」；底图含文字、
-  sha256 与尺寸对不上、JSON 格式不对等都给中文原因。
+- 打开：在 SVG 栏与 JSON 栏里**分别**选择/拖入配套的 `base.svg` 与 `geo.json`（各一个；
+  geo.json 带 `page` 块即恢复排版），两栏选齐后点「打开地图」；底图含文字、sha256 与尺寸对不上、
+  JSON 格式不对（含旧 `scene.json`）等都给中文原因。
 - 纸张：A5/A4/A3/Letter/自定义、纵横向、页边距；地图摆放（x/y/宽，高度按底图纵横比派生）。
 - 图文：标题、副标题、注释、来源、自由文字；字号/行高/旋转/颜色/对齐/斜体/加粗/白色光晕；
   双击选中项在右侧栏改内容。
@@ -296,8 +298,9 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 - 图框：显示开关、线宽/颜色、经纬度刻度、刻度长/字号/颜色/间距；地名/刻度随地图缩放与移动。
 - 编辑：缩放/平移（滚轮、空格/中键拖动、适应页面、1:1）、点选、拖拽、方向键微移、Delete、
   未导出保护；「重新排默认版式」按当前纸张重建初始排版（会弹确认）。
-- 导出：`导出 JSON`（`Ctrl+S`）下载 `<stem>.scene.json`；`导出 SVG` 在浏览器内合成并下载
-  `<stem>.svg`（纸张尺寸、底图内容内联、文字可选中；字体不内嵌，见限制）。
+- 导出：`导出 geo.json`（`Ctrl+S`）下载 `<stem>.geo.json`（geo 全部字段 + `page` 排版块，重新打开
+  即恢复排版）；`导出 SVG` 在浏览器内合成并下载 `<stem>.svg`（纸张尺寸、底图内容内联、文字可选中；
+  字体不内嵌，见限制）。
 - `打开…` 有未导出的修改会先确认；未导出时离开页面有 `beforeunload` 提醒。
 
 **跑起来**
@@ -365,7 +368,7 @@ index.html                   草图编辑器入口（仅一个 #app 挂载点；
 map.html                     地图出版排版编辑器入口（#page-app；由 app/page-main.ts 装配）
 docs/
   ARCHITECTURE.md            分层图 + 一次点击/一次约束的手把手调用链路 + 修改任务导航（本表详细版）
-  PAGE-EDITOR.md             地图出版排版的数据流/geo.json/scene.json/布局公式/文件 I/O 契约
+  PAGE-EDITOR.md             地图出版排版的数据流/geo.json（含 page 块）/布局公式/文件 I/O 契约
   merge/                     旧「冻结底图 × 草图叠加层」设计稿归档（已被 PAGE-EDITOR.md 取代）
 src/
   app/                       应用层：组合根与事件控制器（唯一做「全局装配」的目录）
@@ -374,8 +377,8 @@ src/
     editor.ts                草图控制器：指针/键盘事件接线 + 手势状态机（拖拽/平移/框选）+ Enter/Backspace/Esc
                              路由 + ResizeObserver 跟随布局重设画布；命令实现委托 ui/editor-controls.ts
     page-main.ts             排版编辑器组合根：建三栏外壳 → 上传面板（SVG/JSON 两栏）→ 读取/校验
-                             base.svg + geo.json → PageDocument → defaultScene → PageEditor + 侧栏/工具条/通知 + 导出
-    page-editor.ts           排版编辑器状态机：选择/拖拽/方向键/缩放/平移/脏标记；导出 JSON/SVG、destroy
+                             base.svg + geo.json → PageDocument → defaultPageLayout → PageEditor + 侧栏/工具条/通知 + 导出
+    page-editor.ts           排版编辑器状态机：选择/拖拽/方向键/缩放/平移/脏标记；导出 geo.json/SVG、destroy
   core/                      纯逻辑内核：不碰 DOM / miko_ui，node 环境可直接单测
     types.ts                 非图元的数据类型：Point/Constraint/ToolId/SelectionItem/Selection/Marquee 等
                              （图元是多态类，在 entities.ts）
@@ -405,9 +408,9 @@ src/
     vec.ts                   二维向量纯函数（含 safeLen / unitPerp 的零向量约定）
     base-svg.ts              底图契约 C1–C4 与根标签内原文切片（纯逻辑）
     document.ts              上传文件分类 + PageDocument（底图字节/sha256/规范化 geo）+ 导出文件名
-    page.ts                  排版文档 scene/geo 的类型、规范化/序列化/校验/digest（纯逻辑，node 可测）
+    page.ts                  排版文档 geo/page 的类型、规范化/序列化/校验/digest（纯逻辑，node 可测）
     page-layout.ts           §5 布局公式（底图→纸张变换、图框刻度、文字/图例/色标位置）+
-                             defaultScene(geo, base)：按纸张生成初始排版、可选块降级、地名缩放
+                             defaultPageLayout(geo, options)：按纸张生成初始排版、可选块降级、地名缩放
   render/                    绘图与输出适配层（canvas / SVG）：数据全部由参数注入
     renderer.ts              canvas 渲染编排：DPR 与画布尺寸、逐帧调用各绘制模块、图元选中态判定
     draw-grid.ts             网格 + 原点十字
@@ -418,7 +421,7 @@ src/
     theme.ts                 从应用样式 src/styles.css :root 读一次 Theme（带默认值兜底），注入 Renderer
     export-svg.ts            纯 SVG 导出（buildSVG，按几何基元生成标签，含点图元）；下载适配器在 ui/download.ts
     page-format.ts           排版层数字格式化（3 位小数去尾零）、XML 转义、SVG 属性 helper
-    page-svg.ts              scene + geo → 排版预览 SVG（纸张/底图 image/图框刻度/文字/图例/色标）
+    page-svg.ts              layout + geo → 排版预览 SVG（纸张/底图 image/图框刻度/文字/图例/色标）
     compose-svg.ts           浏览器内合成 final.svg（图层结构、marker、越界 report；纯函数）
   ui/                        miko_ui 组件封装（左侧状态栏 / 顶部 dock / 输入 / 通知）
     toolbar.ts               顶部 dock 工具栏：miko_ui 的分段按钮组 / 按钮 / 开关 / 控制组 + 操作按钮高亮
@@ -436,7 +439,7 @@ src/
     measure-text.ts          canvas measureText 适配器（无 canvas 时回退估算）
     page-open.ts             排版编辑器上传面板（SVG / JSON 两栏分别选择 + 打开按钮 + 错误文案）
     page-sidebar.ts          排版编辑器右侧属性面板（页面/地图/图框/元素列表/选中项/图例编辑）
-    page-toolbar.ts          排版编辑器顶部工具条（打开…/导出 JSON/导出 SVG/添加/视图）
+    page-toolbar.ts          排版编辑器顶部工具条（打开…/导出 geo.json/导出 SVG/添加/视图）
     page-notify.ts           排版编辑器消息区（miko_ui MessageArea + 简单确认框）
   config/                    纯数据/常量层（index.ts 统一出口；只许 type-only 引 core 类型）
     page.ts                  排版编辑器常量：格式标识、上传 accept、校验容差、纸张预设、默认排版、上限

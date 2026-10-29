@@ -1,8 +1,8 @@
 /**
  * 出版排版编辑器（map.html）的常量与默认值。
  *
- * 是什么：`scene.json`（format `mapdoc-page`）的格式标识、上传/下载参数、纸张预设、
- * 默认页边距/字号/图框/图例/色标参数、校验上下限与交互缩放系数。
+ * 是什么：单文件地图文档 `<stem>.geo.json`（format `mapdoc-geo`）的格式标识、上传/下载参数、
+ * 纸张预设、默认页边距/字号/图框/图例/色标参数、校验上下限与交互缩放系数。
  * 为什么集中在这里：预览（浏览器 DOM）与成品（浏览器内 `render/compose-svg.ts`）必须共享同一套
  * 默认值；把它们放在 config 层，core/render/ui/app 只读不写，避免「预览与成品标定不一致」。
  * 数字口径：全部是 pt（1 用户单位 = 1pt），写进 SVG 时最多 3 位小数、去尾零（见
@@ -10,16 +10,16 @@
  * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地。
  */
 
-/* ---------------- scene 文档标识 ---------------- */
+/* ---------------- 文档标识 ---------------- */
 
-/** scene.json 的格式标识（契约 §4） */
-export const PAGE_SCENE_FORMAT = 'mapdoc-page';
-
-/** 版本：必须精确匹配，新增可选字段也升版本 */
-export const PAGE_SCENE_VERSION = 1;
-
-/** geo.json 的格式标识（只读，前端只校验这两个字段用于提示） */
+/**
+ * geo.json 的格式标识：Cartopy 直出的地理块与编辑器导出的单文件文档共用同一个 format。
+ * 为什么不再有独立的 `mapdoc-page`：排版是同一份文件的 `page` 块（见 core/page.ts），
+ * 文件身份只有这一处，避免「两份 JSON 谁是真值」的歧义。
+ */
 export const PAGE_GEO_FORMAT = 'mapdoc-geo';
+
+/** 版本：必须精确匹配；排版块是同一 v1 文档里的可选 `page` 键（不升版本，保持 Cartopy 兼容） */
 export const PAGE_GEO_VERSION = 1;
 
 /* ---------------- 上传与下载（文件 I/O，无后端） ---------------- */
@@ -31,7 +31,7 @@ export const PAGE_GEO_VERSION = 1;
 export const PAGE_UPLOAD_SVG_ACCEPT = '.svg,image/svg+xml';
 
 /**
- * JSON 选择框的 accept：geo.json 必需、scene.json 可选，所以允许多选。
+ * JSON 选择框的 accept：只接受 geo.json（单文件，内含可选 page 排版块）。
  * 扩展名只用于分栏与快速分桶，JSON 内容的 `format` 才是真值（`core/document.ts`）。
  */
 export const PAGE_UPLOAD_JSON_ACCEPT = '.json,application/json';
@@ -117,7 +117,7 @@ export const PAGE_DEFAULT_ORIENTATION: PaperOrientation = 'landscape';
 export const PAGE_DEFAULT_PAPER_WIDTH_PT = 841.889764;
 export const PAGE_DEFAULT_PAPER_HEIGHT_PT = 595.275591;
 
-/* ---------------- 默认排版（defaultScene 用） ---------------- */
+/* ---------------- 默认排版（defaultPageLayout 用） ---------------- */
 
 /** 默认页边距（pt）；「重新排默认版式」的初始值 */
 export const PAGE_DEFAULT_MARGIN_PT = 28;
@@ -168,7 +168,7 @@ export const PAGE_TEXT_LINE_HEIGHT = 1.35;
 /** map 空间地名默认行高（多行地名更紧一点） */
 export const PAGE_LABEL_LINE_HEIGHT = 1.2;
 
-/* ---------------- 默认样式（scene.style / frame） ---------------- */
+/* ---------------- 默认样式（page.style / page.frame） ---------------- */
 
 /**
  * 默认字体栈（契约 §4 示例原样）。
@@ -211,7 +211,7 @@ export const PAGE_LEGEND_DEFAULTS = {
 export const PAGE_COLORBAR_TITLE_SIZE_PT = 8;
 export const PAGE_COLORBAR_LABEL_SIZE_PT = 7;
 
-/** 色标刻度短线长度与标签间距（契约 §5.5 的 3 / 5，写死公式里，不落 scene） */
+/** 色标刻度短线长度与标签间距（契约 §5.5 的 3 / 5，写死公式里，不落 page） */
 export const PAGE_COLORBAR_TICK_LENGTH_PT = 3;
 export const PAGE_COLORBAR_LABEL_GAP_PT = 5;
 

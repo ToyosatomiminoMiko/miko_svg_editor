@@ -3,8 +3,8 @@
  *
  * 是什么：3 位小数去尾零的 `formatPageNumber`、颜色与虚线属性、XML 文本/属性转义，
  * 以及 colorbar 渐变 id 的唯一命名。
- * 为什么单列一层：SVG 里「28.0」与「28」不是同一份字节，预览、scene 摘要与导出的
- * final.svg 必须共用同一套格式化，否则同一 scene 会得到不同字节。
+ * 为什么单列一层：SVG 里「28.0」与「28」不是同一份字节，预览、page 摘要与导出的
+ * final.svg 必须共用同一套格式化，否则同一 layout 会得到不同字节。
  * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地；2026-10-28
  * 无后端改造后由预览与 `render/compose-svg.ts` 共同复用。
  */
@@ -15,8 +15,8 @@ import { PAGE_DECIMALS } from '../config/page';
  * 数字 → SVG 文本：最多 3 位小数、去掉尾零、不带单位后缀。
  *
  * 为什么是 `Math.round(v*1000)/1000` 而不是 `toFixed`：`toFixed` 在 .xxx5 边界上
- * 的舍入规则由实现决定；预览、scene 摘要与导出的 final.svg 必须逐字同源，否则
- * 同一 scene 会得到不同字节。非有限值落成 "0"（不让 NaN/Infinity 进 SVG）。
+ * 的舍入规则由实现决定；预览、page 摘要与导出的 final.svg 必须逐字同源，否则
+ * 同一 layout 会得到不同字节。非有限值落成 "0"（不让 NaN/Infinity 进 SVG）。
  */
 export function formatPageNumber(value: number, decimals: number = PAGE_DECIMALS): string {
   if (!Number.isFinite(value)) return '0';

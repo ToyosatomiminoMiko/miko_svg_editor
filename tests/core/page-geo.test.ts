@@ -1,5 +1,5 @@
 /**
- * `core/page.ts` 的 geo 归一化/摘要/序列化增量与 `core/page-layout.ts` 的 defaultScene
+ * `core/page.ts` 的 geo 归一化/摘要/序列化增量与 `core/page-layout.ts` 的 defaultPageLayout
  * 可选块降级（无 legend / 无 relief / 无 suggestions）单测。
  *
  * 为什么要有这些用例：Cartopy 直出的 geo.json 允许缺 legend/relief/suggestions 整块
@@ -14,19 +14,19 @@ import {
   canonicalJson,
   geoDigest,
   normalizeGeo,
-  serializeSceneFile,
+  normalizePage,
+  serializeMapDocFile,
   sha256Hex,
   sha256OfBytes,
   validateGeo,
-  validateScene,
+  validatePage,
   type Geo,
   type GeoLegend,
   type GeoSuggestions,
-  type Scene,
+  type PageLayout,
 } from '../../src/core/page';
-import { defaultScene } from '../../src/core/page-layout';
+import { defaultPageLayout } from '../../src/core/page-layout';
 import {
-  BASE_DECLARATION,
   BASE_SHA256,
   BASE_SVG_TEXT,
   makeDocument,
@@ -34,9 +34,9 @@ import {
   withoutBlocks,
 } from '../fixtures/page-fixtures';
 
-/** 用 geo 生成一份默认排版（打开流程：normalizeGeo → defaultScene） */
-function sceneOf(geo: Geo): Scene {
-  return defaultScene(makeDocument(geo).geo, BASE_DECLARATION, { figure: 'fixture.svg' });
+/** 用 geo 生成一份默认排版（打开流程：normalizeGeo → defaultPageLayout） */
+function layoutOf(geo: Geo): PageLayout {
+  return defaultPageLayout(makeDocument(geo).geo);
 }
 
 /** 把 geo 复制成可随意改字段的普通对象 */
@@ -90,31 +90,62 @@ describe('geoDigest', () => {
   });
 });
 
-describe('serializeSceneFile（导出 scene.json）', () => {
-  it('2 空格缩进、键排序、末尾一个换行、可解析且确定', () => {
-    const scene = sceneOf(makeGeo());
-    const textValue = serializeSceneFile(scene);
+describe('serializeMapDocFile（导出单文件 geo.json）', () => {
+  it('顶层是 geo 全字段 + page 块；2 空格缩进、键排序、末尾一个换行、可解析且确定', () => {
+    const geo = makeGeo();
+    const layout = layoutOf(geo);
+    const textValue = serializeMapDocFile(geo, layout);
     expect(textValue.endsWith('\n')).toBe(true);
-    expect(textValue).toContain('\n  "base": {');
     expect(textValue.endsWith('}\n')).toBe(true);
+    expect(textValue).toContain('\n  "page": {');
 
     const parsed = JSON.parse(textValue) as Record<string, unknown>;
     const keys = Object.keys(parsed);
     expect(keys).toEqual([...keys].sort());
-    expect(parsed['format']).toBe('mapdoc-page');
+    expect(parsed['format']).toBe('mapdoc-geo');
     expect(parsed['version']).toBe(1);
-    // 规范化到 3 位小数：A4 横向 841.889764 → 841.89
-    expect((parsed['paper'] as Record<string, number>)['width_pt']).toBe(841.89);
-    expect(serializeSceneFile(scene)).toBe(textValue);
-    // 解析回来的文档仍通过 scene 校验（导出文件可再次导入）
-    expect(validateScene(parsed, makeGeo()).ok).toBe(true);
+    // page 数字规范化到 3 位小数：A4 横向 841.889764 → 841.89
+    const page = parsed['page'] as { paper: Record<string, number> };
+    expect(page.paper['width_pt']).toBe(841.89);
+    expect(serializeMapDocFile(geo, layout)).toBe(textValue);
   });
 
-  it('数字统一 3 位小数、不修改入参', () => {
-    const scene = sceneOf(makeGeo());
-    const before = scene.map.x;
-    serializeSceneFile(scene);
-    expect(scene.map.x).toBe(before);
+  it('geo 数字保留 Cartopy 原精度（导出后再被 Cartopy 校验也不会漂移）', () => {
+    const geo = makeGeo();
+    geo.base.view_box = [0, 0, 200.123456, 100.654321];
+    geo.base.width_pt = 200.123456;
+    geo.base.height_pt = 100.654321;
+    const textValue = serializeMapDocFile(geo, layoutOf(geo));
+    expect(textValue).toContain('200.123456');
+    expect(textValue).toContain('100.654321');
+    const parsed = JSON.parse(textValue) as { base: { view_box: number[] } };
+    expect(parsed.base.view_box).toEqual([0, 0, 200.123456, 100.654321]);
+  });
+
+  it('导出文件可以再次导入：geo/page 分别通过校验，且再导出字节一致（幂等）', () => {
+    const geo = makeGeo();
+    const layout = layoutOf(geo);
+    const textValue = serializeMapDocFile(geo, layout);
+
+    const parsed = JSON.parse(textValue) as Record<string, unknown>;
+    expect(validateGeo(parsed)).toEqual([]);
+    const normalizedGeo = normalizeGeo(parsed as unknown as Geo);
+    const pageResult = validatePage(parsed['page'], normalizedGeo);
+    expect(pageResult.ok).toBe(true);
+    if (!pageResult.ok) return;
+    const reopened = normalizePage(pageResult.layout);
+    // 重新打开 → 再导出：字节完全一致
+    expect(serializeMapDocFile(normalizedGeo, reopened)).toBe(textValue);
+  });
+
+  it('不修改入参（geo/layout 都不被打上舍入结果）', () => {
+    const geo = makeGeo();
+    const layout = layoutOf(geo);
+    const beforeGeo = structuredClone(geo);
+    const beforeLayout = structuredClone(layout);
+    serializeMapDocFile(geo, layout);
+    expect(geo).toEqual(beforeGeo);
+    expect(layout).toEqual(beforeLayout);
   });
 });
 
@@ -146,9 +177,9 @@ describe('validateGeo：可选块缺省/存在时的基础结构检查', () => {
     expect(normalized.relief?.ticks).toEqual([]);
     expect(normalized.legend).toEqual({ title: '图例', entries: [] });
 
-    const scene = sceneOf(raw as unknown as Geo);
-    expect(scene.items.some((item) => item.kind === 'legend')).toBe(false);
-    expect(validateScene(scene, normalized).ok).toBe(true);
+    const layout = layoutOf(raw as unknown as Geo);
+    expect(layout.items.some((item) => item.kind === 'legend')).toBe(false);
+    expect(validatePage(layout, normalized).ok).toBe(true);
   });
 
   it('结构坏时给出可定位的错误', () => {
@@ -238,16 +269,16 @@ describe('normalizeGeo：可选块补默认（返回新对象）', () => {
     expect(normalized.suggestions.title).toBe('缅甸地形图');
     expect(normalized.suggestions.source).toBe('地形: NOAA NCEI ETOPO 2022');
 
-    const scene = sceneOf(raw as unknown as Geo);
-    // 无图例、无注记；标题/来源/色标仍在，scene 合法且不抛错
-    expect(scene.items.some((item) => item.kind === 'legend')).toBe(false);
-    expect(scene.items.some((item) => item.kind === 'text' && item.role === 'note')).toBe(false);
-    expect(scene.items.some((item) => item.kind === 'text' && item.role === 'title')).toBe(true);
-    expect(scene.items.some((item) => item.kind === 'text' && item.role === 'source')).toBe(true);
-    expect(scene.items.some((item) => item.kind === 'colorbar')).toBe(true);
-    expect(validateScene(scene, normalized).ok).toBe(true);
+    const layout = layoutOf(raw as unknown as Geo);
+    // 无图例、无注记；标题/来源/色标仍在，layout 合法且不抛错
+    expect(layout.items.some((item) => item.kind === 'legend')).toBe(false);
+    expect(layout.items.some((item) => item.kind === 'text' && item.role === 'note')).toBe(false);
+    expect(layout.items.some((item) => item.kind === 'text' && item.role === 'title')).toBe(true);
+    expect(layout.items.some((item) => item.kind === 'text' && item.role === 'source')).toBe(true);
+    expect(layout.items.some((item) => item.kind === 'colorbar')).toBe(true);
+    expect(validatePage(layout, normalized).ok).toBe(true);
     // 没有图例时地图不再让出图例列宽（右栏只留窄列/无列）
-    expect(scene.map.width_pt).toBeGreaterThan(841.889764 - 56 - 16 - 150);
+    expect(layout.map.width_pt).toBeGreaterThan(841.889764 - 56 - 16 - 150);
   });
 
   it('显式 null 与缺省等价', () => {
@@ -294,53 +325,53 @@ describe('normalizeGeo：可选块补默认（返回新对象）', () => {
   });
 });
 
-describe('defaultScene：有图例时保持 A4 横向既有数值（回归）', () => {
+describe('defaultPageLayout：有图例时保持 A4 横向既有数值（回归）', () => {
   it('地图/右栏/字号与降级前一致', () => {
     const geo = normalizeGeo(makeGeo());
-    const scene = sceneOf(geo);
+    const layout = layoutOf(geo);
     // 内容宽 = 841.889764 - 56；地图宽 = 内容宽 - 栏间距 16 - 图例列 150
     const contentWidth = 841.889764 - 56;
-    expect(scene.map.x).toBe(28);
-    expect(scene.map.y).toBe(72);
-    expect(scene.map.width_pt).toBeCloseTo(contentWidth - 16 - 150, 9);
+    expect(layout.map.x).toBe(28);
+    expect(layout.map.y).toBe(72);
+    expect(layout.map.width_pt).toBeCloseTo(contentWidth - 16 - 150, 9);
 
-    const legend = scene.items.find((item) => item.kind === 'legend');
+    const legend = layout.items.find((item) => item.kind === 'legend');
     expect(legend?.kind).toBe('legend');
     if (legend?.kind === 'legend') {
-      expect(legend.x).toBeCloseTo(28 + scene.map.width_pt + 16, 9);
+      expect(legend.x).toBeCloseTo(28 + layout.map.width_pt + 16, 9);
       expect(legend.y).toBe(72);
       expect(legend.font_size_pt).toBeCloseTo(9, 9);
       expect(legend.entries).toHaveLength(5);
     }
-    const colorbar = scene.items.find((item) => item.kind === 'colorbar');
+    const colorbar = layout.items.find((item) => item.kind === 'colorbar');
     expect(colorbar?.kind).toBe('colorbar');
-    expect(validateScene(scene, geo).ok).toBe(true);
+    expect(validatePage(layout, geo).ok).toBe(true);
   });
 });
 
-describe('defaultScene：无 legend 降级（不生成空图例框）', () => {
+describe('defaultPageLayout：无 legend 降级（不生成空图例框）', () => {
   it('只有注记+色标时地图变宽、右栏从栏顶开始且不重叠', () => {
     const geo = normalizeGeo(withoutBlocks(makeGeo(), ['legend']));
-    const scene = sceneOf(geo);
-    expect(scene.items.some((item) => item.kind === 'legend')).toBe(false);
+    const layout = layoutOf(geo);
+    expect(layout.items.some((item) => item.kind === 'legend')).toBe(false);
 
-    const note = scene.items.find((item) => item.kind === 'text' && item.role === 'note');
-    const colorbar = scene.items.find((item) => item.kind === 'colorbar');
+    const note = layout.items.find((item) => item.kind === 'text' && item.role === 'note');
+    const colorbar = layout.items.find((item) => item.kind === 'colorbar');
     expect(note?.kind).toBe('text');
     expect(colorbar?.kind).toBe('colorbar');
     if (note?.kind !== 'text' || colorbar?.kind !== 'colorbar') return;
 
     const contentWidth = 841.889764 - 56;
     const compactRightWidth = 150 * 0.7; // compactRightColumnWidth：0.7 × 右栏最小宽
-    expect(scene.map.width_pt).toBeCloseTo(contentWidth - 16 - compactRightWidth, 9);
+    expect(layout.map.width_pt).toBeCloseTo(contentWidth - 16 - compactRightWidth, 9);
     // 右栏紧贴地图右侧，注记从栏顶（地图顶）开始
-    expect(note.x).toBeCloseTo(scene.map.x + scene.map.width_pt + 16, 9);
+    expect(note.x).toBeCloseTo(layout.map.x + layout.map.width_pt + 16, 9);
     expect(note.y).toBeCloseTo(72, 9);
     // 注记/色标都在纸内，且色标不压注记（色标在注记块下方）
     const noteBottom = note.y + note.lines.length * note.font_size_pt * note.line_height;
     expect(colorbar.y).toBeGreaterThanOrEqual(noteBottom);
     expect(colorbar.x + colorbar.width_pt).toBeLessThanOrEqual(841.889764 - 28 + 1e-6);
-    expect(validateScene(scene, geo).ok).toBe(true);
+    expect(validatePage(layout, geo).ok).toBe(true);
   });
 
   it('无 legend 也无注记（myanmar 型：只有 relief + 标题）也能合法渲染', () => {
@@ -350,51 +381,51 @@ describe('defaultScene：无 legend 降级（不生成空图例框）', () => {
     suggestions['notes'] = [];
     suggestions['source'] = '';
     const geo = normalizeGeo(raw as unknown as Geo);
-    const scene = sceneOf(geo);
-    expect(scene.items.some((item) => item.kind === 'legend')).toBe(false);
-    expect(scene.items.some((item) => item.kind === 'colorbar')).toBe(true);
-    expect(scene.items.some((item) => item.kind === 'text' && item.role === 'title')).toBe(true);
-    expect(scene.items.some((item) => item.kind === 'text' && item.role === 'note')).toBe(false);
-    expect(scene.items.some((item) => item.kind === 'text' && item.role === 'source')).toBe(false);
-    expect(validateScene(scene, geo).ok).toBe(true);
+    const layout = layoutOf(geo);
+    expect(layout.items.some((item) => item.kind === 'legend')).toBe(false);
+    expect(layout.items.some((item) => item.kind === 'colorbar')).toBe(true);
+    expect(layout.items.some((item) => item.kind === 'text' && item.role === 'title')).toBe(true);
+    expect(layout.items.some((item) => item.kind === 'text' && item.role === 'note')).toBe(false);
+    expect(layout.items.some((item) => item.kind === 'text' && item.role === 'source')).toBe(false);
+    expect(validatePage(layout, geo).ok).toBe(true);
   });
 });
 
-describe('defaultScene：无 relief / 无 suggestions 降级', () => {
+describe('defaultPageLayout：无 relief / 无 suggestions 降级', () => {
   it('relief 为 null 时不生成色标，其余图例/注记保留', () => {
     const geo = normalizeGeo(withoutBlocks(makeGeo(), ['relief']));
-    const scene = sceneOf(geo);
-    expect(scene.items.some((item) => item.kind === 'colorbar')).toBe(false);
-    expect(scene.items.some((item) => item.kind === 'legend')).toBe(true);
-    expect(validateScene(scene, geo).ok).toBe(true);
+    const layout = layoutOf(geo);
+    expect(layout.items.some((item) => item.kind === 'colorbar')).toBe(false);
+    expect(layout.items.some((item) => item.kind === 'legend')).toBe(true);
+    expect(validatePage(layout, geo).ok).toBe(true);
   });
 
   it('suggestions 全空时不生成标题/副标题/注记/来源，只留图例与色标', () => {
     const geo = normalizeGeo(withoutBlocks(makeGeo(), ['suggestions']));
-    const scene = sceneOf(geo);
-    const pageTextRoles = scene.items
+    const layout = layoutOf(geo);
+    const pageTextRoles = layout.items
       .filter((item) => item.kind === 'text' && item.space === 'page')
       .map((item) => (item.kind === 'text' ? item.role : ''));
     expect(pageTextRoles).toEqual([]);
-    expect(scene.items.some((item) => item.kind === 'legend')).toBe(true);
-    expect(scene.items.some((item) => item.kind === 'colorbar')).toBe(true);
-    expect(validateScene(scene, geo).ok).toBe(true);
+    expect(layout.items.some((item) => item.kind === 'legend')).toBe(true);
+    expect(layout.items.some((item) => item.kind === 'colorbar')).toBe(true);
+    expect(validatePage(layout, geo).ok).toBe(true);
   });
 
-  it('三块全空：地图用满内容宽、只剩地名，scene 仍合法', () => {
+  it('三块全空：地图用满内容宽、只剩地名，layout 仍合法', () => {
     const geo = normalizeGeo(withoutBlocks(makeGeo(), ['legend', 'relief', 'suggestions']));
-    const scene = sceneOf(geo);
+    const layout = layoutOf(geo);
     const contentWidth = 841.889764 - 56;
-    expect(scene.map.width_pt).toBeCloseTo(contentWidth, 9);
-    expect(scene.items.every((item) => item.kind === 'text' && item.space === 'map')).toBe(true);
-    expect(scene.items).toHaveLength(geo.labels.length);
-    const maxId = Math.max(...scene.items.map((item) => item.id));
-    expect(scene.seq).toBe(maxId + 1);
-    expect(validateScene(scene, geo).ok).toBe(true);
+    expect(layout.map.width_pt).toBeCloseTo(contentWidth, 9);
+    expect(layout.items.every((item) => item.kind === 'text' && item.space === 'map')).toBe(true);
+    expect(layout.items).toHaveLength(geo.labels.length);
+    const maxId = Math.max(...layout.items.map((item) => item.id));
+    expect(layout.seq).toBe(maxId + 1);
+    expect(validatePage(layout, geo).ok).toBe(true);
   });
 });
 
-describe('defaultScene：纵向版式降级', () => {
+describe('defaultPageLayout：纵向版式降级', () => {
   it('A5 纵向且三块全空时不生成下方一排，地图仍用满内容宽', () => {
     const paper = {
       preset: 'A5' as const,
@@ -403,11 +434,11 @@ describe('defaultScene：纵向版式降级', () => {
       height_pt: 595.275591,
     };
     const geo = normalizeGeo(withoutBlocks(makeGeo(), ['legend', 'relief', 'suggestions']));
-    const scene = defaultScene(geo, BASE_DECLARATION, { figure: 'fixture.svg', paper });
-    expect(scene.paper).toEqual(paper);
-    expect(scene.map.width_pt).toBeCloseTo(paper.width_pt - 56, 9);
-    expect(scene.items.every((item) => item.kind === 'text' && item.space === 'map')).toBe(true);
-    expect(validateScene(scene, geo).ok).toBe(true);
+    const layout = defaultPageLayout(geo, { paper });
+    expect(layout.paper).toEqual(paper);
+    expect(layout.map.width_pt).toBeCloseTo(paper.width_pt - 56, 9);
+    expect(layout.items.every((item) => item.kind === 'text' && item.space === 'map')).toBe(true);
+    expect(validatePage(layout, geo).ok).toBe(true);
   });
 
   it('A5 纵向且只有注记+色标时不生成图例，一排内互不重叠', () => {
@@ -418,10 +449,10 @@ describe('defaultScene：纵向版式降级', () => {
       height_pt: 595.275591,
     };
     const geo = normalizeGeo(withoutBlocks(makeGeo(), ['legend']));
-    const scene = defaultScene(geo, BASE_DECLARATION, { figure: 'fixture.svg', paper });
-    expect(scene.items.some((item) => item.kind === 'legend')).toBe(false);
-    const note = scene.items.find((item) => item.kind === 'text' && item.role === 'note');
-    const colorbar = scene.items.find((item) => item.kind === 'colorbar');
+    const layout = defaultPageLayout(geo, { paper });
+    expect(layout.items.some((item) => item.kind === 'legend')).toBe(false);
+    const note = layout.items.find((item) => item.kind === 'text' && item.role === 'note');
+    const colorbar = layout.items.find((item) => item.kind === 'colorbar');
     expect(note?.kind).toBe('text');
     expect(colorbar?.kind).toBe('colorbar');
     if (note?.kind !== 'text' || colorbar?.kind !== 'colorbar') return;
@@ -429,6 +460,6 @@ describe('defaultScene：纵向版式降级', () => {
     expect(note.x).toBeCloseTo(28, 9);
     expect(colorbar.x + colorbar.width_pt).toBeCloseTo(paper.width_pt - 28, 9);
     expect(note.x + 40).toBeLessThanOrEqual(colorbar.x + 1e-6);
-    expect(validateScene(scene, geo).ok).toBe(true);
+    expect(validatePage(layout, geo).ok).toBe(true);
   });
 });

@@ -24,9 +24,6 @@ export const BASE_BYTES: Uint8Array = new TextEncoder().encode(BASE_SVG_TEXT);
 export const BASE_SHA256: string = sha256OfBytes(BASE_BYTES);
 /** 底图契约解析结果（errors 为空才允许打开） */
 export const BASE_INFO = readBaseSvg(BASE_SVG_TEXT);
-/** scene.base 声明：与小底图真实尺寸一致 */
-export const BASE_DECLARATION = { sha256: BASE_SHA256, width_pt: 200, height_pt: 100 } as const;
-
 /**
  * 构造一份完整的 200×100 geo：2 条经度 + 2 条纬度刻度、2 个地名（含 halo/旋转/多行）、
  * 高程色标、5 种图例条目（line/rect/point×3 marker）、完整默认文案。

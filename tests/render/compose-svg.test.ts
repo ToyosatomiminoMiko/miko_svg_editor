@@ -12,37 +12,31 @@ import { readBaseSvg } from '../../src/core/base-svg';
 import type { PageDocument } from '../../src/core/document';
 import {
   geoDigest,
-  normalizeScene,
-  sceneDigest,
+  normalizePage,
+  pageDigest,
   type ColorbarItem,
   type Geo,
   type LegendItem,
   type TextItem,
 } from '../../src/core/page';
-import { defaultScene } from '../../src/core/page-layout';
+import { defaultPageLayout } from '../../src/core/page-layout';
 import { escapeXmlAttribute, formatPageNumber } from '../../src/render/page-format';
 import { composeFinalSvg, type ComposeResult } from '../../src/render/compose-svg';
-import {
-  BASE_DECLARATION,
-  BASE_INFO,
-  makeDocument,
-  makeGeo,
-  withoutBlocks,
-} from '../fixtures/page-fixtures';
+import { BASE_INFO, makeDocument, makeGeo, withoutBlocks } from '../fixtures/page-fixtures';
 
 const num = (value: number): string => formatPageNumber(value);
 
 interface Setup {
   readonly document: PageDocument;
-  readonly scene: ReturnType<typeof defaultScene>;
+  readonly layout: ReturnType<typeof defaultPageLayout>;
   readonly result: ComposeResult;
 }
 
 /** 打开 fixture 文档 + 默认排版 + 合成一次（多数用例共用） */
 function setup(geo: Geo = makeGeo()): Setup {
   const document = makeDocument(geo);
-  const scene = defaultScene(document.geo, BASE_DECLARATION, { figure: 'fixture.svg' });
-  return { document, scene, result: composeFinalSvg(document, scene) };
+  const layout = defaultPageLayout(document.geo);
+  return { document, layout, result: composeFinalSvg(document, layout) };
 }
 
 /** 抽出 marker 的 base64 并解码成对象（payload 只含 ASCII，因此直接 atob 即可） */
@@ -59,8 +53,11 @@ function defsOf(svg: string): string {
 }
 
 /** 找第一个指定 kind 的元素（测试 fixture 形状固定，直接断言存在） */
-function firstText(scene: ReturnType<typeof defaultScene>, role?: TextItem['role']): TextItem {
-  const item = scene.items.find(
+function firstText(
+  layout: ReturnType<typeof defaultPageLayout>,
+  role?: TextItem['role'],
+): TextItem {
+  const item = layout.items.find(
     (entry): entry is TextItem =>
       entry.kind === 'text' && (role === undefined || entry.role === role),
   );
@@ -121,41 +118,41 @@ describe('composeFinalSvg：§6 结构与数值', () => {
     expect(svg).toContain('<text ');
   });
 
-  it('marker 解出 canonical counts/geo/scene/version，且与 report counts 一致', () => {
-    const { document, scene, result } = setup();
+  it('marker 解出 canonical counts/geo/page/version，且与 report counts 一致', () => {
+    const { document, layout, result } = setup();
     const payload = decodeMarker(result.svg);
     const expectedCounts = {
-      colorbar: scene.items.filter((item) => item.kind === 'colorbar').length,
-      legend: scene.items.filter((item) => item.kind === 'legend').length,
-      text: scene.items.filter((item) => item.kind === 'text').length,
-      total: scene.items.length,
+      colorbar: layout.items.filter((item) => item.kind === 'colorbar').length,
+      legend: layout.items.filter((item) => item.kind === 'legend').length,
+      text: layout.items.filter((item) => item.kind === 'text').length,
+      total: layout.items.length,
     };
-    expect(payload['version']).toBe(1);
+    expect(payload['version']).toBe(2);
     expect(payload['counts']).toEqual(expectedCounts);
     expect(result.report.counts).toEqual(expectedCounts);
     expect(payload['geo']).toBe(geoDigest(document.geo));
-    expect(payload['scene']).toBe(sceneDigest(scene));
+    expect(payload['page']).toBe(pageDigest(layout));
     expect(result.report.out_of_paper).toEqual([]);
     // canonical JSON：键排序且无空白（marker 里不会出现 ': '）
     expect(result.svg).not.toContain('mapdoc-final: ');
   });
 
-  it('同一输入两次合成得到同字节，且不改动入参 scene', () => {
-    const { document, scene, result } = setup();
-    const clone = structuredClone(scene);
+  it('同一输入两次合成得到同字节，且不改动入参 layout', () => {
+    const { document, layout, result } = setup();
+    const clone = structuredClone(layout);
     const second = composeFinalSvg(document, clone);
     expect(second.svg).toBe(result.svg);
     expect(second.report).toEqual(result.report);
-    // 入参 scene 未被规范化逻辑改写
-    expect(scene).toEqual(clone);
+    // 入参 layout 未被规范化逻辑改写
+    expect(layout).toEqual(clone);
   });
 
-  it('空 scene：frame/overlay 保留空组，marker 计数为 0', () => {
-    const { document, scene } = setup();
-    scene.items = [];
-    scene.frame.show = false;
-    scene.frame.ticks = false;
-    const result = composeFinalSvg(document, scene);
+  it('空 layout：frame/overlay 保留空组，marker 计数为 0', () => {
+    const { document, layout } = setup();
+    layout.items = [];
+    layout.frame.show = false;
+    layout.frame.ticks = false;
+    const result = composeFinalSvg(document, layout);
     expect(result.svg).toContain('<g id="mapdoc-frame"></g>');
     expect(result.svg).toContain('<g id="mapdoc-overlay"></g>');
     // defs 仍存在（裁剪底图），但没有 colorbar 就没有色标渐变
@@ -193,9 +190,9 @@ describe('composeFinalSvg：底图裁剪（消除 matplotlib 图幅白底外溢�
   });
 
   it('无 colorbar：defs 只有 clipPath；有 colorbar：clipPath 在前、渐变在后', () => {
-    const { document, scene } = setup();
-    // 没有色标的 scene 只剩裁剪
-    const stripped = structuredClone(scene);
+    const { document, layout } = setup();
+    // 没有色标的 layout 只剩裁剪
+    const stripped = structuredClone(layout);
     stripped.items = stripped.items.filter((item) => item.kind !== 'colorbar');
     const noColorbarDefs = defsOf(composeFinalSvg(document, stripped).svg);
     expect(noColorbarDefs).toContain('<clipPath id="mapdoc-map-clip">');
@@ -211,10 +208,10 @@ describe('composeFinalSvg：底图裁剪（消除 matplotlib 图幅白底外溢�
     expect(withColorbarDefs).toContain('</defs>');
   });
 
-  it('paper_color 非白：纸张用 scene 值，底图仍由 clip 裁掉纸外白底', () => {
-    const { document, scene } = setup();
-    scene.style.paper_color = '#ffeecc';
-    const result = composeFinalSvg(document, scene);
+  it('paper_color 非白：纸张用 layout 值，底图仍由 clip 裁掉纸外白底', () => {
+    const { document, layout } = setup();
+    layout.style.paper_color = '#ffeecc';
+    const result = composeFinalSvg(document, layout);
     expect(result.svg).toContain(
       '<rect x="0" y="0" width="841.89" height="595.276" fill="#ffeecc"/>',
     );
@@ -228,17 +225,17 @@ describe('composeFinalSvg：底图裁剪（消除 matplotlib 图幅白底外溢�
 
 describe('composeFinalSvg：text/map 空间（§5.1/§5.3）', () => {
   it('map 空间文字只变换起点、字号不乘 s；halo 先描边后填充', () => {
-    const { document, scene, result } = setup();
+    const { document, layout, result } = setup();
     const geo = document.geo;
-    const label = firstText(scene, 'label');
-    // 合成前会 normalizeScene（3 位小数），地图缩放比要用规范化后的 map.width_pt
-    const map = normalizeScene(scene).map;
+    const label = firstText(layout, 'label');
+    // 合成前会 normalizePage（3 位小数），地图缩放比要用规范化后的 map.width_pt
+    const map = normalizePage(layout).map;
     const s = map.width_pt / geo.base.width_pt;
     const px = map.x + label.x * s;
     const py = map.y + label.y * s;
     expect(label.space).toBe('map');
     // 起点过 §5.1；font-size 仍是 pt（不乘 s）
-    const family = escapeXmlAttribute(scene.style.font_family);
+    const family = escapeXmlAttribute(layout.style.font_family);
     expect(result.svg).toContain(
       `<text x="${num(px)}" y="${num(py)}" text-anchor="${label.anchor}" ` +
         `font-family="${family}" ` +
@@ -249,15 +246,15 @@ describe('composeFinalSvg：text/map 空间（§5.1/§5.3）', () => {
   });
 
   it('多行 + 旋转：整组绕第一行锚点旋转，行距 = 字号 × 行高', () => {
-    const { document, scene, result } = setup();
+    const { document, layout, result } = setup();
     const geo = document.geo;
-    const label = scene.items.find(
+    const label = layout.items.find(
       (item): item is TextItem =>
         item.kind === 'text' && item.space === 'map' && item.lines.length > 1,
     );
     expect(label).toBeDefined();
     if (label === undefined) return;
-    const map = normalizeScene(scene).map;
+    const map = normalizePage(layout).map;
     const s = map.width_pt / geo.base.width_pt;
     const px = map.x + label.x * s;
     const py = map.y + label.y * s;
@@ -276,13 +273,13 @@ describe('composeFinalSvg：text/map 空间（§5.1/§5.3）', () => {
   });
 
   it('斜体/粗体/字体族与 XML 转义（文本只转 & < >）', () => {
-    const { document, scene } = setup();
-    const title = firstText(scene, 'title');
+    const { document, layout } = setup();
+    const title = firstText(layout, 'title');
     title.lines = ['a & <b> "c" \'d\''];
     title.italic = true;
     title.bold = true;
     title.font_family = "Noto 'X' &";
-    const result = composeFinalSvg(document, scene);
+    const result = composeFinalSvg(document, layout);
     expect(result.svg).toContain('font-style="italic"');
     expect(result.svg).toContain('font-weight="bold"');
     expect(result.svg).toContain('font-family="Noto &apos;X&apos; &amp;"');
@@ -292,8 +289,8 @@ describe('composeFinalSvg：text/map 空间（§5.1/§5.3）', () => {
 
 describe('composeFinalSvg：legend（§5.4）', () => {
   it('底板/标题/三种形状与三类 point marker 都按公式输出', () => {
-    const { scene, result } = setup();
-    const legend = scene.items.find((item): item is LegendItem => item.kind === 'legend');
+    const { layout, result } = setup();
+    const legend = layout.items.find((item): item is LegendItem => item.kind === 'legend');
     expect(legend).toBeDefined();
     if (legend === undefined) return;
     const svg = result.svg;
@@ -325,15 +322,15 @@ describe('composeFinalSvg：legend（§5.4）', () => {
   });
 
   it('map 空间图例：origin 过 §5.1、只有宽度乘 s', () => {
-    const { document, scene } = setup();
+    const { document, layout } = setup();
     const geo = document.geo;
-    const legend = scene.items.find((item): item is LegendItem => item.kind === 'legend');
+    const legend = layout.items.find((item): item is LegendItem => item.kind === 'legend');
     if (legend === undefined) throw new Error('缺少图例');
     legend.space = 'map';
     legend.x = 20;
     legend.y = 10;
-    const result = composeFinalSvg(document, scene);
-    const map = normalizeScene(scene).map;
+    const result = composeFinalSvg(document, layout);
+    const map = normalizePage(layout).map;
     const s = map.width_pt / geo.base.width_pt;
     const x = map.x + 20 * s;
     const y = map.y + 10 * s;
@@ -348,8 +345,8 @@ describe('composeFinalSvg：legend（§5.4）', () => {
 
 describe('composeFinalSvg：colorbar（§5.5）', () => {
   it('渐变 defs、矩形、标题（带单位）与刻度文本', () => {
-    const { document, scene, result } = setup();
-    const colorbar = scene.items.find((item): item is ColorbarItem => item.kind === 'colorbar');
+    const { document, layout, result } = setup();
+    const colorbar = layout.items.find((item): item is ColorbarItem => item.kind === 'colorbar');
     expect(colorbar).toBeDefined();
     if (colorbar === undefined) return;
     const svg = result.svg;
@@ -373,15 +370,15 @@ describe('composeFinalSvg：colorbar（§5.5）', () => {
   });
 
   it('map 空间色标：宽高乘 s、原点过 §5.1', () => {
-    const { document, scene } = setup();
+    const { document, layout } = setup();
     const geo = document.geo;
-    const colorbar = scene.items.find((item): item is ColorbarItem => item.kind === 'colorbar');
+    const colorbar = layout.items.find((item): item is ColorbarItem => item.kind === 'colorbar');
     if (colorbar === undefined) throw new Error('缺少色标');
     colorbar.space = 'map';
     colorbar.x = 20;
     colorbar.y = 50;
-    const result = composeFinalSvg(document, scene);
-    const map = normalizeScene(scene).map;
+    const result = composeFinalSvg(document, layout);
+    const map = normalizePage(layout).map;
     const s = map.width_pt / geo.base.width_pt;
     expect(result.svg).toContain(
       `<rect x="${num(map.x + 20 * s)}" y="${num(map.y + 50 * s)}" ` +
@@ -392,8 +389,8 @@ describe('composeFinalSvg：colorbar（§5.5）', () => {
     expect(result.svg).toContain(`font-size="${num(colorbar.label_size_pt)}"`);
   });
 
-  it('geo.relief 为 null 而 scene 还有 colorbar 时抛「色标需要 geo.relief」', () => {
-    const fullScene = setup().scene;
+  it('geo.relief 为 null 而 layout 还有 colorbar 时抛「色标需要 geo.relief」', () => {
+    const fullScene = setup().layout;
     const document = makeDocument(withoutBlocks(makeGeo(), ['relief']));
     expect(() => composeFinalSvg(document, fullScene)).toThrow('色标需要 geo.relief');
   });
@@ -401,9 +398,9 @@ describe('composeFinalSvg：colorbar（§5.5）', () => {
 
 describe('composeFinalSvg：图框/刻度（§5.2）', () => {
   it('图框矩形 + 经纬刻度线与基线都按公式输出', () => {
-    const { document, scene, result } = setup();
+    const { document, layout, result } = setup();
     const geo = document.geo;
-    const map = normalizeScene(scene).map;
+    const map = normalizePage(layout).map;
     const s = map.width_pt / geo.base.width_pt;
     const mapHeight = (map.width_pt * geo.base.height_pt) / geo.base.width_pt;
     const mapBottom = map.y + mapHeight;
@@ -417,11 +414,11 @@ describe('composeFinalSvg：图框/刻度（§5.2）', () => {
     const px = map.x + lon.x * s;
     expect(svg).toContain(
       `<line x1="${num(px)}" y1="${num(mapBottom)}" x2="${num(px)}" ` +
-        `y2="${num(mapBottom + scene.frame.tick_length_pt)}" ` +
+        `y2="${num(mapBottom + layout.frame.tick_length_pt)}" ` +
         `stroke="#444444" stroke-width="0.8"/>`,
     );
     expect(svg).toContain(
-      `y="${num(mapBottom + scene.frame.tick_length_pt + scene.frame.tick_gap_pt + scene.frame.tick_font_size_pt)}"`,
+      `y="${num(mapBottom + layout.frame.tick_length_pt + layout.frame.tick_gap_pt + layout.frame.tick_font_size_pt)}"`,
     );
     expect(svg).toContain('>0°</text>');
     // 纬度刻度：left 侧从 map.x 向左、标签 anchor=end
@@ -429,7 +426,7 @@ describe('composeFinalSvg：图框/刻度（§5.2）', () => {
     if (lat === undefined) throw new Error('缺少纬度刻度');
     const py = map.y + lat.y * s;
     expect(svg).toContain(
-      `<line x1="28" y1="${num(py)}" x2="${num(28 - scene.frame.tick_length_pt)}" ` +
+      `<line x1="28" y1="${num(py)}" x2="${num(28 - layout.frame.tick_length_pt)}" ` +
         `y2="${num(py)}" stroke="#444444" stroke-width="0.8"/>`,
     );
     expect(svg).toContain('text-anchor="end"');
@@ -438,12 +435,12 @@ describe('composeFinalSvg：图框/刻度（§5.2）', () => {
 
 describe('composeFinalSvg：report 越界告警', () => {
   it('item 越界：out_of_paper 按 items 顺序、告警带中文说明', () => {
-    const { document, scene } = setup();
-    const title = firstText(scene, 'title');
+    const { document, layout } = setup();
+    const title = firstText(layout, 'title');
     title.x = -100;
-    const note = firstText(scene, 'note');
+    const note = firstText(layout, 'note');
     note.y = 10000;
-    const result = composeFinalSvg(document, scene);
+    const result = composeFinalSvg(document, layout);
     expect(result.report.out_of_paper).toEqual([title.id, note.id]);
     expect(result.report.warnings).toContain(
       `item ${title.id}(text) 超出纸张范围，成品里可能被裁掉`,
@@ -456,9 +453,9 @@ describe('composeFinalSvg：report 越界告警', () => {
   });
 
   it('地图越界只进 warnings（不占 out_of_paper）', () => {
-    const { document, scene } = setup();
-    scene.map.x = -50;
-    const result = composeFinalSvg(document, scene);
+    const { document, layout } = setup();
+    layout.map.x = -50;
+    const result = composeFinalSvg(document, layout);
     expect(result.report.warnings).toContain('地图超出纸张范围（成品会被裁切，仅告警）');
     expect(result.report.out_of_paper).toEqual([]);
   });
@@ -468,20 +465,20 @@ describe('composeFinalSvg：错误路径', () => {
   it('底图契约有错误时拒绝合成', () => {
     const document = makeDocument();
     const invalid: PageDocument = { ...document, base: readBaseSvg('<svg>no viewBox</svg>') };
-    expect(() => composeFinalSvg(invalid, defaultScene(document.geo, BASE_DECLARATION))).toThrow(
+    expect(() => composeFinalSvg(invalid, defaultPageLayout(document.geo))).toThrow(
       /底图未通过契约检查/,
     );
   });
 
-  it('scene 走 normalizeScene（3 位小数）后再输出', () => {
-    const { document, scene } = setup();
-    scene.map.x = 28.00049;
-    const result = composeFinalSvg(document, scene);
+  it('layout 走 normalizePage（3 位小数）后再输出', () => {
+    const { document, layout } = setup();
+    layout.map.x = 28.00049;
+    const result = composeFinalSvg(document, layout);
     // 28.00049 → 28（3 位小数），translate 用规范化后的值
     expect(result.svg).toContain(
       '<g id="mapdoc-map" clip-path="url(#mapdoc-map-clip)" ' +
         'transform="translate(28,72) scale(3.099)">',
     );
-    expect(normalizeScene(scene).map.x).toBe(28);
+    expect(normalizePage(layout).map.x).toBe(28);
   });
 });

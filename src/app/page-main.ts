@@ -2,12 +2,13 @@
  * 出版排版编辑器（map.html）的组合根。
  *
  * 是什么：建三栏外壳（顶部工具条 / 画布 / 右侧属性面板 + 底部状态行）→ 在画布里显示上传面板
- * → 用户在 SVG / JSON 两个选择栏里分别选/拖入 `base.svg` 与 `geo.json`（可选 `scene.json`）→
- * 分类、读取、严格校验 → 生成 `PageDocument` → 为预览建 objectURL → 装配侧栏、编辑器与工具条并启动。
+ * → 用户在 SVG / JSON 两个选择栏里分别选/拖入 `base.svg` 与 `geo.json` →
+ * 分类、读取、严格校验 → 生成 `PageDocument` 与初始排版 → 为预览建 objectURL → 装配侧栏、编辑器与工具条并启动。
  * 为什么组合根只有这一份：`core`/`render`/`ui` 都不允许认识彼此的全部依赖，只有 app 层
  * 可以同时装配文件读取、SVG 预览、miko_ui 面板与交互状态机。页面是纯静态的，不认识任何 HTTP 接口。
- * 打开口径（详见 `.work/REFACTOR-SPEC.md` §1）：底图 C1–C4、UTF-8、sha256 与 `geo.base.sha256`
- * 一致、geo 的 viewBox/尺寸与底图一致（容差 0.01pt）；scene 可选，不合法只告警并回退默认排版。
+ * 打开口径（详见 `docs/PAGE-EDITOR.md` §8）：底图 C1–C4、UTF-8、sha256 与 `geo.base.sha256`
+ * 一致、geo 的 viewBox/尺寸与底图一致（容差 0.01pt）；`page` 块缺省 → 默认排版（未导出），
+ * 存在且合法 → 恢复排版（已导出），不合法只告警并回退默认排版。
  * 样式导入顺序是契约：先 miko_ui 的 token/控件，再应用的页面 token（styles.css），
  * 最后本页专属的 `.page-*`（styles-page.css）。
  * 元信息：作者 frontend，2026-10-27；2026-10-28 改为无后端（上传打开 + 浏览器内合成）。
@@ -18,30 +19,27 @@ import '../styles.css';
 import '../styles-page.css';
 import { create_element, create_svg_element } from 'miko_ui';
 import { readBaseSvg, type BaseSvgInfo } from '../core/base-svg';
+import { baseStemOf, classifyUploadFile, type PageDocument } from '../core/document';
 import {
-  baseStemOf,
-  classifyJsonFormat,
-  classifyUploadFile,
-  type PageDocument,
-} from '../core/document';
-import {
+  MAP_DOC_PAGE_KEY,
   normalizeGeo,
-  normalizeScene,
+  normalizePage,
   sha256OfBytes,
   validateGeo,
-  validateScene,
+  validatePage,
   type Geo,
-  type Scene,
+  type MapDoc,
+  type PageLayout,
 } from '../core/page';
-import { defaultScene } from '../core/page-layout';
-import { PAGE_BASE_SIZE_TOLERANCE_PT } from '../config/page';
+import { defaultPageLayout } from '../core/page-layout';
+import { PAGE_BASE_SIZE_TOLERANCE_PT, PAGE_GEO_FORMAT } from '../config/page';
 import type { MeasureText, TextMeasure } from '../core/types';
 import { createTextMeasure } from '../ui/measure-text';
 import { createPageOpenPanel } from '../ui/page-open';
 import { PageNotifier } from '../ui/page-notify';
 import { PageSidebar } from '../ui/page-sidebar';
 import { buildPageToolbar } from '../ui/page-toolbar';
-import { PageEditor, sceneBaseOf } from './page-editor';
+import { PageEditor } from './page-editor';
 
 /** 页面外壳的节点句柄 */
 interface PageShell {
@@ -57,25 +55,26 @@ interface PageShell {
 /** 一次成功打开得到的全部状态 */
 interface OpenedMap {
   readonly document: PageDocument;
-  readonly scene: Scene;
+  /** 初始排版：来自 geo.json 的 page 块，或由 defaultPageLayout 生成的默认版式 */
+  readonly layout: PageLayout;
   readonly dirty: boolean;
   readonly warnings: readonly string[];
 }
 
-/** 按扩展名分桶后的上传文件（JSON 还要按内容里的 format 再分 geo/scene） */
+/** 按扩展名分桶后的上传文件（JSON 再按内容里的 format 校验是不是 geo.json） */
 interface UploadBatches {
   readonly svg: readonly File[];
   readonly json: readonly File[];
 }
 
-/** 按 format 分好的 JSON 文件 */
-interface JsonUploads {
-  readonly geos: readonly { readonly fileName: string; readonly value: unknown }[];
-  readonly scenes: readonly { readonly fileName: string; readonly value: unknown }[];
+/** 读取并解析好的 geo 文档（单文件：geo 块 + 可选 page 块） */
+interface GeoUpload {
+  readonly fileName: string;
+  readonly value: unknown;
 }
 
 /** 上传说明：多处错误文案共用同一句提示 */
-const UPLOAD_HINT = '需要配套的 base.svg + geo.json（可选 scene.json）';
+const UPLOAD_HINT = '需要配套的 base.svg + geo.json';
 
 /** 把异常转成可直接展示的一行中文 */
 function errorMessage(error: unknown): string {
@@ -136,7 +135,6 @@ function bucketUploads(files: readonly File[]): UploadBatches {
         svg.push(file);
         break;
       case 'geo':
-      case 'scene':
       case 'json':
         json.push(file);
         break;
@@ -154,34 +152,45 @@ function bucketUploads(files: readonly File[]): UploadBatches {
   return { svg, json };
 }
 
-/** 读取所有 JSON 文件，按内容里的 `format` 字段分成 geo / scene（扩展名不作为真值） */
-async function readJsonUploads(files: readonly File[]): Promise<JsonUploads> {
-  const geos: { fileName: string; value: unknown }[] = [];
-  const scenes: { fileName: string; value: unknown }[] = [];
+/**
+ * 读取唯一的一份 JSON，并确认它是单文件地图文档（`format=mapdoc-geo`）。
+ *
+ * 为什么只允许一个：geographic 数据与排版同在一个文件里，两份 JSON 无法判断以谁为准；
+ * 旧版 scene.json（`format=mapdoc-page`）已并入 geo.json 的 page 块，这里给出明确的迁移提示，
+ * 而不是笼统的「格式不对」。
+ */
+async function readGeoUpload(files: readonly File[]): Promise<GeoUpload> {
+  const uploads: GeoUpload[] = [];
   for (const file of files) {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const value = parseJson(decodeUtf8(bytes, file.name), file.name);
-    const format = classifyJsonFormat(value);
-    if (format === 'geo') geos.push({ fileName: file.name, value });
-    else if (format === 'scene') scenes.push({ fileName: file.name, value });
-    else {
+    const format =
+      typeof value === 'object' && value !== null && !Array.isArray(value)
+        ? (value as Record<string, unknown>)['format']
+        : undefined;
+    if (format === 'mapdoc-page') {
       throw new Error(
-        `${file.name} 的 format 既不是 mapdoc-geo 也不是 mapdoc-page。${UPLOAD_HINT}`,
+        `${file.name} 是旧版 scene.json：排版已并入 geo.json，请改用 Cartopy 产出的 geo.json（或本编辑器导出的 geo.json）`,
       );
     }
+    if (format !== PAGE_GEO_FORMAT) {
+      throw new Error(
+        `${file.name} 不是 geo.json（format 必须是 ${PAGE_GEO_FORMAT}）。${UPLOAD_HINT}`,
+      );
+    }
+    uploads.push({ fileName: file.name, value });
   }
-  if (geos.length === 0) throw new Error(`缺少 geo.json（没有找到 format=mapdoc-geo 的文件）`);
-  if (geos.length > 1) {
+  if (uploads.length === 0) {
+    throw new Error(`缺少 geo.json（没有找到 format=${PAGE_GEO_FORMAT} 的文件）`);
+  }
+  if (uploads.length > 1) {
     throw new Error(
-      `只能上传一个 geo.json（收到了 ${geos.length} 个：${geos.map((item) => item.fileName).join('、')}）`,
+      `只能上传一个 geo.json（收到了 ${uploads.length} 个：${uploads.map((item) => item.fileName).join('、')}）`,
     );
   }
-  if (scenes.length > 1) {
-    throw new Error(
-      `只能上传一个 scene.json（收到了 ${scenes.length} 个：${scenes.map((item) => item.fileName).join('、')}）`,
-    );
-  }
-  return { geos, scenes };
+  const upload = uploads[0];
+  if (upload === undefined) throw new Error(`缺少 geo.json`);
+  return upload;
 }
 
 /** 浮点容差比较（底图与 geo 的尺寸声明） */
@@ -230,68 +239,51 @@ function buildDocument(
 }
 
 /**
- * 生成初始 scene：上传了 scene.json 且通过校验就用它，否则回退默认排版（脏）。
- * scene 的底图声明与本次底图不一致时只告警并改成真实底图（用户可能只是想接着改旧排版）。
+ * 生成初始排版：geo.json 带 `page` 块且通过校验就用它（已导出态，不标脏），
+ * 否则回退默认排版（未导出态，标脏）。
+ *
+ * page 块不合法不拒绝整个文件：地理数据仍然可用，用户只是丢了一次排版；
+ * 给出告警并回退默认版式，比「文件打不开」更可恢复。
  */
-function buildScene(
+function buildPageLayout(
   geo: Geo,
-  document: PageDocument,
-  sceneValue: unknown,
+  pageValue: unknown,
   measureText: MeasureText,
-): { scene: Scene; dirty: boolean; warnings: string[] } {
+): { layout: PageLayout; dirty: boolean; warnings: string[] } {
   const warnings: string[] = [];
-  const makeDefault = (): Scene =>
-    defaultScene(geo, sceneBaseOf(document), {
-      figure: document.baseFileName,
-      measureText,
-    });
-  if (sceneValue === null) {
-    return { scene: makeDefault(), dirty: true, warnings };
+  const makeDefault = (): PageLayout => defaultPageLayout(geo, { measureText });
+  if (pageValue === null || pageValue === undefined) {
+    return { layout: makeDefault(), dirty: true, warnings };
   }
-  const result = validateScene(sceneValue, geo);
+  const result = validatePage(pageValue, geo);
+  let layout: PageLayout;
+  let dirty: boolean;
   if (!result.ok) {
     warnings.push(
-      `上传的 scene.json 不合法，已改用默认排版：${result.errors.slice(0, 3).join('；')}`,
+      `geo.json 里的 page 排版块不合法，已改用默认排版：${result.errors.slice(0, 3).join('；')}`,
     );
-    return { scene: makeDefault(), dirty: true, warnings };
-  }
-  const scene = normalizeScene(result.scene);
-  warnings.push(...result.warnings);
-
-  let dirty = false;
-  const base = sceneBaseOf(document);
-  if (
-    scene.base.sha256.toLowerCase() !== base.sha256 ||
-    !nearPt(scene.base.width_pt, base.width_pt) ||
-    !nearPt(scene.base.height_pt, base.height_pt)
-  ) {
-    warnings.push(
-      'scene.json 记录的底图与本次上传的底图不一致，已按新底图更新（排版若错位请重新排默认版式）',
-    );
-    scene.base = { ...base };
+    layout = makeDefault();
     dirty = true;
-  }
-  const figureName = document.baseFileName;
-  if (scene.figure !== figureName) {
-    // 旧 demo scene 的 figure 可能是任意历史路径；无后端后统一记成上传的底图文件名
-    scene.figure = figureName;
-    dirty = true;
+  } else {
+    layout = normalizePage(result.layout);
+    warnings.push(...result.warnings);
+    dirty = false;
   }
 
-  // geo 没有 relief（Cartopy 不画色标）时，导入排版里的 colorbar 无法合成：
+  // geo 没有 relief（Cartopy 不画色标）时，排版里的 colorbar 无法合成：
   // 预览会静默跳过、导出 SVG 会抛「色标需要 geo.relief」。与其让用户到导出时才看到失败，
   // 不如在导入时移除并明确告警；保持其他元素位置不变（不触发重排）。
-  if (document.geo.relief === null) {
-    const colorbars = scene.items.filter((item) => item.kind === 'colorbar');
+  if (geo.relief === null) {
+    const colorbars = layout.items.filter((item) => item.kind === 'colorbar');
     if (colorbars.length > 0) {
-      scene.items = scene.items.filter((item) => item.kind !== 'colorbar');
+      layout.items = layout.items.filter((item) => item.kind !== 'colorbar');
       warnings.push(
-        `该底图没有 relief 色标数据，已移除导入排版中的 ${colorbars.length} 个色标元素`,
+        `该底图的 geo 没有 relief 色标数据，已移除排版中的 ${colorbars.length} 个色标元素`,
       );
       dirty = true;
     }
   }
-  return { scene, dirty, warnings };
+  return { layout, dirty, warnings };
 }
 
 /** 读取并校验一次上传：任何失败都抛出可直接展示的中文 Error */
@@ -306,9 +298,7 @@ async function readOpenedMap(files: readonly File[], measureText: MeasureText): 
     throw new Error(`底图不符合契约：${base.errors.slice(0, 3).join('；')}`);
   }
 
-  const jsonUploads = await readJsonUploads(batches.json);
-  const geoUpload = jsonUploads.geos[0];
-  if (!geoUpload) throw new Error(`缺少 geo.json（没有找到 format=mapdoc-geo 的文件）`);
+  const geoUpload = await readGeoUpload(batches.json);
   const geoErrors = validateGeo(geoUpload.value);
   if (geoErrors.length > 0) {
     throw new Error(`geo.json 校验失败：${geoErrors.slice(0, 3).join('；')}`);
@@ -316,16 +306,12 @@ async function readOpenedMap(files: readonly File[], measureText: MeasureText): 
   const geo = normalizeGeo(geoUpload.value as Geo);
   const document = buildDocument(baseFile, baseBytes, base, geo);
 
-  const sceneUpload = jsonUploads.scenes[0] ?? null;
-  const built = buildScene(
-    geo,
-    document,
-    sceneUpload === null ? null : sceneUpload.value,
-    measureText,
-  );
+  // 排版块就写在同一个 geo.json 里：有且合法 → 恢复排版；缺省 → 默认排版（标脏）
+  const pageValue = (geoUpload.value as MapDoc)[MAP_DOC_PAGE_KEY] ?? null;
+  const built = buildPageLayout(geo, pageValue, measureText);
   return {
     document,
-    scene: built.scene,
+    layout: built.layout,
     dirty: built.dirty,
     warnings: [...base.warnings, ...built.warnings],
   };
@@ -341,7 +327,7 @@ function boot(): void {
     stateEl: shell.statusState,
   });
   // 地图排版要两种口径：宽度（默认版式折行/图例宽度）+ 字体行盒（选中框/命中盒的高度依据）。
-  // 同一个适配器同时提供 width，传给只关心宽度的 defaultScene。
+  // 同一个适配器同时提供 width，传给只关心宽度的 defaultPageLayout。
   const measureText: TextMeasure = createTextMeasure();
 
   /** 当前打开的编辑器与预览 objectURL（同一时刻最多一份） */
@@ -409,13 +395,13 @@ function boot(): void {
       });
       baseUrl = URL.createObjectURL(baseBlob);
 
-      // 侧栏在构造时就会读一次 scene，而编辑器需要侧栏句柄：用 ref 解开这个先后顺序
+      // 侧栏在构造时就会读一次 layout，而编辑器需要侧栏句柄：用 ref 解开这个先后顺序
       let editorRef: PageEditor | null = null;
       const sidebar = new PageSidebar(shell.sidebar, {
-        getScene: () => editorRef?.currentScene ?? opened.scene,
+        getLayout: () => editorRef?.currentLayout ?? opened.layout,
         getGeo: () => pageDocument.geo,
         onChange: (mutate) => {
-          editorRef?.applySceneChange(mutate);
+          editorRef?.applyPageChange(mutate);
         },
         onSelect: (id) => {
           editorRef?.select(id);
@@ -436,7 +422,7 @@ function boot(): void {
         measureText,
         document: pageDocument,
         baseUrl,
-        scene: opened.scene,
+        layout: opened.layout,
         dirty: opened.dirty,
       });
       editorRef = created;
@@ -444,8 +430,8 @@ function boot(): void {
 
       buildPageToolbar(shell.toolbar, {
         open: requestOpen,
-        exportJson: () => {
-          created.exportScene();
+        exportGeo: () => {
+          created.exportGeo();
         },
         exportSvg: () => {
           created.exportFinal();
@@ -462,7 +448,9 @@ function boot(): void {
 
       for (const warning of opened.warnings) notifier.error(`排版提示：${warning}`);
       notifier.info(
-        opened.dirty ? '已生成初始排版；Ctrl+S 导出 JSON' : '已载入 scene.json；Ctrl+S 导出 JSON',
+        opened.dirty
+          ? '已生成初始排版；Ctrl+S 导出 geo.json'
+          : '已载入 geo.json 中的排版；Ctrl+S 导出 geo.json',
       );
     } catch (error) {
       // 打开失败不 fatal：面板与消息区给出原因，用户可以修好文件再试

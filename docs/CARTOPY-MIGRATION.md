@@ -11,6 +11,11 @@
 > 阅读提示：§2 / §6 / §12 里提到的 `tools/mapdoc`、`studio.py`、Python 合成都是**当时**的实现，
 > 已在 §13 删除；保留这些文字只为记录决策与迁移过程的证据。
 
+> **2026-10-28 更新**：`scene.json` 已并入 `geo.json`——排版真值改为 `geo.json` 顶层的 `page` 块，
+> 打开 `base.svg + geo.json`、导出同一份 `geo.json` 即可再次编辑。本文件中出现的 `scene.json` /
+> `mapdoc-page` / `导出 JSON` 描述都是**历史记录**（只记录当时的方案与迁移过程），当前契约以
+> [`PAGE-EDITOR.md`](PAGE-EDITOR.md) 为准。
+
 ## 0. 决策记录（本轮由用户确定）
 
 | 编号   | 决策                                                   | 含义                                                                                                                                                                                                                                                                                                                                                                          |
@@ -387,6 +392,12 @@ PY
    初始标注的种子）；其余脚本的标注数据已删，移植时以快照为准。
 
 ## 13. 2026-10-28 执行记录：移除后端
+
+> **2026-10-28 晚更新**：本节是「`geo.json` + `scene.json` 双文件」过渡实现的历史记录；同日随后合并为
+> 单文件 `geo.json`（排版存顶层 `page` 块）：函数改名为 `validatePage` / `normalizePage` /
+> `serializeMapDocFile` / `pageDigest`，导出改为 `<stem>.geo.json`，旧 `scene.json` 不再支持。
+> 当前契约见 [`PAGE-EDITOR.md`](PAGE-EDITOR.md)；本节以下内容（含 §13.2 的旧函数名、§13.3 的
+> `<stem>.scene.json` 导出与「旧 scene.json 仍可导入」）只作历史记录，**不是当前流程**。
 
 ### 13.1 已删除：`tools/`
 

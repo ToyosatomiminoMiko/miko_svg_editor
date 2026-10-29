@@ -2,7 +2,7 @@
  * 文件下载适配器：只处理 Blob / `<a download>` / objectURL 的 DOM 生命周期。
  *
  * 是什么：`downloadSvg` 供草图页导出 `sketch.svg`（内容由 `render/export-svg.ts` 生成）；
- * `downloadText` 是通用版本，供出版排版编辑器导出 `scene.json` / `final.svg`。
+ * `downloadText` 是通用版本，供出版排版编辑器导出 `geo.json` / `final.svg`。
  * 为什么两者分成两个入口：草图页的文件名与 revoke 延迟来自 `config/export.ts`，
  * 排版页的两份导出各有 MIME 与命名规则（`core/document.ts`），把「下什么文件」留在
  * 调用方，这里只负责「把字符串变成一个下载」。
@@ -29,7 +29,7 @@ function triggerDownload(blob: Blob, filename: string, revokeAfterMs: number): v
   window.setTimeout(() => URL.revokeObjectURL(url), revokeAfterMs);
 }
 
-/** 通用文本下载：`mime` 决定浏览器如何识别 `scene.json` / `final.svg` */
+/** 通用文本下载：`mime` 决定浏览器如何识别 `geo.json` / `final.svg` */
 export function downloadText(text: string, filename: string, mime: string): void {
   triggerDownload(new Blob([text], { type: mime }), filename, PAGE_DOWNLOAD_REVOKE_MS);
 }

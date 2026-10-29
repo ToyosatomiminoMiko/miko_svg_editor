@@ -5,14 +5,17 @@
  * 按钮和一行错误文案。每栏自带「选择…」按钮、隐藏的 `<input type="file">` 与文件名回显；拖到页面
  * 任意位置的文件会按扩展名自动落进对应一栏。本文件只负责分栏、展示已选文件、把选齐的文件交给
  * 回调，以及显示打开失败的中文原因。
- * 为什么 SVG 与 JSON 分成两栏：两份文件是 Cartopy_file 的两个独立产物，用户经常只想换其中一份
- * （底图没变、只重新生成 geo.json）。合成一个 multiple 选择框时，第二次选择会覆盖第一次的全部
- * 选中项，用户只能每次把两份一起重选；拆成两栏后各栏独立替换，另一栏原样保留。
+ * 为什么 SVG 与 JSON 分成两栏：打开需要「底图 + geo.json」两份文件，用户经常只想换其中一份
+ * （底图没变、只重新生成 geo.json；或排版文件没变、只换了底图）。合成一个 multiple 选择框时，
+ * 第二次选择会覆盖第一次的全部选中项，用户只能每次把两份一起重选；拆成两栏后各栏独立替换，
+ * 另一栏原样保留。
  * 为什么只按扩展名分栏：UI 层不该读文件内容。分栏只是把文件送进哪个框，真正的分类与校验
  * （JSON 的 `format`、sha256、viewBox 一致性）在 `app/page-main.ts` 与 `core/` 里做，
  * 内容 format 始终是唯一真值——扩展名分错也不会被误判，只是进错一栏后由 app 报错。
+ * 为什么 geo 栏只收一个文件：排版（page 块）就在同一份 geo.json 里，两份 JSON 无法判断以谁为准。
  * 为什么面板覆盖整个画布：拖放目标越大越不容易拖错；面板隐藏后画布继续给编辑器用。
- * 元信息：作者 app，2026-10-28，无后端数据流（上传 base.svg + geo.json）；同日拆分为 SVG/JSON 两栏。
+ * 元信息：作者 app，2026-10-28，无后端数据流（上传 base.svg + geo.json）；同日拆分为 SVG/JSON 两栏；
+ *         2026-10-28 晚起 JSON 栏只收一份 geo.json（排版已并入其中，不再有可选 scene.json）。
  */
 
 import { create_element, createButton, createPanel, type ButtonHandle } from 'miko_ui';
@@ -46,7 +49,7 @@ interface Slot {
   readonly input: HTMLInputElement;
   /** 文件名回显节点 */
   readonly name: HTMLElement;
-  /** 空栏时的回显文案（JSON 栏要提示 geo 必需） */
+  /** 空栏时的回显文案（JSON 栏要提示 geo.json 必需） */
   readonly emptyText: string;
   files: readonly File[];
 }
@@ -58,7 +61,7 @@ interface SlotOptions {
   readonly pickText: string;
   readonly pickTitle: string;
   readonly accept: string;
-  /** 是否允许多选：JSON 栏要能一次选 geo + 可选 scene */
+  /** 是否允许多选：底图与 JSON 都只收一个（排版已并入 geo.json） */
   readonly multiple: boolean;
 }
 
@@ -75,12 +78,12 @@ export function createPageOpenPanel(
   const lead = create_element(
     { tag: 'p' },
     { class: 'page-open-lead' },
-    '分别选择底图 SVG 与 JSON（geo.json 必需，scene.json 可选）。',
+    '分别选择底图 SVG 与 geo.json。',
   );
   const hint = create_element(
     { tag: 'p' },
     { class: 'page-open-hint' },
-    '两份文件由 Cartopy_file 一起生成：底图负责几何，geo.json 负责刻度、地名与配色。也可以把文件拖到页面任意位置，会按扩展名自动放进对应一栏。',
+    '底图由 Cartopy_file 生成（负责几何），geo.json 记录刻度、地名与配色；本编辑器导出的 geo.json 还带排版，重新打开即可继续编辑。也可以把文件拖到页面任意位置，会按扩展名自动放进对应一栏。',
   );
 
   /** 建一栏：标签 + 文件名回显 + 「选择…」按钮 + 隐藏 input */
@@ -125,12 +128,12 @@ export function createPageOpenPanel(
     multiple: false,
   });
   const jsonSlot = createSlot({
-    label: 'JSON',
+    label: 'geo.json',
     emptyText: '未选择（geo.json 必需）',
-    pickText: '选择 JSON…',
-    pickTitle: '选择 geo.json（需要恢复旧排版时把 scene.json 一起选上）',
+    pickText: '选择 geo.json…',
+    pickTitle: '选择 geo.json（Cartopy 产出的，或本编辑器导出的带排版文件）',
     accept: PAGE_UPLOAD_JSON_ACCEPT,
-    multiple: true,
+    multiple: false,
   });
 
   const slots = create_element(
@@ -200,7 +203,7 @@ export function createPageOpenPanel(
    * 把一批文件送进对应栏（选择框与拖放共用）：
    * - 底图最多一个，多了直接报错、两栏都不改；
    * - 只拖一种文件时另一栏保持原值（用户可能分两次拖）；
-   * - JSON 栏一次替换整批（geo 与 scene 从 Cartopy 一起产出，重新选就一起重选）。
+   * - JSON 栏一次只收一个 geo.json（排版与地理数据同在一个文件里，不能合并两份）。
    */
   const applyFiles = (files: readonly File[]): void => {
     if (files.length === 0) {
@@ -216,7 +219,6 @@ export function createPageOpenPanel(
           svgFiles.push(file);
           break;
         case 'geo':
-        case 'scene':
         case 'json':
           jsonFiles.push(file);
           break;
@@ -233,8 +235,12 @@ export function createPageOpenPanel(
       setError(`只能选择一个底图 .svg（收到了 ${svgFiles.length} 个）`);
       return;
     }
+    if (jsonFiles.length > 1) {
+      setError(`只能选择一个 geo.json（收到了 ${jsonFiles.length} 个）`);
+      return;
+    }
     if (svgFiles.length === 1) svgSlot.files = svgFiles;
-    if (jsonFiles.length > 0) jsonSlot.files = jsonFiles;
+    if (jsonFiles.length === 1) jsonSlot.files = jsonFiles;
     setError(null);
     sync();
   };

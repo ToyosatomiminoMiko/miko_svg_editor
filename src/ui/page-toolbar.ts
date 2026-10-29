@@ -1,10 +1,10 @@
 /**
  * 出版排版编辑器的顶部工具条。
  *
- * 是什么：文件（打开… / 导出 JSON / 导出 SVG）、添加（文字 / 标题 / 图例 / 色标）、
+ * 是什么：文件（打开… / 导出 geo.json / 导出 SVG）、添加（文字 / 标题 / 图例 / 色标）、
  * 视图（适应页面 / 1:1）三组命令按钮；宿主由 `app/page-main.ts` 建好（`.dock.page-topbar`，
  * 已带 `role="toolbar"`），本文件只往里填分组。
- * 为什么没有「保存」按钮：页面是纯静态的，导出 JSON 就是落盘（`Ctrl+S` 走同一入口），
+ * 为什么没有「保存」按钮：页面是纯静态的，导出 geo.json 就是落盘（`Ctrl+S` 走同一入口），
  * 导出 SVG 是另一份独立产物；两者都在浏览器内直接生成文件，不需要任何远端确认，
  * 也就不需要任何按钮禁用态。
  * 为什么不用草图模式的 `ui/toolbar.ts`：那个工具条绑定约束求解内核（工具/约束/吸附），
@@ -18,8 +18,8 @@ import { create_element, createButton, createControlGroup } from 'miko_ui';
 export interface PageToolbarHandlers {
   /** 「打开…」：换一份底图 + geo（脏时由组合根先确认） */
   open(): void;
-  /** 导出 scene.json（Ctrl+S 同此入口） */
-  exportJson(): void;
+  /** 导出 `<stem>.geo.json`（Ctrl+S 同此入口） */
+  exportGeo(): void;
   /** 导出 final.svg（浏览器内合成） */
   exportSvg(): void;
   /** 缩放显示整页 */
@@ -64,9 +64,9 @@ export function buildPageToolbar(root: HTMLElement, handlers: PageToolbarHandler
     run: () => handlers.open(),
   });
   add(fileRow, {
-    text: '导出 JSON',
-    title: '下载当前排版为 scene.json（Ctrl+S）',
-    run: () => handlers.exportJson(),
+    text: '导出 geo.json',
+    title: '下载 geo.json（geo + 排版，可再次打开继续编辑；Ctrl+S）',
+    run: () => handlers.exportGeo(),
   });
   add(fileRow, {
     text: '导出 SVG',

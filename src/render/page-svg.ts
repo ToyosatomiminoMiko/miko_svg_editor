@@ -1,5 +1,5 @@
 /**
- * 预览 SVG：`scene + geo → SVG DOM`（纸张白底、底图 `<image>`、图框/刻度、items）。
+ * 预览 SVG：`layout + geo → SVG DOM`（纸张白底、底图 `<image>`、图框/刻度、items）。
  *
  * 是什么：把 `docs/PAGE-EDITOR.md` §5 的布局公式落成浏览器里的 SVG 节点，供编辑器
  * 所见即所得预览。根 `<svg>` 的 `viewBox`（缩放/平移）由调用方（`app/page-editor.ts`）
@@ -19,7 +19,7 @@ import type {
   LegendEntry,
   LegendItem,
   PageItem,
-  Scene,
+  PageLayout,
   TextItem,
 } from '../core/page';
 import {
@@ -159,11 +159,11 @@ function createHitBox(bounds: ItemBounds): SVGRectElement {
 /** 一个 text 元素（含光晕/旋转/命中） */
 function renderTextItem(
   item: TextItem,
-  scene: Scene,
+  layout: PageLayout,
   geo: Geo,
   options: PageSvgOptions,
 ): SVGGElement {
-  const layout = textLayout(item, geo, scene);
+  const text = textLayout(item, geo, layout);
   const group = svg('g', {
     class: 'page-item page-item-text',
     'data-page-item': String(item.id),
@@ -171,14 +171,14 @@ function renderTextItem(
   if (item.rotation_deg !== 0) {
     group.setAttribute(
       'transform',
-      `rotate(${formatPageNumber(item.rotation_deg)} ${formatPageNumber(layout.px)} ${formatPageNumber(layout.py)})`,
+      `rotate(${formatPageNumber(item.rotation_deg)} ${formatPageNumber(text.px)} ${formatPageNumber(text.py)})`,
     );
   }
   const style = { anchor: item.anchor, color: item.color };
   if (item.halo) {
     const haloGroup = svg('g', { class: 'page-text-halo' });
-    for (const line of createTextLines(item, layout, style, {
-      fontFamily: scene.style.font_family,
+    for (const line of createTextLines(item, text, style, {
+      fontFamily: layout.style.font_family,
       halo: true,
     })) {
       haloGroup.append(line);
@@ -186,8 +186,8 @@ function renderTextItem(
     group.append(haloGroup);
   }
   const fillGroup = svg('g', { class: 'page-text-fill' });
-  for (const line of createTextLines(item, layout, style, {
-    fontFamily: scene.style.font_family,
+  for (const line of createTextLines(item, text, style, {
+    fontFamily: layout.style.font_family,
     halo: false,
   })) {
     fillGroup.append(line);
@@ -197,7 +197,7 @@ function renderTextItem(
   // 它画在组的坐标系里，因此与文字共用同一个 rotate transform（旋转文字的命中区不会错位）。
   if (options.interactive !== false) {
     group.append(
-      createHitBox(itemBoundsPt(item, scene, geo, options.measureText ?? fallbackTextMeasure)),
+      createHitBox(itemBoundsPt(item, layout, geo, options.measureText ?? fallbackTextMeasure)),
     );
   }
   return group;
@@ -292,13 +292,13 @@ function createLegendSwatch(
 /** 一个 legend 元素；`sizeScale` 只用于 map 空间（宽度乘 s，其余保持 pt） */
 function renderLegendItem(
   item: LegendItem,
-  scene: Scene,
+  layout: PageLayout,
   geo: Geo,
   options: PageSvgOptions,
 ): SVGGElement {
-  const placement = itemPlacement(item, scene, geo);
+  const placement = itemPlacement(item, layout, geo);
   const effective: LegendItem = { ...item, x: placement.x, y: placement.y };
-  const layout = legendLayout(effective, placement.scale);
+  const legend = legendLayout(effective, placement.scale);
   const width = item.width_pt * placement.scale;
 
   const group = svg('g', {
@@ -311,7 +311,7 @@ function renderLegendItem(
         x: formatPageNumber(effective.x),
         y: formatPageNumber(effective.y),
         width: formatPageNumber(width),
-        height: formatPageNumber(layout.height),
+        height: formatPageNumber(legend.height),
         fill: item.frame.fill,
         'fill-opacity': opacityValue(item.frame.opacity),
         stroke: item.frame.stroke,
@@ -324,19 +324,19 @@ function renderLegendItem(
       svg(
         'text',
         {
-          x: formatPageNumber(layout.titleX),
-          y: formatPageNumber(layout.titleBaseline),
+          x: formatPageNumber(legend.titleX),
+          y: formatPageNumber(legend.titleBaseline),
           'font-size': fontSizeValue(item.title_size_pt),
-          'font-family': scene.style.font_family,
+          'font-family': layout.style.font_family,
           'text-anchor': 'middle',
-          fill: scene.style.color,
+          fill: layout.style.color,
         },
         item.title,
       ),
     );
   }
   item.entries.forEach((entry, index) => {
-    const row = layout.rows[index];
+    const row = legend.rows[index];
     if (!row) return;
     group.append(
       createLegendSwatch(
@@ -352,9 +352,9 @@ function renderLegendItem(
           x: formatPageNumber(row.labelX),
           y: formatPageNumber(row.labelBaseline),
           'font-size': fontSizeValue(item.font_size_pt),
-          'font-family': scene.style.font_family,
+          'font-family': layout.style.font_family,
           'text-anchor': 'start',
-          fill: scene.style.color,
+          fill: layout.style.color,
         },
         entry.label,
       ),
@@ -363,7 +363,7 @@ function renderLegendItem(
   // 预览命中区：图例通常只有描边，直接点空白列也要能选中；几何 = §5.7 声明框 + 指针容差
   if (options.interactive !== false) {
     group.append(
-      createHitBox(itemBoundsPt(item, scene, geo, options.measureText ?? fallbackTextMeasure)),
+      createHitBox(itemBoundsPt(item, layout, geo, options.measureText ?? fallbackTextMeasure)),
     );
   }
   return group;
@@ -374,29 +374,29 @@ function renderLegendItem(
 /** 一个 colorbar 元素；渐变定义写在根 `<defs>` 里（id 按契约固定） */
 function renderColorbarItem(
   item: ColorbarItem,
-  scene: Scene,
+  layout: PageLayout,
   geo: Geo,
   options: PageSvgOptions,
 ): SVGGElement {
-  const placement = itemPlacement(item, scene, geo);
+  const placement = itemPlacement(item, layout, geo);
   const effective: ColorbarItem = { ...item, x: placement.x, y: placement.y };
 
   const group = svg('g', {
     class: 'page-item page-item-colorbar',
     'data-page-item': String(item.id),
   });
-  // geo 没有 relief（Cartopy 不画色标）时，scene 里残留的 colorbar 无法取色带/刻度：
+  // geo 没有 relief（Cartopy 不画色标）时，layout 里残留的 colorbar 无法取色带/刻度：
   // 直接跳过该元素而不是让预览崩溃（导出 composeFinalSvg 会给出明确错误）。
   const relief = geo.relief;
   if (relief === null) return group;
-  const layout = colorbarLayout(effective, relief, placement.scale);
+  const bar = colorbarLayout(effective, relief, placement.scale);
 
   group.append(
     svg('rect', {
       x: formatPageNumber(effective.x),
       y: formatPageNumber(effective.y),
-      width: formatPageNumber(layout.width),
-      height: formatPageNumber(layout.height),
+      width: formatPageNumber(bar.width),
+      height: formatPageNumber(bar.height),
       fill: `url(#${colorbarGradientId(item.id)})`,
       stroke: 'none',
     }),
@@ -406,25 +406,25 @@ function renderColorbarItem(
       svg(
         'text',
         {
-          x: formatPageNumber(layout.titleX),
-          y: formatPageNumber(layout.titleBaseline),
+          x: formatPageNumber(bar.titleX),
+          y: formatPageNumber(bar.titleBaseline),
           'font-size': fontSizeValue(item.title_size_pt),
-          'font-family': scene.style.font_family,
+          'font-family': layout.style.font_family,
           'text-anchor': 'middle',
-          fill: scene.style.color,
+          fill: layout.style.color,
         },
-        layout.titleText,
+        bar.titleText,
       ),
     );
   }
-  for (const tick of layout.ticks) {
+  for (const tick of bar.ticks) {
     group.append(
       svg('line', {
         x1: formatPageNumber(tick.x1),
         y1: formatPageNumber(tick.ty),
         x2: formatPageNumber(tick.x2),
         y2: formatPageNumber(tick.ty),
-        stroke: scene.style.color,
+        stroke: layout.style.color,
       }),
     );
     group.append(
@@ -434,9 +434,9 @@ function renderColorbarItem(
           x: formatPageNumber(tick.labelX),
           y: formatPageNumber(tick.labelBaseline),
           'font-size': fontSizeValue(item.label_size_pt),
-          'font-family': scene.style.font_family,
+          'font-family': layout.style.font_family,
           'text-anchor': 'start',
-          fill: scene.style.color,
+          fill: layout.style.color,
         },
         formatPageNumber(tick.value),
       ),
@@ -444,7 +444,7 @@ function renderColorbarItem(
   }
   if (options.interactive !== false) {
     group.append(
-      createHitBox(itemBoundsPt(item, scene, geo, options.measureText ?? fallbackTextMeasure)),
+      createHitBox(itemBoundsPt(item, layout, geo, options.measureText ?? fallbackTextMeasure)),
     );
   }
   return group;
@@ -453,9 +453,9 @@ function renderColorbarItem(
 /* =========================== 图框/刻度（§5.2） =========================== */
 
 /** 图框矩形 + 刻度短线 + 刻度文字 */
-function renderFrame(layer: SVGGElement, scene: Scene, geo: Geo, fontFamily: string): void {
+function renderFrame(layer: SVGGElement, layout: PageLayout, geo: Geo, fontFamily: string): void {
   const children: SVGElement[] = [];
-  const { frame, map } = scene;
+  const { frame, map } = layout;
   const height = mapHeightPt(geo, map);
   if (frame.show) {
     children.push(
@@ -472,7 +472,7 @@ function renderFrame(layer: SVGGElement, scene: Scene, geo: Geo, fontFamily: str
     );
   }
   if (frame.ticks) {
-    for (const tick of frameTickLayout(scene, geo)) {
+    for (const tick of frameTickLayout(layout, geo)) {
       children.push(
         svg('line', {
           class: 'page-frame-tick',
@@ -506,14 +506,14 @@ function renderFrame(layer: SVGGElement, scene: Scene, geo: Geo, fontFamily: str
 /* =========================== 渐变定义 =========================== */
 
 /** colorbar 渐变（y1=100% 下 = vmin，y2=0% 上 = vmax，契约 §5.5） */
-function renderGradientDefs(defs: SVGDefsElement, scene: Scene, geo: Geo): void {
+function renderGradientDefs(defs: SVGDefsElement, layout: PageLayout, geo: Geo): void {
   // 没有 relief 就没有可画的色带：清空 defs（预览跳过 colorbar，合成侧会报错）。
   const relief = geo.relief;
   if (relief === null) {
     defs.replaceChildren();
     return;
   }
-  const gradients = scene.items
+  const gradients = layout.items
     .filter((item): item is ColorbarItem => item.kind === 'colorbar')
     .map((item) => {
       const stops = relief.stops.map((stop) =>
@@ -542,22 +542,22 @@ function renderGradientDefs(defs: SVGDefsElement, scene: Scene, geo: Geo): void 
 /**
  * 选中框 = 该项的声明几何框 `itemBoundsPt()`（纸张坐标、未旋转）。
  * 为什么不用 getBBox：它不含元素自身的 transform（旋转文字会画在锚点附近而错位），还会把
- * 命中盒一起算进包围盒（于是框变成外扩容差）；声明框由 scene.json + §5 公式 + CSS 字体
+ * 命中盒一起算进包围盒（于是框变成外扩容差）；声明框由 geo.json 的 page 块 + §5 公式 + CSS 字体
  * 度量推出，与预览/导出同源，且能单测。
  * 旋转项按 §5.3 的 `rotate(rotation_deg px py)` 施加到框本身，所以虚线框始终贴着文字块。
  */
 function renderSelection(
   layer: SVGGElement,
-  scene: Scene,
+  layout: PageLayout,
   geo: Geo,
   selectedId: number | null,
   measure: TextMeasure,
 ): void {
   layer.replaceChildren();
   if (selectedId === null) return;
-  const item = scene.items.find((candidate) => candidate.id === selectedId);
+  const item = layout.items.find((candidate) => candidate.id === selectedId);
   if (!item) return;
-  const bounds = itemBoundsPt(item, scene, geo, measure);
+  const bounds = itemBoundsPt(item, layout, geo, measure);
   const box = svg('rect', {
     class: 'page-selection-box',
     x: formatPageNumber(bounds.x),
@@ -586,11 +586,11 @@ function renderSelection(
  * 渲染整页到调用方提供的根 `<svg>`。
  *
  * 只改根节点内部；`viewBox`/尺寸由调用方控制。重复调用会复用 `<image>`（底图不重新请求），
- * 其余层按 scene 重建——编辑期每帧重建几十个节点，成本远小于一次重排。
+ * 其余层按 layout 重建——编辑期每帧重建几十个节点，成本远小于一次重排。
  */
 export function renderPageSvg(
   root: SVGSVGElement,
-  scene: Scene,
+  layout: PageLayout,
   geo: Geo,
   options: PageSvgOptions,
 ): void {
@@ -598,36 +598,36 @@ export function renderPageSvg(
 
   layers.paper.setAttribute('x', '0');
   layers.paper.setAttribute('y', '0');
-  layers.paper.setAttribute('width', formatPageNumber(scene.paper.width_pt));
-  layers.paper.setAttribute('height', formatPageNumber(scene.paper.height_pt));
-  layers.paper.setAttribute('fill', scene.style.paper_color);
+  layers.paper.setAttribute('width', formatPageNumber(layout.paper.width_pt));
+  layers.paper.setAttribute('height', formatPageNumber(layout.paper.height_pt));
+  layers.paper.setAttribute('fill', layout.style.paper_color);
 
-  layers.baseImage.setAttribute('x', formatPageNumber(scene.map.x));
-  layers.baseImage.setAttribute('y', formatPageNumber(scene.map.y));
-  layers.baseImage.setAttribute('width', formatPageNumber(scene.map.width_pt));
-  layers.baseImage.setAttribute('height', formatPageNumber(mapHeightPt(geo, scene.map)));
+  layers.baseImage.setAttribute('x', formatPageNumber(layout.map.x));
+  layers.baseImage.setAttribute('y', formatPageNumber(layout.map.y));
+  layers.baseImage.setAttribute('width', formatPageNumber(layout.map.width_pt));
+  layers.baseImage.setAttribute('height', formatPageNumber(mapHeightPt(geo, layout.map)));
   layers.baseImage.setAttribute('href', options.baseUrl);
   layers.baseImage.setAttribute('preserveAspectRatio', 'none');
 
-  renderFrame(layers.frame, scene, geo, scene.style.font_family);
-  renderGradientDefs(layers.defs, scene, geo);
+  renderFrame(layers.frame, layout, geo, layout.style.font_family);
+  renderGradientDefs(layers.defs, layout, geo);
 
-  const items = scene.items.map((item: PageItem) => {
+  const items = layout.items.map((item: PageItem) => {
     switch (item.kind) {
       case 'text':
-        return renderTextItem(item, scene, geo, options);
+        return renderTextItem(item, layout, geo, options);
       case 'legend':
-        return renderLegendItem(item, scene, geo, options);
+        return renderLegendItem(item, layout, geo, options);
       case 'colorbar':
-        return renderColorbarItem(item, scene, geo, options);
+        return renderColorbarItem(item, layout, geo, options);
     }
   });
   layers.overlay.replaceChildren(...items);
 
-  // 选中框：几何来自 scene + 文本度量，不依赖 DOM 布局（重复渲染/缩放都同一条公式）
+  // 选中框：几何来自 layout + 文本度量，不依赖 DOM 布局（重复渲染/缩放都同一条公式）
   renderSelection(
     layers.selection,
-    scene,
+    layout,
     geo,
     options.selectedId,
     options.measureText ?? fallbackTextMeasure,

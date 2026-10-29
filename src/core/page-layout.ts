@@ -1,5 +1,5 @@
 /**
- * 排版布局公式（`docs/PAGE-EDITOR.md` §5）与初始排版 `defaultScene`。
+ * 排版布局公式（`docs/PAGE-EDITOR.md` §5）与初始排版 `defaultPageLayout`。
  *
  * 是什么：底图坐标 → 纸张坐标的变换、图框/刻度位置、text/legend/colorbar 的基线/行位置、
  * 文字折行与文本宽度估算，以及「从 geo 生成默认 A4 横向排版」。
@@ -67,8 +67,7 @@ import type {
   PageItem,
   PagePaper,
   PageStyle,
-  Scene,
-  SceneBase,
+  PageLayout,
   TextAnchor,
   TextItem,
   TextRole,
@@ -287,8 +286,8 @@ export function wrapParagraphs(
 
 /**
  * 文字块宽度（多行取最宽）：选中框/命中盒与导出越界估算共用。
- * `fontFamily` 是 `item.font_family` 为空时的回退字体（调用方传 `scene.style.font_family`，
- * 与 §5.3 渲染同一口径）；缺省用默认字体栈，只服务没有 scene 的独立调用。
+ * `fontFamily` 是 `item.font_family` 为空时的回退字体（调用方传 `layout.style.font_family`，
+ * 与 §5.3 渲染同一口径）；缺省用默认字体栈，只服务没有 layout 的独立调用。
  */
 export function textBlockWidth(
   item: TextItem,
@@ -318,8 +317,8 @@ export interface TextLayout {
 }
 
 /** 文本起始点：page 空间直接用；map 空间过 §5.1（字号不随地图缩放，契约 §5.3） */
-export function textLayout(item: TextItem, geo: Geo, scene: Scene): TextLayout {
-  const transform = mapTransform(geo, scene.map);
+export function textLayout(item: TextItem, geo: Geo, layout: PageLayout): TextLayout {
+  const transform = mapTransform(geo, layout.map);
   const origin = item.space === 'map' ? mapPointToPage(transform, item) : { x: item.x, y: item.y };
   const step = item.font_size_pt * item.line_height;
   const lines = item.lines.map((text, index) => ({ text, y: origin.y + index * step }));
@@ -348,8 +347,8 @@ export interface FrameTickLayout {
  * - 纬度：page(tick.y).y 落在 [0, paper.height] 才画；left 向左、right 向右。
  * 基线公式按契约原样（bottom 用 tick_gap + tick_font_size，left 用 font*0.35）。
  */
-export function frameTickLayout(scene: Scene, geo: Geo): FrameTickLayout[] {
-  const { paper, map, frame } = scene;
+export function frameTickLayout(layout: PageLayout, geo: Geo): FrameTickLayout[] {
+  const { paper, map, frame } = layout;
   const transform = mapTransform(geo, map);
   const height = mapHeightPt(geo, map);
   const mapBottom = map.y + height;
@@ -437,7 +436,7 @@ export interface LegendRowLayout {
 }
 
 export interface LegendLayout {
-  /** 由内容派生的高度（不落 scene） */
+  /** 由内容派生的高度（不落 layout） */
   readonly height: number;
   readonly titleBaseline: number;
   /** 标题水平中心（契约未写，预览与成品统一取宽度中点） */
@@ -559,11 +558,11 @@ export interface ItemPlacement {
  */
 export function itemPlacement(
   item: { readonly x: number; readonly y: number; readonly space: ItemSpace },
-  scene: Scene,
+  layout: PageLayout,
   geo: Geo,
 ): ItemPlacement {
   if (item.space !== 'map') return { x: item.x, y: item.y, scale: 1 };
-  const transform = mapTransform(geo, scene.map);
+  const transform = mapTransform(geo, layout.map);
   const origin = mapPointToPage(transform, item);
   return { x: origin.x, y: origin.y, scale: transform.s };
 }
@@ -595,50 +594,50 @@ export interface ItemBounds {
  */
 export function itemBoundsPt(
   item: PageItem,
-  scene: Scene,
+  layout: PageLayout,
   geo: Geo,
   measure: TextMeasure = fallbackTextMeasure,
 ): ItemBounds {
   switch (item.kind) {
     case 'text': {
-      const layout = textLayout(item, geo, scene);
-      const font = fontShorthand(item.font_size_pt, item.font_family ?? scene.style.font_family);
-      const width = textBlockWidth(item, measure.width, scene.style.font_family);
+      const text = textLayout(item, geo, layout);
+      const font = fontShorthand(item.font_size_pt, item.font_family ?? layout.style.font_family);
+      const width = textBlockWidth(item, measure.width, layout.style.font_family);
       const step = item.font_size_pt * item.line_height;
-      const top = layout.py - measure.ascent(font);
-      const bottom = layout.py + (item.lines.length - 1) * step + measure.descent(font);
+      const top = text.py - measure.ascent(font);
+      const bottom = text.py + (item.lines.length - 1) * step + measure.descent(font);
       const left =
         item.anchor === 'start'
-          ? layout.px
+          ? text.px
           : item.anchor === 'end'
-            ? layout.px - width
-            : layout.px - width / 2;
+            ? text.px - width
+            : text.px - width / 2;
       return {
         x: left,
         y: top,
         width,
         height: bottom - top,
         rotation_deg: item.rotation_deg,
-        rotationX: layout.px,
-        rotationY: layout.py,
+        rotationX: text.px,
+        rotationY: text.py,
       };
     }
     case 'legend': {
-      const placement = itemPlacement(item, scene, geo);
+      const placement = itemPlacement(item, layout, geo);
       const effective: LegendItem = { ...item, x: placement.x, y: placement.y };
-      const layout = legendLayout(effective, placement.scale);
+      const legend = legendLayout(effective, placement.scale);
       return {
         x: placement.x,
         y: placement.y,
         width: item.width_pt * placement.scale,
-        height: layout.height,
+        height: legend.height,
         rotation_deg: 0,
         rotationX: placement.x,
         rotationY: placement.y,
       };
     }
     case 'colorbar': {
-      const placement = itemPlacement(item, scene, geo);
+      const placement = itemPlacement(item, layout, geo);
       return {
         x: placement.x,
         y: placement.y,
@@ -654,9 +653,7 @@ export function itemBoundsPt(
 
 /* =========================== 默认排版 =========================== */
 
-export interface DefaultSceneOptions {
-  /** scene.figure 的展示名（打开后统一写上传底图文件名，见 core/document.ts） */
-  readonly figure?: string;
+export interface DefaultPageLayoutOptions {
   /** 页边距（「重新排默认版式」可改） */
   readonly margin_pt?: number;
   /** 纸张（重新排版时保留用户当前纸张）；缺省 A4 横向 */
@@ -677,7 +674,7 @@ function defaultPaper(): PagePaper {
 
 /**
  * 图例宽度测量：左右 padding + swatch + gap + 最长标签，同时要容得下标题。
- * @param fontScale 纸张自适应比例 k（defaultScene 的 k）；图例的字号/色块/边距都随它缩放
+ * @param fontScale 纸张自适应比例 k（defaultPageLayout 的 k）；图例的字号/色块/边距都随它缩放
  */
 function measureLegendColumn(
   geo: Geo,
@@ -715,7 +712,7 @@ function compactRightColumnWidth(fontScale: number): number {
   return PAGE_DEFAULT_RIGHT_COLUMN_MIN_PT * 0.7 * fontScale;
 }
 
-/** 把 geo 图例条目复制成 scene 条目，补齐可选字段 */
+/** 把 geo 图例条目复制成 layout 条目，补齐可选字段 */
 function legendEntriesOf(geo: Geo): LegendEntry[] {
   return geo.legend.entries.map((entry: GeoLegendEntry) => ({
     label: entry.label,
@@ -729,12 +726,12 @@ function legendEntriesOf(geo: Geo): LegendEntry[] {
   }));
 }
 
-/** 克隆光晕（避免 defaultScene 与 geo 共享可变对象） */
+/** 克隆光晕（避免 defaultPageLayout 与 geo 共享可变对象） */
 function haloOf(halo: Halo | null): Halo | null {
   return halo === null ? null : { color: halo.color, width_pt: halo.width_pt };
 }
 
-/** 文字元素工厂：所有可选字段都显式写出，保证 scene 形状固定 */
+/** 文字元素工厂：所有可选字段都显式写出，保证 layout 形状固定 */
 function makeTextItem(
   id: number,
   role: TextRole,
@@ -826,7 +823,7 @@ function layoutScaleFor(paper: PagePaper): number {
 }
 
 /**
- * 由 geo + base 生成初始 scene（契约 §9：A4 横向默认、地图占左、右栏图例/注记/色标）。
+ * 由 geo 生成初始排版（契约 §9：A4 横向默认、地图占左、右栏图例/注记/色标）。
  *
  * 两套版式：
  * - 横向（默认）：左地图 + 右栏（图例→注记→色标）；
@@ -834,7 +831,7 @@ function layoutScaleFor(paper: PagePaper): number {
  *   避免竖版纸上地图只占半宽、下方大片空白。
  * 两套都按纸张自适应比例 k 缩放纸面字号与间距；地名只按地图缩放 s（见 makeLabelItem）。
  */
-export function defaultScene(geo: Geo, base: SceneBase, options: DefaultSceneOptions = {}): Scene {
+export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = {}): PageLayout {
   const measure = options.measureText ?? fallbackMeasureText;
   const margin = options.margin_pt ?? PAGE_DEFAULT_MARGIN_PT;
   const paper = options.paper === undefined ? defaultPaper() : { ...options.paper };
@@ -1137,14 +1134,6 @@ export function defaultScene(geo: Geo, base: SceneBase, options: DefaultSceneOpt
   for (const label of labels) items.push(makeLabelItem(nextId++, label, style, mapScale));
 
   return {
-    format: 'mapdoc-page',
-    version: 1,
-    figure: options.figure ?? '',
-    base: {
-      sha256: base.sha256,
-      width_pt: base.width_pt,
-      height_pt: base.height_pt,
-    },
     paper,
     map: { x: margin, y: mapTop, width_pt: mapWidth },
     frame,

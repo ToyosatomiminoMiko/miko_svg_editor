@@ -5,9 +5,10 @@
 > 全部搬到前端**，cartopy 只负责纯地图字节。
 >
 > 自 2026-10-28 起本页是**纯静态前端**：没有 studio、没有 Python、没有任何 HTTP API。用户在浏览器里
-> 上传 Cartopy 产出的 `base.svg + geo.json`，在浏览器内排版并合成 `final.svg`，两个文件都由浏览器
-> 下载。本文件是地图页的唯一契约：`geo.json` / `scene.json` / 最终 SVG 的字段、布局公式、文件
-> 类型与校验语义、导出命名都在这里；实现改动先改这里。
+> 上传 Cartopy 产出的 `base.svg + geo.json`，在浏览器内排版，编辑后导出**同一份 `geo.json`**
+> （geo 全部字段 + `page` 排版块）与成品 SVG；用导出的 `geo.json` 重新打开即可恢复排版、继续编辑。
+> 本文件是地图页的唯一契约：`geo.json` / `page` 块 / 最终 SVG 的字段、布局公式、文件类型与校验
+> 语义、导出命名都在这里；实现改动先改这里。
 
 ## 1. 数据流
 
@@ -17,18 +18,21 @@ Cartopy_file（另一个仓；本仓只消费它的产物）
                        无标题/图例/色标/图框/画布白底；viewBox 裁到地图框
   <stem>.geo.json      地理元数据（format mapdoc-geo v1）：地图框、经纬网刻度、地名候选、
                        配色/图例样式、默认文案、色标刻度；只读
-        │  浏览器上传（文件选择 / 拖放；可同时选 <stem>.scene.json 恢复排版）
+        │  浏览器上传（文件选择 / 拖放；底图 SVG 与 geo.json 各恰好一个）
         ▼
 map.html（Vite 静态站；npm run dev → http://localhost:5173/map.html）
   core/base-svg.ts      底图契约 C1–C4 + 根标签内原文切片（inner）
   core/document.ts      PageDocument（底图字节 + sha256 + 底图解析结果 + 规范化 geo）
-  core/page.ts          validateGeo / normalizeGeo / sha256OfBytes / canonicalJson /
-                        geoDigest / sceneDigest / serializeSceneFile
-  core/page-layout.ts   §5 全部布局公式 + defaultScene（缺可选块时降级）
-  render/compose-svg.ts scene + geo + base.inner → final.svg 字符串（纯函数，node 可测）
+  core/page.ts          normalizeGeo / validateGeo / normalizePage / validatePage /
+                        sha256OfBytes / canonicalJson / geoDigest / pageDigest /
+                        serializeMapDocFile
+  core/page-layout.ts   §5 全部布局公式 + defaultPageLayout（缺可选块时降级）
+  render/compose-svg.ts layout + geo + base.inner → final.svg 字符串（纯函数，node 可测）
+        │  编辑：排版只改内存里的 PageLayout（不落盘）
         │  导出（Blob + <a download>）
         ▼
-  <stem>.scene.json    排版真值：纸张、地图摆放、图框/刻度、文字、图例、色标
+  <stem>.geo.json      统一文件：geo 全部字段 + `page` 排版块（纸张、地图摆放、图框/刻度、
+                       文字、图例、色标）；再次打开即恢复排版
   <stem>.svg           交付成品：纸张尺寸、底图矢量内联、文字为可选中 <text>、
                        不引用外部 base.svg（底图自带的内联 <image> 属底图内容，原样内联）
 ```
@@ -37,8 +41,8 @@ map.html（Vite 静态站；npm run dev → http://localhost:5173/map.html）
 
 1. 地理层只读：底图上传后只作为预览用的 `<image>` 与成品内联的原文，不解析成图元、不回写。
 2. Cartopy/底图里**不出现任何文字**（连经纬度刻度数字也没有），不出现标题/图例/色标/图框/画布白底。
-3. 所有文字、图框、图例、色标、注释由前端编排，存 `scene.json`。
-4. 成品由**浏览器内同一实现**合成（`render/compose-svg.ts`）：同一份「底图字节 + geo + scene」
+3. 所有文字、图框、图例、色标、注释由前端编排，存 `geo.json` 的 `page` 块（排版真值）。
+4. 成品由**浏览器内同一实现**合成（`render/compose-svg.ts`）：同一份「底图字节 + geo + `page` 块」
    在**同一浏览器实现下**得到同一字节（确定性口径见 §6）。导出是纯函数，不读 DOM、时间、随机数。
 
 ## 2. 文件与落点
@@ -50,11 +54,11 @@ Cartopy_file 侧（另一个仓）：
 
 浏览器上传（只读；不落盘、不写服务器）：
   <stem>.svg                 底图（必须恰好一个）
-  <stem>.geo.json            地理元数据（必须恰好一个）
-  [<stem>.scene.json]        可选的旧排版（format=mapdoc-page v1）
+  <stem>.geo.json            地理元数据（必须恰好一个；不再有可选的 scene.json）
 
 浏览器导出的两个文件（浏览器下载目录；文件名由底图文件名派生）：
-  <stem>.scene.json          sceneFileNameOf(document) = `<底图 stem>.scene.json`
+  <stem>.geo.json            geoFileNameOf(document) = `<底图 stem>.geo.json`
+                             = geo 全部字段 + `page` 排版块
   <stem>.svg                 finalFileNameOf(document) = `<底图 stem>.svg`
 ```
 
@@ -62,12 +66,16 @@ Cartopy_file 侧（另一个仓）：
   `core/document.ts` 的 `baseStemOf`。
 - 一次只打开一份地图（没有图库/多图切换）；`打开…` 会先丢弃当前文档（脏时确认）。
 - 没有任何服务器侧产物：不再有 `.build/`、`.lock`、`tools/` 下的读写，也没有「保存」动作——
-  导出的 JSON 就是排版落盘。
+  导出的 `geo.json` 就是排版落盘。
 
-## 3. `geo.json`（format `mapdoc-geo` v1，只读，Cartopy 直出）
+## 3. `geo.json`（format `mapdoc-geo` v1）
 
 Cartopy 侧已对齐本契约：渲染时直接写「纯几何底图 + geo.json」，本仓不再从成品 SVG 反推
-（旧的 `extract.py`/`prepare_demo.py` 已删除）。`geo.json` 由前端读取、校验、归一化后作为只读输入。
+（旧的 `extract.py`/`prepare_demo.py` 已删除）。`geo.json` 的**地理字段**（`format` / `version` /
+`base` / `graticule` / `labels` / `relief` / `legend` / `suggestions`）是只读输入，**所有 geo 字段
+在打开、编辑、导出全过程都不改写**；编辑器导出时只在同文件顶层追加 `page` 块（§4）。
+Cartopy 直出的 geo.json 没有 `page` 键（未知键对 Cartopy 的 `tools/check_geo.py` 无影响，它只校验
+已知必需块）。
 
 ```jsonc
 {
@@ -160,24 +168,25 @@ Cartopy 侧已对齐本契约：渲染时直接写「纯几何底图 + geo.json�
     这样「没有图例/没有色标/没有默认文案」的图也能打开，默认排版自动不生成对应的框（§5.6）。
 - 刻度 `x/y` 都在底图坐标系；`side`：经度用 `bottom|top`，纬度用 `left|right`；
   `labels` 只含**地图内**地名，图外面积注记放 `suggestions.area_annotation`。
-- 数值一律 3 位小数以内、无单位后缀；颜色只接受 `#rrggbb`。
+- 颜色只接受 `#rrggbb`。geo 侧数值保留 Cartopy 原样精度（例如 `view_box` 的 `896.350289` 不截断）；
+  只有导出时 `page` 块内的数字统一 3 位小数（§4）。导出文件递归按键名排序、2 空格缩进、末尾一个
+  换行，同一输入两次导出字节相同。
 
-## 4. `scene.json`（format `mapdoc-page` v1，排版真值）
+## 4. `page` 块（排版真值，编辑器写入 `geo.json`）
+
+`page` 是 `geo.json` 顶层的排版块（键名固定 `page`，`MAP_DOC_PAGE_KEY`），由本编辑器写入；
+Cartopy 直出的 geo.json 没有这个键。形状：
 
 ```jsonc
 {
-  "format": "mapdoc-page",
-  "version": 1,
-  "figure": "volga_basin_topography_etopo2022_lambert_conformal.svg", // 底图文件名（不再有服务器路径）
-  "base": { "sha256": "<声明>", "width_pt": 896.350289, "height_pt": 712.3824 },
   "paper": {
     "preset": "A4", // A5|A4|A3|Letter|Custom（仅 UI 记忆用）
     "orientation": "landscape", // portrait|landscape
-    "width_pt": 841.889764,
-    "height_pt": 595.275591,
+    "width_pt": 841.89,
+    "height_pt": 595.276,
   },
   "map": { "x": 28, "y": 72, "width_pt": 597.7 },
-  // 高度由宽度派生：map.height = width * base.height_pt / base.width_pt（保持纵横比）
+  // 高度由宽度派生：map.height = width * geo.base.height_pt / geo.base.width_pt（保持纵横比）
   "frame": {
     "show": true,
     "stroke": "#000000",
@@ -200,11 +209,10 @@ Cartopy 侧已对齐本契约：渲染时直接写「纯几何底图 + geo.json�
 
 约束：
 
-- `figure`：**底图文件名**（如 `volga_....svg`），用于标题与导出命名；不再是服务器路径。导入旧 demo
-  scene 里的旧路径也会在打开时被覆盖成当前底图文件名（标脏，不算错误）。
-- `base`：只是「这份排版基于哪份底图」的**一致性声明**，不参与几何计算。打开时与实际上传底图比对
-  sha256/尺寸：不一致只告警并把 `base` 改成真实底图（不拒绝，用户可能只是想接着改旧排版）；合成时
-  尺寸与变换全部来自 `geo.base` 与底图原文。
+- `page` 块**没有** `format` / `version` / `figure` / `base`：文件身份只在顶层 `geo`
+  （`format` / `version`），底图身份也只在顶层 `geo.base`；`geo.base.sha256` 必须与上传底图字节的
+  sha256 一致（打开时校验）。排版不再单独声明底图，因此不存在「排版记录的底图与本次上传不一致」
+  的分支。
 - `paper` 宽高 50..5000pt；`map.x/y` 有限即可（越界只告警）；`map.width_pt > 1`；颜色只接受
   `#rrggbb`；数字 3 位小数；`items.length ≤ 500`；`seq` 为正整数且大于所有 item id。
 
@@ -296,9 +304,9 @@ Cartopy 侧已对齐本契约：渲染时直接写「纯几何底图 + geo.json�
 }
 ```
 
-配色/刻度来自 `geo.relief`（vmin/vmax/stops/ticks），不落 scene；scene 只存摆放与文字。
+配色/刻度来自 `geo.relief`（vmin/vmax/stops/ticks），不落 `page` 块；`page` 块只存摆放与文字。
 `geo.relief` 为 `null` 时不能再添加色标（编辑器提示「该 geo.json 没有 relief 色标数据」），
-合成时若 scene 里仍有 colorbar 会抛 `Error('色标需要 geo.relief')`。
+合成时若 `page.items` 里仍有 colorbar 会抛 `Error('色标需要 geo.relief')`。
 
 ## 5. 布局公式（预览与导出共用 `core/page-layout.ts`）
 
@@ -371,7 +379,7 @@ title（show_title）：基线 y-4，anchor=middle，x = item.x+width_pt/2
 单位：title 后接 " (unit)"（unit 非空且标题不含单位时）
 ```
 
-### 5.6 默认排版（`defaultScene(geo, base, options)`）
+### 5.6 默认排版（`defaultPageLayout(geo, options)`）
 
 - 纸张默认 A4 横向；排版随纸张自适应：`k = clamp(min(长边/841.89, 短边/595.28), 0.62, 1.6)`
   缩放字号/间距；**横向**纸用「左地图 + 右栏」，**纵向**纸（`h > w*1.05`）用「地图满内容宽 +
@@ -388,7 +396,7 @@ title（show_title）：基线 y-4，anchor=middle，x = item.x+width_pt/2
     不变（回归 demo）；**无图例但有注记/色标**时横向右栏改用窄列 `0.7 × 150pt × k`（A4 横向约
     105pt，只容纳折行注记与色标），地图相应加宽；纵向注记从左边距开始、色标仍贴右，空块不占列；
     三块都没有时整栏/整排不存在，地图用满内容宽。
-- 返回完整合法 scene（`seq` > 所有 item id），由调用方标记为「未导出」。
+- 返回完整合法的 `PageLayout`（`seq` > 所有 item id），由调用方标记为「未导出」。
 
 ### 5.7 item 几何框（选中框 / 命中盒，`itemBoundsPt`）
 
@@ -396,7 +404,7 @@ title（show_title）：基线 y-4，anchor=middle，x = item.x+width_pt/2
 DOM `getBBox()` 外扩：`getBBox()` 不含元素自身的 transform（旋转文字会画在锚点附近而错位），
 且会把透明命中盒一起算进包围盒，使框变成没有依据的外扩装饰。
 
-`itemBoundsPt(item, scene, geo, measure)` 从 scene.json + 本节 §5 公式推出纸张坐标里的
+`itemBoundsPt(item, layout, geo, measure)` 从 `page` 块 + 本节 §5 公式推出纸张坐标里的
 **未旋转声明框**（预览、导出、命中判定共用同一批函数）：
 
 ```
@@ -427,7 +435,7 @@ colorbar:rect(x, y, width_pt × s, height_pt × s)                  // §5.5
 <rect x="0" y="0" width="{paper.width}" height="{paper.height}" fill="{paper_color}"/>
 <defs>
 <clipPath id="mapdoc-map-clip"><rect x="{vb[0]}" y="{vb[1]}" width="{vb[2]}" height="{vb[3]}"/></clipPath>
-[<linearGradient id="mapdoc-cbar-{id}" …>…stops…</linearGradient>]   # 仅当 scene 有 colorbar
+[<linearGradient id="mapdoc-cbar-{id}" …>…stops…</linearGradient>]   # 仅当 page 块有 colorbar
 </defs>
 <g id="mapdoc-map" clip-path="url(#mapdoc-map-clip)" transform="translate({tx},{ty}) scale({s})">BASE_INNER</g>
 <g id="mapdoc-frame"> rect + ticks + tick texts </g>
@@ -442,7 +450,7 @@ colorbar:rect(x, y, width_pt × s, height_pt × s)                  // §5.5
   `geo.base.view_box`（map group 的 transform 已把底图坐标映射到纸面，局部坐标系里地图框就是
   viewBox）。**为什么必须裁剪**：预览把底图当 `<image>` 放在 map 矩形里，天然被矩形裁掉；而
   Cartopy/matplotlib 底图根内自带覆盖整个原始 Figure 的图幅白底（`<g id="patch_1">` 的白色 path，
-  范围大于地图框），成品若不裁剪，它会在非白纸色（`scene.style.paper_color`）下铺满整页、
+  范围大于地图框），成品若不裁剪，它会在非白纸色（`page.style.paper_color`）下铺满整页、
   与预览不一致。裁剪后成品与预览的可见范围一致，底图局部越界内容（图幅白底等）不会外溢。
 - 成品**不引用外部底图资源**（没有指向 `base.svg` 的 `<image href>`）；但底图内部自带的内联
   `<image>`（例如 Cartopy 的晕渲位图 base64）属于底图内容，会随 `BASE_INNER` 原样进入成品，这是允许的。
@@ -450,7 +458,7 @@ colorbar:rect(x, y, width_pt × s, height_pt × s)                  // §5.5
 - 图层 id 前缀 `mapdoc-`；底图与排版层 id 不得冲突。
 - 字体**不内嵌**（v1 已知限制）：文字用 `font-family` 引用本机字体；换机器可能换字形，
   需要印刷时在 Inkscape/AI 里转曲。合成接口已留好以后加字体载荷（`<defs><style>@font-face…`）的位置。
-- 文件末尾恰好一个换行。**确定性口径**：同一浏览器实现、同一 `(base.inner, base sha256, geo, scene)`
+- 文件末尾恰好一个换行。**确定性口径**：同一浏览器实现、同一 `(base.inner, base sha256, geo, page)`
   输入两次得到相同字节；不读 DOM/时间/随机数。不同浏览器/不同版本的浮点与序列化实现可能不同，
   「同字节」只在同一浏览器实现下承诺（不跨实现）。
 - `report`（返回值里同时给出）：`counts` 四类计数（0 也出现）、`warnings`（越界元素 + 地图超出纸张
@@ -466,15 +474,16 @@ interface FinalMarkerPayload {
   counts: { colorbar: number; legend: number; text: number; total: number };
   /** geoDigest(geo) = sha256Hex(canonicalJson(geo)) */
   geo: string;
-  /** sceneDigest(scene) = sha256Hex(canonicalJson(normalizeScene(scene))) */
-  scene: string;
-  version: 1;
+  /** pageDigest(layout) = sha256Hex(canonicalJson(normalizePage(layout))) */
+  page: string;
+  version: 2;
 }
 ```
 
 实现见 `render/compose-svg.ts` 的 `makeMarker` 与 `core/page.ts` 的 `canonicalJson` / `geoDigest` /
-`sceneDigest`。marker 目前**只写不读**：需要核对时自行 base64 解码后与输入摘要比对（没有
-`read_marker`，也不再与旧 Python 输出逐字节比较）。
+`pageDigest`。marker 从 v2 起把排版摘要的键名改为 `page`（旧 `scene` 键已删除）；marker 目前
+**只写不读**：需要核对时自行 base64 解码后与输入摘要比对（没有 `read_marker`，也不再与旧 Python
+输出逐字节比较）。
 
 ## 7. 底图契约（`src/core/base-svg.ts`）
 
@@ -510,53 +519,58 @@ interface BaseSvgInfo {
 
 ### 8.1 上传
 
-| 文件                | 必需         | 判定（`core/document.ts`）                                                          |
-| ------------------- | ------------ | ----------------------------------------------------------------------------------- |
-| `<stem>.svg`        | 是（恰好 1） | `classifyUploadFile` 后缀 `.svg` → `base`；再按 §7 校验                             |
-| `<stem>.geo.json`   | 是（恰好 1） | 后缀 `.geo.json` → 快速路径；`.json` 交给 `classifyJsonFormat` 按 `format` 字段判定 |
-| `<stem>.scene.json` | 否（最多 1） | 后缀 `.scene.json` 快速路径；同样按 `format=mapdoc-page` 判定                       |
+| 文件              | 必需         | 判定（`core/document.ts`）                                                |
+| ----------------- | ------------ | ------------------------------------------------------------------------- |
+| `<stem>.svg`      | 是（恰好 1） | `classifyUploadFile` 后缀 `.svg` → `base`；再按 §7 校验                   |
+| `<stem>.geo.json` | 是（恰好 1） | 后缀 `.geo.json` → `geo`；其它 `.json` → `json`，统一按内容 `format` 校验 |
 
 - 选择框：**SVG 与 JSON 分成两个独立选择框**（`ui/page-open.ts` 的两个选择栏），不再要求一次
   全选——底图栏 `<input accept=".svg,image/svg+xml">`（单选）、JSON 栏
-  `<input multiple accept=".json,application/json">`（geo 必需，scene 可一起选）。
+  `<input accept=".json,application/json">`（`multiple: false`，只收一个 geo.json；一次给出多个
+  JSON 时报「只能选择一个 geo.json」）。
   - 底图栏与 JSON 栏各自独立替换：换底图不影响已选 JSON，换 JSON 也不影响已选底图；
   - 两栏都选齐后「打开地图」按钮才可用（面板不会在两栏未齐时自动打开）；
   - 也支持把文件拖到页面任意位置：按扩展名自动落进对应栏，一次拖入两份会同时填好两栏；
     只拖一种时另一栏保持原值。
-- 扩展名只用于快速分桶与分栏，**JSON 的内容 `format` 才是真值**（改错扩展名不会误判）；
+- 扩展名只用于快速分桶与分栏，**JSON 顶层的 `format`/`version` 才是真值**（改错扩展名不会误判）；
   没有 `.svg`/`.json` 之外的文件时报「不识别的文件」。
-- 少于/多于一个底图、缺少/多于一个 geo、多于一个 scene、JSON 的 `format` 既不是 `mapdoc-geo`
-  也不是 `mapdoc-page`：都在打开阶段拒绝并给出中文原因，不改变当前已打开的文档。
+- 少于/多于一个底图、缺少/多于一个 geo、JSON 顶层 `format` 不是 `mapdoc-geo`（或 `version` 不是 1）：
+  都在打开阶段拒绝并给出中文原因，不改变当前已打开的文档。旧 `mapdoc-page`（`scene.json`）不再
+  支持，错误文案是「是旧版 scene.json：排版已并入 geo.json，请改用 Cartopy 产出的 geo.json（或本编辑器导出的 geo.json）」。
 
 ### 8.2 打开校验（任一失败 → 面板显示原因，不崩、不离开页面）
 
 1. 底图：严格 UTF-8 解码；`readBaseSvg` 的 **C1–C4 全过**（`errors` 为空）。
-2. geo：JSON 可解析；`format=mapdoc-geo`、`version=1`；`validateGeo` 无错误。
+2. geo：JSON 可解析；顶层 `format=mapdoc-geo`、`version=1`；`validateGeo` 无错误。
 3. 一致性：底图字节 sha256 == `geo.base.sha256`；`geo.base.view_box/width_pt/height_pt` 与底图根标签
    的 viewBox/width/height 一致，容差 0.01pt（`PAGE_BASE_SIZE_TOLERANCE_PT`）。不一致直接报错，提示
    「请用 Cartopy 重新生成配套的 base.svg + geo.json」。
-4. scene（可选）：`validateScene(raw, geo)` 通过才用；不通过 → 告警并用 `defaultScene` 生成默认排版
-   （标脏）。scene 的 `base.sha256/width_pt/height_pt` 与本次底图不一致时：告警 + 把 `scene.base`
-   改成真实底图（标脏），不拒绝；`scene.figure` 一律覆盖为底图文件名（旧 demo 的服务器路径也接受）。
-5. 打开后状态：有合法 scene → 干净；否则默认排版 → 脏（提示「Ctrl+S 导出 JSON」）。
+4. `page` 块（可选）：`page` 键存在 → `validatePage(raw, geo)`；通过则 `normalizePage` 作当前排版且
+   **不标脏**；缺省 → `defaultPageLayout` 生成默认排版（标脏）；不合法 → 同样用 `defaultPageLayout`
+   并标脏（附告警）。底图身份只在 `geo.base`，不再有「排版记录的底图与本次上传不一致」的分支。
+5. 打开后状态：geo.json 带合法 `page` 块 → 干净（「已载入 geo.json 中的排版；Ctrl+S 导出 geo.json」）；
+   否则默认排版 → 脏（「已生成初始排版；Ctrl+S 导出 geo.json」）。
 
 错误语义汇总（文案以 `app/page-main.ts` 为准）：没有收到文件 / 不识别的文件 / 缺少或重复的底图 /
-缺少或重复的 geo / 多个 scene / 文件不是 UTF-8 / 不是合法 JSON / `format` 不对 / 底图不符合契约
-（列出前几条 C1–C4）/ geo 校验失败（列出前几条）/ sha256 不一致 / viewBox 不一致 / 尺寸不一致。
+缺少或重复的 geo / 文件不是 UTF-8 / 不是合法 JSON / `format` 不是 `mapdoc-geo` 或 `version` 不是 1
+（旧 `scene.json` 走这条）/ 底图不符合契约（列出前几条 C1–C4）/ geo 校验失败（列出前几条）/
+sha256 不一致 / viewBox 不一致 / 尺寸不一致。
 
 ### 8.3 导出
 
-| 命令                          | 产物               | 文件名                   | MIME               |
-| ----------------------------- | ------------------ | ------------------------ | ------------------ |
-| 工具条「导出 JSON」/ `Ctrl+S` | 规范化后的排版     | `<底图 stem>.scene.json` | `application/json` |
-| 工具条「导出 SVG」            | 浏览器内合成的成品 | `<底图 stem>.svg`        | `image/svg+xml`    |
+| 命令                              | 产物                       | 文件名                 | MIME               |
+| --------------------------------- | -------------------------- | ---------------------- | ------------------ |
+| 工具条「导出 geo.json」/ `Ctrl+S` | geo 全字段 + `page` 排版块 | `<底图 stem>.geo.json` | `application/json` |
+| 工具条「导出 SVG」                | 浏览器内合成的成品         | `<底图 stem>.svg`      | `image/svg+xml`    |
 
 - 都是 `Blob` + `<a download>`，objectURL 延迟 revoke（`PAGE_DOWNLOAD_REVOKE_MS`）。
-- **导出 JSON**：`normalizeScene` → `serializeSceneFile`（键排序、2 空格缩进、末尾一个换行）→ 下载；
-  成功即清脏标记。JSON 是排版唯一的持久化形态。
-- **导出 SVG**：`composeFinalSvg(document, scene)` → 下载；展示 `report.warnings`；**不清脏标记**
-  （导出 SVG 不改变排版数据，是否干净以导出 JSON 为准）。`geo.relief` 为 `null` 而 scene 里仍有
-  colorbar 时导出失败并提示「色标需要 geo.relief」，不写半成品文件。
+- **导出 geo.json**：`serializeMapDocFile(geo, layout)`（`page` 数字 3 位小数、`geo` 数字保持 Cartopy
+  原样精度、键排序、2 空格缩进、末尾一个换行）→ 下载；成功即清脏标记。geo.json 是排版唯一的持久化
+  形态，用导出的文件重新打开即恢复排版。
+- **导出幂等**：导出 → 重新打开 → 再导出，字节完全一致（同一浏览器实现）。
+- **导出 SVG**：`composeFinalSvg(document, layout)` → 下载；展示 `report.warnings`；**不清脏标记**
+  （导出 SVG 不改变排版数据，是否干净以导出 geo.json 为准）。`geo.relief` 为 `null` 而 `page.items` 里
+  仍有 colorbar 时导出失败并提示「色标需要 geo.relief」，不写半成品文件。
 - `打开…`：有未导出的修改时先确认（`notifier.ask`），确认后销毁编辑器、revoke 预览 objectURL、
   回到上传面板；`beforeunload` 在脏状态下提醒。
 - 没有「保存中」状态、没有 409/400/503 响应处理：所有失败都是本地异常 + 中文提示。
@@ -577,13 +591,13 @@ interface BaseSvgInfo {
 map.html                        # 入口：<script type="module" src="/src/app/page-main.ts">
 src/app/page-main.ts            # 组合根：建外壳 → 上传面板 → 分类/读取/校验 → PageDocument →
                                 #   建 sidebar/editor/toolbar → start；「打开…」重开与拖拽兜底
-src/app/page-editor.ts          # 状态机：选择/拖拽/缩放/平移/脏标记；exportScene()/exportFinal()/destroy()
+src/app/page-editor.ts          # 状态机：选择/拖拽/缩放/平移/脏标记；exportGeo()/exportFinal()/destroy()
 src/config/page.ts              # 格式标识、上传 accept、校验容差、纸张预设、默认排版参数、上限、交互系数
 src/core/base-svg.ts            # 底图契约 C1–C4 + 根标签内原文切片（纯逻辑）
 src/core/document.ts            # PageDocument、上传文件分类、底图 stem / 导出文件名（纯逻辑）
-src/core/page.ts                # scene/geo 类型、normalize/validate、canonicalJson、sha256OfBytes、
-                                #   serializeSceneFile、geoDigest/sceneDigest（纯逻辑，node 可测）
-src/core/page-layout.ts         # §5 全部布局公式 + defaultScene（可选块降级）
+src/core/page.ts                # geo/page 类型、normalize/validate、canonicalJson、sha256OfBytes、
+                                #   serializeMapDocFile、geoDigest/pageDigest（纯逻辑，node 可测）
+src/core/page-layout.ts         # §5 全部布局公式 + defaultPageLayout（可选块降级）
 src/render/page-svg.ts          # 预览 SVG DOM（纸张/底图 image/图框刻度/items）
 src/render/compose-svg.ts       # 浏览器内合成 final.svg（纯函数：结构/marker/report）
 src/render/page-format.ts       # 数字格式化、颜色/转义、SVG 属性 helper
@@ -595,7 +609,7 @@ src/ui/download.ts              # downloadText / downloadSvg（Blob + <a downloa
 src/styles-page.css             # 本页样式（.page-*；token 复用 miko_ui/styles.css 与 styles.css）
 tests/core/page.test.ts         # codec/校验/布局公式
 tests/core/base-svg.test.ts     # 底图 C1–C4 与切片
-tests/core/page-geo.test.ts     # normalizeGeo / digest / serializeSceneFile
+tests/core/page-geo.test.ts     # normalizeGeo / digest / serializeMapDocFile
 tests/render/compose-svg.test.ts # 合成结构、marker、确定性、越界 report
 ```
 
@@ -604,10 +618,9 @@ tests/render/compose-svg.test.ts # 合成结构、marker、确定性、越界 re
 
 **交互（基础可用即可，不做撤销/多文档）**
 
-- **打开**：初始显示上传面板；在 SVG 栏与 JSON 栏里分别选/拖 `base.svg`、`geo.json`（+ 可选
-  `scene.json`），选齐后点「打开地图」→ §8.2 校验 →
-  生成 `PageDocument` → 装配界面。没有 scene 时用 `defaultScene` 生成初始排版（标脏）；有 scene 且
-  合法则恢复（`figure` 覆盖为底图名；`base` 不一致只告警并更新）。
+- **打开**：初始显示上传面板；在 SVG 栏与 JSON 栏里分别选/拖 `base.svg`、`geo.json`（各一个），
+  选齐后点「打开地图」→ §8.2 校验 → 生成 `PageDocument` → 装配界面。geo.json 带合法 `page` 块则
+  恢复排版（不标脏）；否则用 `defaultPageLayout` 生成初始排版（标脏）。
 - **画布**：一个 SVG（viewBox 随缩放/平移变化）。纸张白底 + 底图 `<image href=objectURL>`
   （放在 map 矩形）+ 图框/刻度 + items。滚轮以指针为中心缩放、空格/中键拖动平移、
   「适应页面」/「1:1」按钮。
@@ -615,12 +628,12 @@ tests/render/compose-svg.test.ts # 合成结构、marker、确定性、越界 re
   `styles-page.css`）；拖拽移动（map 空间 item 写回底图坐标，page 空间写回 pt）；
   方向键 1pt 微移（Shift 10pt）；Delete 删除（title 等也允许删）；双击文字 item → 侧栏内容框聚焦；
   侧栏改内容/字号/颜色/对齐/旋转/行高/斜体/加粗/光晕；图例条目可改名/显隐/增删。
-- **工具条**：文件（打开… / 导出 JSON / 导出 SVG）、添加（文字 / 标题 / 图例 / 色标）、
+- **工具条**：文件（打开… / 导出 geo.json / 导出 SVG）、添加（文字 / 标题 / 图例 / 色标）、
   视图（适应页面 / 1:1）。
 - **侧栏**：页面（纸张预设/方向/宽高/页边距「重新排默认版式」）、地图（x/y/宽度、图框开关/
   刻度开关/线宽/颜色/刻度字号）、元素列表（选中/删除/新增）、选中项属性（按 kind 分支）、
   图例条目编辑。
-- **快捷键**：`Ctrl+S` = 导出 JSON；未导出时 `beforeunload` 提醒。
+- **快捷键**：`Ctrl+S` = 导出 geo.json；未导出时 `beforeunload` 提醒。
 - 选中 item 的 id 通过 SVG 数据属性命中；渲染是每帧全量重建 DOM（元素 ≤500，简单优先）。
 - 不引入新依赖；只用 `miko_ui` 与标准 DOM。禁止 `alert/confirm`、`console`（沿用 eslint）。
 - 字体用 `font-family` 引用本机字体，测量通过注入的 `MeasureText`（canvas measureText，无 canvas 时估算）。
@@ -628,19 +641,22 @@ tests/render/compose-svg.test.ts # 合成结构、marker、确定性、越界 re
 ## 10. 验收
 
 1. `npm run check`（typecheck/lint/arch/format:check/test/build）全绿。
-2. `npm run dev` → `http://localhost:5173/map.html`：上传 demo 的底图 + geo
-   （`demo/figures/Volga/.build/*.base.svg` + `*.geo.json`）→ 默认排版完整（标题/地图/刻度/地名/
-   图例/注记/色标/来源）；编辑标题；「导出 JSON」「导出 SVG」各得到一个文件；刷新页面无后端请求、无 404。
+2. `npm run dev` → `http://localhost:5173/map.html`：上传真实 Cartopy 产物（`.work/cartopy-fixtures/`
+   的 `<stem>.svg + <stem>.geo.json`，或 demo 里的同类文件）→ 生成默认排版（标题/地图/刻度/地名/
+   图例/注记/色标/来源）；编辑标题；「导出 geo.json」「导出 SVG」各得到一个文件；刷新页面无后端请求、
+   无 404。
 3. `final.svg` 不变量：根 `width/height` 带 `pt`、viewBox 一致；`<g id="mapdoc-map">` 内是底图内容
    （不引用外部 `base.svg`；底图自带的 base64 内联 `<image>` 允许存在），且带 `clip-path` 指向
    `<defs>` 里的 `mapdoc-map-clip`（矩形 = `geo.base.view_box`）；文字为 `<text>`；有
-   `mapdoc-final` marker；XML 可解析；浏览器打开渲染正常。
-4. **round-trip**：导出的 `scene.json` 再作为可选文件上传能恢复同一排版；不编辑再导出 JSON 内容不变；
-   再导出 SVG 字节不变（同一实现）。
-5. 边界：只上传 svg / 只上传 geo / geo 与底图不配套（sha 不符）/ 非法 JSON → 面板给出中文原因且不崩。
-6. 旧 demo `scene.json` 可导入（figure 是旧路径也接受，打开后覆盖为底图名）。
-7. 可选但尽量：真实 Cartopy 产物（`<stem>.svg + <stem>.geo.json`）上传可用；无 `legend` 的图或手工删除
-   `legend`/`relief` 键的 geo 不报错、默认布局合理（不生成空图例框/色标）。
+   `mapdoc-final` marker（`geo` / `page` / `version:2`）；XML 可解析；浏览器打开渲染正常。
+4. **单文件往返**：用「底图 + 导出的 geo.json」重新打开 → 排版原样恢复、状态为「已导出」（不标脏）
+   → 再次导出 geo.json 字节一致（导出幂等：导出 → 重新打开 → 再导出，字节完全相同）。
+5. 边界：只上传 svg / 只上传 geo / geo 与底图不配套（sha 不符）/ 非法 JSON / 旧 `mapdoc-page`
+   （`scene.json`）→ 面板给出中文原因且不崩；旧 `scene.json` 的提示是「是旧版 scene.json：排版已并入 geo.json，请改用 Cartopy 产出的 geo.json（或本编辑器导出的 geo.json）」。
+6. Cartopy 直出的 geo.json（无 `page` 块）打开即生成默认排版；本编辑器导出的 geo.json（带 `page`
+   块）打开即恢复排版，两者都能作为输入。
+7. 可选但尽量：无 `legend` 的图或手工删除 `legend`/`relief` 键的 geo 不报错、默认布局合理
+   （不生成空图例框/色标）。
 
 ## 11. 非目标与已知限制
 
@@ -648,7 +664,7 @@ tests/render/compose-svg.test.ts # 合成结构、marker、确定性、越界 re
   Inkscape/AI 转曲。字体子集载荷位置已预留（合成时可往 `<defs>` 加 `@font-face`），本轮不做。
 - 不做自动换行/两端对齐/字距；换行由前端在创建条目时按宽度折好写进 `lines`。
 - **无自动草稿**：不写 localStorage、不自动下载；刷新/关闭页面会丢未导出的修改（`beforeunload` 提醒）。
-  排版落盘 = 手动「导出 JSON」。
+  排版落盘 = 手动「导出 geo.json」。
 - **大底图首次加载**：约 10 MB 的底图要一次性读入、严格 UTF-8 解码、求 sha256、做 C1–C4 扫描，
   首次打开和「导出 SVG」会有可感知的卡顿（都在主线程完成，尚无 Worker 化）。
 - **静态部署**：`npm run build` 后 `dist/` 可直接放任意静态服务器；开发端口唯一真值是
@@ -657,8 +673,9 @@ tests/render/compose-svg.test.ts # 合成结构、marker、确定性、越界 re
 - 不做撤销/重做、多图切换、图层管理（数组序即 z 序）。
 - 默认排版只是起点：小纸张（A5）+ 多图例 + 多条注记时，按 k 缩小字号后仍可能偏挤，需要手工调字号/
   位置或换纸张；用户改过排版后切纸张不会自动重排（需点「重新排默认版式」）。
-- Cartopy 侧旧的带字产物不再被本仓解析：需要重新用 Cartopy 生成 `base.svg + geo.json`；旧 demo 的
-  `scene.json` 仍可导入（`figure` 会被覆盖）。
+- Cartopy 侧旧的带字产物不再被本仓解析：需要重新用 Cartopy 生成 `base.svg + geo.json`。
+- **不再支持旧 `mapdoc-page`/`scene.json`**：排版已并入 geo.json 的 `page` 块，旧产物无法导入；
+  需用 Cartopy 重新生成 `base.svg + geo.json`，再按新流程重新排版（或用本编辑器导出的 geo.json）。
 
 **迁移计划**：Cartopy 只做地理、直出 `base.svg + geo.json`（含初始标注候选），字体改为前端按字符裁子集后
 交给合成，以及要搬过来的比例尺/指北针/引线/图例能力，统一记在
