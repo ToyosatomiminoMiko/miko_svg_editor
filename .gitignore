@@ -11,3 +11,7 @@ demo/
 __pycache__/
 *.pyc
 /.work/
+
+# 本地草稿/提示词：不跟踪（全局约定：也不读取其内容）
+prompt.md
+prompt/
