@@ -15,6 +15,8 @@
  *         2026-10-28 合并 scene.json 为 geo.json 的 page 块（去掉独立 scene 格式与重复 base）；
  *         2026-10-29 geo 升 v2：GeoLabel 只含 role/text/位置/锚点/字号（样式归 config/text-style.ts），
  *         TextItem 用 font_weight/letter_spacing_em 取代 bold，labels 逐条校验。
+ *         作者 core-dev，2026-11-05，分类文字样式：`page.text_style` 覆盖表与 text item 的
+ *         `geo_label_id`（`.work/STYLE-SETTINGS-SPEC.md` §1/§4）。
  */
 
 import {
@@ -29,8 +31,13 @@ import {
   PAGE_PAPER_MIN_PT,
 } from '../config/page';
 import type { PaperOrientation, PaperPresetId } from '../config/page';
-import { MAP_LABEL_ROLES, PAGE_TEXT_STYLES } from '../config/text-style';
-import type { MapLabelRole, PageTextRole } from '../config/text-style';
+import {
+  MAP_LABEL_ROLES,
+  PAGE_TEXT_STYLES,
+  TEXT_STYLE_CATEGORY_META,
+  isTextStyleCategoryId,
+} from '../config/text-style';
+import type { MapLabelRole, PageTextRole, TextStyleCategoryId } from '../config/text-style';
 
 /* =========================== 基础类型 =========================== */
 
@@ -82,6 +89,13 @@ export interface TextItem extends ItemBase {
   /** 字距（em，相对字号；默认 0，渲染时非 0 才写 letter-spacing） */
   letter_spacing_em: number;
   halo: Halo | null;
+  /**
+   * 来源 `geo.labels[].id` 的关联（地图地名 item 才有；页面文字恒为 null）。
+   * 用途：判断 item 属于哪个地图地名分类（查 label.role）；分类统一样式时回算底图原始字号
+   * （回「分类默认统一字号」）。旧 page 块没有该字段，`normalizePage` 补 null，打开时由
+   * `core/text-style.ts` 的 `reconcileGeoLabelIds` 按文字/水平位置/锚点尽量还原。
+   */
+  geo_label_id: string | null;
 }
 
 /** 图例条目（契约 §3 legend.entries / §4.1 legend.entries） */
@@ -179,6 +193,27 @@ export interface PageStyle {
 }
 
 /**
+ * 一个文字分类的样式覆盖（`page.text_style[分类]`）。
+ * 为什么字段全部可选：覆盖表只存用户显式改过的字段，默认值仍在 `config/text-style.ts`，
+ * 不复制进文件（否则改代码默认值对旧文件永远不生效）；`halo: null` 表示显式关光晕，
+ * 与「没有该键（用分类默认）」是两种语义。地图分类缺省 `font_size_pt` = 用该分类的默认
+ * 统一字号（该分类全部地名原始字号中位数 × 地图缩放）；出现数字 = 用户覆盖的统一字号。
+ * 无论哪种情况，同一地图分类下全部 item 的字号都相等（§12.1）。
+ */
+export interface TextStyleOverride {
+  font_size_pt?: number;
+  color?: string;
+  italic?: boolean;
+  font_weight?: number;
+  letter_spacing_em?: number;
+  line_height?: number;
+  halo?: Halo | null;
+}
+
+/** `page.text_style`：分类 id → 该分类的覆盖；缺省分类 = 全部使用代码默认值 */
+export type TextStyleOverrides = Partial<Record<TextStyleCategoryId, TextStyleOverride>>;
+
+/**
  * `geo.json` 的排版块（契约 §4）：纸张、地图摆放、图框/样式、items 与 id 序列。
  * 为什么没有 format/version/figure/base：文件身份与底图身份只在顶层（format/version、geo.base），
  * 同一份底图的排版不会出现第二套声明，也就没有「两份 base 不一致」的分支。
@@ -188,6 +223,12 @@ export interface PageLayout {
   map: MapPlacement;
   frame: PageFrame;
   style: PageStyle;
+  /**
+   * 分类样式覆盖表（只存用户改过的字段）。
+   * 渲染层仍以 item 上的显式样式字段为准：这里的覆盖由 `core/text-style.ts` 在设置时批量
+   * 写回 item，默认排版（`core/page-layout.ts`）也按它解析初始值。
+   */
+  text_style: TextStyleOverrides;
   /** 数组序 = 绘制序（z 序） */
   items: PageItem[];
   /** 必须为正整数且大于所有 item id */
@@ -346,9 +387,63 @@ function roundNumbersDeep<T>(value: T): T {
   return value;
 }
 
-/** 规范化 layout（3 位小数、新对象）；保存前与摘要前都走它 */
+/**
+ * 深拷贝并收敛 `page.text_style`：非对象 → `{}`；未知分类/未知字段丢弃；空覆盖对象丢弃；
+ * 地图分类的 `font_size_pt: null`（旧数据兼容）等价于没有该键（= 分类默认统一字号）。
+ *
+ * 为什么只做类型收敛、不校验取值范围：`page` 块是编辑器自己的产物，打开时已由
+ * `validatePage` 严格校验；`normalizePage` 只保证「text_style 一定存在且形状可安全消费」，
+ * 与 `normalizeGeo` 的宽松补齐口径不同（见规格 §1.1）。
+ * 为什么页面对拍的外壳也要走它：`defaultPageLayout` 需要把传入的覆盖深拷贝进结果，
+ * 避免调用方与 layout 共享可变的覆盖对象（覆盖表只有这一份写入实现）。
+ */
+export function cloneTextStyleOverrides(value: unknown): TextStyleOverrides {
+  const out: TextStyleOverrides = {};
+  if (!isObject(value)) return out;
+  for (const [key, raw] of Object.entries(value)) {
+    if (!isTextStyleCategoryId(key) || !isObject(raw)) continue;
+    const override: TextStyleOverride = {};
+    if (isFiniteNumber(raw.font_size_pt)) override.font_size_pt = raw.font_size_pt;
+    if (typeof raw.color === 'string') override.color = raw.color;
+    if (typeof raw.italic === 'boolean') override.italic = raw.italic;
+    if (isFiniteNumber(raw.font_weight)) override.font_weight = raw.font_weight;
+    if (isFiniteNumber(raw.letter_spacing_em)) override.letter_spacing_em = raw.letter_spacing_em;
+    if (isFiniteNumber(raw.line_height)) override.line_height = raw.line_height;
+    if (raw.halo === null) {
+      override.halo = null;
+    } else if (
+      isObject(raw.halo) &&
+      typeof raw.halo.color === 'string' &&
+      isFiniteNumber(raw.halo.width_pt)
+    ) {
+      override.halo = { color: raw.halo.color, width_pt: raw.halo.width_pt };
+    }
+    if (Object.keys(override).length > 0) out[key] = override;
+  }
+  return out;
+}
+
+/** 归一化 text item 的 `geo_label_id`：非空字符串原样保留，其余（缺省/坏值）落 null */
+function normalizeGeoLabelId(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+/**
+ * 规范化 layout（3 位小数、新对象）；保存前与摘要前都走它。
+ * 除数字口径外还补两处 2026-11-05 新增字段的兜底：`text_style` 缺省/坏结构 → `{}`，
+ * 旧 text item 没有 `geo_label_id` → `null`（下游一律按「字段一定存在」消费）。
+ */
 export function normalizePage(layout: PageLayout): PageLayout {
-  return roundNumbersDeep(layout);
+  const rounded = roundNumbersDeep(layout);
+  return {
+    ...rounded,
+    text_style: cloneTextStyleOverrides(rounded.text_style),
+    items: rounded.items.map((item) =>
+      item.kind === 'text'
+        ? { ...item, geo_label_id: normalizeGeoLabelId(item.geo_label_id) }
+        : item,
+    ),
+  };
 }
 
 /** 把值变成键排序、无空白、数字 3 位小数的 JSON 结构（递归） */
@@ -413,6 +508,24 @@ export function serializeMapDocFile(geo: Geo, layout: PageLayout): string {
 /** layout 签名：摘要用 3 位小数规范化后的 canonical JSON */
 export function pageDigest(layout: PageLayout): string {
   return sha256Hex(serializePage(layout));
+}
+
+/**
+ * 改造前口径的排版摘要：剥掉 2026-11-05 新增的 `text_style` 与 text item 的 `geo_label_id`
+ * 后再算摘要（等价于改造前 `serializePage` 的输出）。
+ *
+ * 为什么单独一条：成品 SVG 的 `marker.page` 是「导出那一刻」的 `pageDigest`。分类样式给 page
+ * 块新增了两个归一化后必然存在的字段后，改造前导出的成品 marker 与当前 `pageDigest` 必然
+ * 不同——但 `marker.geo` 仍能证明文件配套，用户只是还没重新导出。打开流程用本摘要做兼容
+ * 对照（只放宽「打开旧成品」的 marker 校验，不改变导出/签名口径；真正错配仍会被拒绝）。
+ */
+export function legacyPageDigest(layout: PageLayout): string {
+  const stripped = roundNumbersDeep(layout) as unknown as Record<string, unknown>;
+  delete stripped['text_style'];
+  for (const item of stripped['items'] as Record<string, unknown>[]) {
+    if (item['kind'] === 'text') delete item['geo_label_id'];
+  }
+  return sha256Hex(canonicalJson(stripped));
 }
 
 /** geo 签名（写进 final marker 的 "geo" 字段）：规范化 geo 的 canonical JSON 的 sha256 */
@@ -597,6 +710,89 @@ function checkHalo(value: unknown, path: string, errors: string[]): void {
   }
 }
 
+/**
+ * 校验分类覆盖里的 `halo`（§1.1）：null 或 `{ color: #rrggbb, width_pt: 0..20 }`。
+ * 与 item 的 halo 口径不同：覆盖允许 `width_pt: 0`（显式关光晕但保留颜色），
+ * 因为覆盖的 null 另有语义（删除覆盖回到默认），0 宽是「有光晕配置但不可见」。
+ */
+function validateTextStyleHalo(value: unknown, path: string, errors: string[]): void {
+  if (value === null) return;
+  if (!isObject(value)) {
+    errors.push(`${path}: 必须是对象或 null`);
+    return;
+  }
+  for (const [field, raw] of Object.entries(value)) {
+    if (field === 'color') {
+      if (!isColor(raw)) errors.push(`${path}.color: 必须是 #rrggbb`);
+    } else if (field === 'width_pt') {
+      if (!isFiniteNumber(raw) || raw < 0 || raw > 20) {
+        errors.push(`${path}.width_pt: 必须是 0..20 的有限数字`);
+      }
+    } else {
+      errors.push(`${path}.${field}: 未知字段`);
+    }
+  }
+  // halo 只要出现对象就必须两个字段齐全（与 item halo 同一口径）
+  if (!Object.hasOwn(value, 'color')) errors.push(`${path}.color: 缺少字段`);
+  if (!Object.hasOwn(value, 'width_pt')) errors.push(`${path}.width_pt: 缺少字段`);
+}
+
+/**
+ * 校验一个分类的样式覆盖（§1.1）：字段名只允许 7 个已知键，取值范围固定；
+ * 页面分类的 `font_size_pt` 不允许 null（页面文字恒有字号）；地图分类允许 null 仅为旧数据
+ * 兼容（等价缺省 = 分类默认统一字号）。
+ */
+function validateTextStyleOverride(
+  category: TextStyleCategoryId,
+  value: unknown,
+  path: string,
+  errors: string[],
+): void {
+  if (!isObject(value)) {
+    errors.push(`${path}: 必须是对象`);
+    return;
+  }
+  const mapCategory = TEXT_STYLE_CATEGORY_META[category].kind === 'map';
+  for (const [field, raw] of Object.entries(value)) {
+    switch (field) {
+      case 'font_size_pt':
+        if (raw === null) {
+          if (!mapCategory) errors.push(`${path}.font_size_pt: 页面文字分类不能为 null`);
+        } else if (!isFiniteNumber(raw) || raw < 1 || raw > 500) {
+          errors.push(`${path}.font_size_pt: 必须是 1..500 的有限数字`);
+        }
+        break;
+      case 'color':
+        if (!isColor(raw)) errors.push(`${path}.color: 必须是 #rrggbb`);
+        break;
+      case 'italic':
+        if (!isBoolean(raw)) errors.push(`${path}.italic: 必须是布尔值`);
+        break;
+      case 'font_weight':
+        if (!isFiniteNumber(raw) || !Number.isInteger(raw) || raw < 100 || raw > 900) {
+          errors.push(`${path}.font_weight: 必须是 100..900 的整数`);
+        }
+        break;
+      case 'letter_spacing_em':
+        if (!isFiniteNumber(raw) || raw < -1 || raw > 2) {
+          errors.push(`${path}.letter_spacing_em: 必须是 -1..2 的有限数字`);
+        }
+        break;
+      case 'line_height':
+        if (!isFiniteNumber(raw) || raw < 0.5 || raw > 5) {
+          errors.push(`${path}.line_height: 必须是 0.5..5 的有限数字`);
+        }
+        break;
+      case 'halo':
+        validateTextStyleHalo(raw, `${path}.halo`, errors);
+        break;
+      default:
+        errors.push(`${path}.${field}: 未知字段`);
+        break;
+    }
+  }
+}
+
 /** 校验 layout.items 里的一个元素；返回 false 表示该元素（或它的 id）已不可用 */
 function validateItem(value: unknown, index: number, errors: string[]): void {
   const path = `items[${index}]`;
@@ -659,6 +855,13 @@ function validateTextItem(item: Record<string, unknown>, path: string, errors: s
     errors.push(`${path}.letter_spacing_em: 必须是 -1..2 的有限数字`);
   }
   checkHalo(item.halo, `${path}.halo`, errors);
+  // 旧 page 块没有该字段（合法）；存在时必须是 null 或非空字符串（不要求与 geo.labels 对应，
+  // 打开时由 reconcileGeoLabelIds 还原/校正）
+  if (item.geo_label_id !== undefined && item.geo_label_id !== null) {
+    if (typeof item.geo_label_id !== 'string' || item.geo_label_id.length === 0) {
+      errors.push(`${path}.geo_label_id: 必须是非空字符串或 null`);
+    }
+  }
 }
 
 function validateLegendItem(item: Record<string, unknown>, path: string, errors: string[]): void {
@@ -818,6 +1021,23 @@ export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
     if (!isColor(style.color)) errors.push('style.color: 必须是 #rrggbb');
     if (typeof style.font_family !== 'string' || style.font_family.trim().length === 0) {
       errors.push('style.font_family: 必须是非空字符串');
+    }
+  }
+
+  // page.text_style：可选（旧文件没有）；出现时键必须 ∈ 分类表、值只能是 §1.1 的 7 个字段。
+  // 未知字段/未知分类一律报错（与 page 块其它字段同一严格口径），不做静默纠正。
+  const textStyle = value.text_style;
+  if (textStyle !== undefined) {
+    if (!isObject(textStyle)) {
+      errors.push('text_style: 必须是对象');
+    } else {
+      for (const [category, override] of Object.entries(textStyle)) {
+        if (!isTextStyleCategoryId(category)) {
+          errors.push(`text_style.${category}: 不是合法分类 id`);
+          continue;
+        }
+        validateTextStyleOverride(category, override, `text_style.${category}`, errors);
+      }
     }
   }
 

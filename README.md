@@ -281,10 +281,10 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
 [`docs/PAGE-EDITOR.md`](docs/PAGE-EDITOR.md)。
 
 **纯前端**：Cartopy 只负责地理内容（地形/水系/边界/经纬网/地理坐标点），产物是**纯地图 SVG +
-`geo.json`**（`format=mapdoc-geo` **v2**：地名只给 `role`/文字/位置/锚点/字号，文字样式统一由前端
-`src/config/text-style.ts` 的常量表决定）；标题、图例、色标、图框、经纬度刻度数字、地名、注释、
-来源全部在浏览器里排版，编辑后写进**同一份 geo.json 的 `page` 块**；`final.svg` 也在浏览器内合成
-（`render/compose-svg.ts`）——没有 Python、没有 HTTP 后端。
+`geo.json`**（`format=mapdoc-geo` **v2**：地名只给 `role`/文字/位置/锚点/字号，文字样式默认值由前端
+`src/config/text-style.ts` 的常量表决定，用户在编辑器里改的覆盖值写 `page.text_style`）；标题、图例、
+色标、图框、经纬度刻度数字、地名、注释、来源全部在浏览器里排版，编辑后写进**同一份 geo.json 的
+`page` 块**；`final.svg` 也在浏览器内合成（`render/compose-svg.ts`）——没有 Python、没有 HTTP 后端。
 
 **能做什么**
 
@@ -294,8 +294,14 @@ UI 代码里没有手写控件 DOM，也没有第二套控件 CSS：
   ③ 成品 SVG + 配套导出的 geo.json。底图含文字、sha256 与尺寸对不上、JSON 格式不对（含旧
   `scene.json`）、成品与 geo 不配套等都给中文原因。
 - 纸张：A5/A4/A3/Letter/自定义、纵横向、页边距；地图摆放（x/y/宽，高度按底图纵横比派生）。
-- 图文：标题、副标题、注释、来源、自由文字；字号/行高/旋转/颜色/对齐/斜体/字重（400/500/600/700）/
-  字距（em）/白色光晕；双击选中项在右侧栏改内容。
+- 图文：标题、副标题、注释、来源、自由文字；右侧栏改内容/角色/对齐/旋转（页面文字可换角色，
+  地图地名 item 显示只读说明），双击选中项在右侧栏改内容。
+- 文字样式（按分类统一设置）：工具条「样式设置」拉起独立窗口，左列按「页面文字」（标题/副标题/
+  标注/注记/来源/地名（手动）6 类）与「地图标注」（城市/行政区/国名/海域/河流等 14 类）两组列出
+  全部分类，右列设置该分类的字号/颜色/字重/斜体/行高/字距/光晕（每个字段即时生效）。地图分类
+  **字号恒统一**：只有一个「字号（pt）」数字，同一分类全部地名都使用它，没设过时按该分类底图
+  字号中位数 × 地图缩放比例自动统一；「恢复默认」清掉该分类覆盖（地图分类回到上面的自动统一
+  字号）。改一次会批量应用到该分类下所有文字，覆盖值写进 `page.text_style`，重新打开继续生效。
 - 图例与色标：图例条目（线/块/点三种符号，可改名/显隐/增删）、色标（标题/单位/刻度，配色来自
   `geo.relief`；`geo.json` 没有 relief 时不能加色标）。
 - 图框：显示开关、线宽/颜色、经纬度刻度、刻度长/字号/颜色/间距；地名/刻度随地图缩放与移动。
@@ -318,8 +324,10 @@ npm run build   # 产物 dist/ 可放任意静态服务器（或 npm run preview
 准备步骤；`demo/` 下的旧底图与 geo 也可直接上传（本地目录，gitignored）。
 
 **已知限制**：字体不内嵌（跨机字形可能变化，印刷前转曲）；不做自动换行/两端对齐（默认排版按宽度
-折好 `lines` 后不再重排，字距按 item 的 `letter_spacing_em` 渲染）；无自动草稿/无 localStorage，
-未导出即关闭会丢修改；约 10MB 底图首次打开与导出
+折好 `lines` 后不再重排，字距按 item 的 `letter_spacing_em` 渲染）；文字样式按分类统一覆盖，不能只
+改单条 item 的样式（同分类共用一套；要单独变样式只能换角色/分类，或改整个分类）；**地图标注按
+分类强制统一字号**，无法逐条保留底图字号层级，旧文件打开后在分类里改一次样式才会统一；无自动
+草稿/无 localStorage，未导出即关闭会丢修改；约 10MB 底图首次打开与导出
 会有可感知卡顿；不做比例尺/指北针、撤销/重做、多图切换；小纸张（A5 横向）内容多时排版会很挤，
 需手工调字号/位置或换纸张。成品 SVG 的再编辑依赖内嵌 `<metadata>`：若被 Inkscape/AI 等外部工具
 丢弃，只能回退到「旧版成品 + 配套 geo.json」打开；外部工具对渲染内容的改动不会被读回（再编辑以
@@ -384,8 +392,10 @@ src/
     editor.ts                草图控制器：指针/键盘事件接线 + 手势状态机（拖拽/平移/框选）+ Enter/Backspace/Esc
                              路由 + ResizeObserver 跟随布局重设画布；命令实现委托 ui/editor-controls.ts
     page-main.ts             排版编辑器组合根：建三栏外壳 → 上传面板（SVG/JSON 两栏）→ 读取/校验
-                             base.svg + geo.json → PageDocument → defaultPageLayout → PageEditor + 侧栏/工具条/通知 + 导出
-    page-editor.ts           排版编辑器状态机：选择/拖拽/方向键/缩放/平移/脏标记；导出 geo.json/SVG、destroy
+                             base.svg + geo.json → PageDocument → defaultPageLayout → PageEditor +
+                             侧栏/工具条/通知 + 样式设置窗口 + 导出；换文档时销毁窗口
+    page-editor.ts           排版编辑器状态机：选择/拖拽/方向键/缩放/平移/脏标记；分类样式补丁
+                             （applyTextStyleChange/resetTextStyleChange）；导出 geo.json/SVG、destroy
   core/                      纯逻辑内核：不碰 DOM / miko_ui，node 环境可直接单测
     types.ts                 非图元的数据类型：Point/Constraint/ToolId/SelectionItem/Selection/Marquee 等
                              （图元是多态类，在 entities.ts）
@@ -420,7 +430,10 @@ src/
     document.ts              上传文件分类 + PageDocument + createPageDocument（一致性校验）+ 导出文件名
     page.ts                  排版文档 geo/page 的类型、规范化/序列化/校验/digest（纯逻辑，node 可测）
     page-layout.ts           §5 布局公式（底图→纸张变换、图框刻度、文字/图例/色标位置）+
-                             defaultPageLayout(geo, options)：按纸张生成初始排版、可选块降级、地名缩放
+                             defaultPageLayout(geo, options)：按纸张生成初始排版、可选块降级、地名缩放、
+                             按 page.text_style 覆盖出分类样式与地图分类统一字号
+    text-style.ts            分类文字样式：item→分类、分类有效样式与默认统一字号解析（窗口/新建共用）、
+                             补丁写入 page.text_style 并批量同步该分类全部 item、恢复默认、旧 page 块 geo_label_id 还原
   render/                    绘图与输出适配层（canvas / SVG）：数据全部由参数注入
     renderer.ts              canvas 渲染编排：DPR 与画布尺寸、逐帧调用各绘制模块、图元选中态判定
     draw-grid.ts             网格 + 原点十字
@@ -454,14 +467,21 @@ src/
     page-panel-paper.ts      「页面」面板：纸张预设/方向/宽高/页边距/重新排默认版式
     page-panel-map.ts        「地图」面板：摆放/派生高度/图框/刻度样式
     page-fields-common.ts    元素公共字段：坐标空间 + x/y
-    page-fields-text.ts      文字字段：内容/角色/字号/行高/字距/旋转/颜色/对齐/光晕/字重
+    page-fields-text.ts      文字字段：内容/角色（仅页面文字）/对齐/旋转 + 「打开样式设置」入口；
+                             地图地名 item 显示指向地图分类的只读样式说明
     page-fields-legend.ts    图例字段 + 条目增删/显隐（隐藏 = 移出 layout，会话内记住）
     page-fields-colorbar.ts  色标字段：标题/单位/宽高/字号/显示开关
-    page-toolbar.ts          排版编辑器顶部工具条（打开…/导出 geo.json/导出 SVG/添加/视图）
+    page-toolbar.ts          排版编辑器顶部工具条（文件/添加/样式/视图；「样式设置」拉起分类样式窗口）
+    page-style-window.ts     分类样式设置窗口：左侧「页面文字/地图标注」两组分类（含当前颜色色块），
+                             右侧按分类改字号/颜色/字重/斜体/行高/字距/光晕；地图分类字号与页面分类
+                             同为单个数字（同分类地名统一使用，缺省按底图字号中位数自动统一）；
+                             恢复默认 / Esc / 遮罩关闭
     page-notify.ts           排版编辑器消息区（miko_ui MessageArea + 简单确认框）
   config/                    纯数据/常量层（index.ts 统一出口；只许 type-only 引 core 类型）
-    page.ts                  排版编辑器常量：geo/成品内嵌源格式标识、上传 accept、校验容差、纸张预设、默认排版、上限
-    text-style.ts            地图标注/页面文字样式常量（role 颜色表、字重/字距/行高/光晕；样式唯一真源）
+    page.ts                  排版编辑器常量：geo/成品内嵌源格式标识、上传 accept、校验容差、纸张预设、默认排版、
+                             纸张比例系数 layoutScaleForPaper、上限
+    text-style.ts            文字样式常量与分类元信息：role 颜色表、页面文字默认字号、20 个分类
+                             （6 页面文字 + 14 地图地名）与两组顺序（样式唯一真源）
     index.ts                 汇总出口，业务统一从 './config' 引入
     angle.ts                 TAU / sweepOf / normalizeAngle / 弧段数
     constraints-meta.ts      16 种约束元数据、去重键、引用字段推导（操作槽位/执行在 core/operations.ts）
@@ -477,7 +497,7 @@ src/
 tests/                       node 环境单测，按被测层分组
   core/                      纯逻辑层：草图 model/entities/geometry/constraints/solver/dimensions/
                               operations/sketch-actions/selection/vec/camera，以及排版文档的
-                              base-svg/base64/final-svg/open-map/page/page-geo（fixtures.ts 是建图辅助）
+                              base-svg/base64/final-svg/open-map/page/text-style/page-geo（fixtures.ts 是建图辅助）
   render/                    SVG 导出（buildSVG）与浏览器内合成（composeFinalSvg）
   ui/                        无 DOM 的 UI 纯函数（尺寸输入解析 parseDimInput）
   fixtures/                  共用的最小底图 fixture（200×100 无文字 SVG）与 PageDocument/geo 工厂

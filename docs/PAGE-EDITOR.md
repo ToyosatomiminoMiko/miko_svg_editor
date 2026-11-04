@@ -37,14 +37,16 @@ map.html（Vite 静态站；npm run dev → http://localhost:5173/map.html）
   core/base64.ts        内嵌源与 marker 的 UTF-8 base64 编解码
   core/page.ts          normalizeGeo / validateGeo / normalizePage / validatePage /
                         sha256OfBytes / canonicalJson / geoDigest / pageDigest /
-                        serializeMapDocFile
+                        legacyPageDigest（旧 marker 摘要兼容）/ serializeMapDocFile
+  core/text-style.ts    分类文字样式：item → 分类、覆盖表解析/批量写回 item、恢复默认、
+                        旧 page 块 geo_label_id 还原（纯逻辑，node 可测）
   core/page-layout.ts   §5 全部布局公式 + defaultPageLayout（缺可选块时降级）
   render/compose-svg.ts layout + geo + base.inner → final.svg 字符串（纯函数，node 可测）
         │  编辑：排版只改内存里的 PageLayout（不落盘）
         │  导出（Blob + <a download>）
         ▼
   <stem>.geo.json      统一文件：geo 全部字段 + `page` 排版块（纸张、地图摆放、图框/刻度、
-                       文字、图例、色标）；再次打开即恢复排版
+                       分类文字样式覆盖、文字、图例、色标）；再次打开即恢复排版
   <stem>.svg           交付成品：纸张尺寸、底图矢量内联、文字为可选中 <text>、
                        不引用外部 base.svg（底图自带的内联 <image> 属底图内容，原样内联）；
                        同时是再编辑工程文件（§6.2 内嵌源 + §6.1 marker）
@@ -218,6 +220,15 @@ Cartopy 直出的 geo.json 没有这个键。形状：
     "font_family": "'Noto Sans Mono CJK SC', 'JetBrains Mono Slashed Medium', 'DejaVu Sans', sans-serif",
     "color": "#111111",
   },
+  // 分类样式覆盖表（可选）：只存用户显式改过的字段，没列出的分类/字段用分类默认值
+  "text_style": {
+    "title": { "font_size_pt": 20, "color": "#111111", "font_weight": 600 },
+    "city": {
+      "font_size_pt": 8, // 地图分类：字号恒统一；缺省时用分类默认统一字号（该分类底图字号中位数 × 缩放）
+      "color": "#222222",
+      "halo": { "color": "#ffffff", "width_pt": 2 },
+    },
+  },
   "items": [/* 见 4.1；数组序 = 绘制序（z 序） */],
   "seq": 42, // 必须 > 所有 item id
 }
@@ -232,6 +243,23 @@ Cartopy 直出的 geo.json 没有这个键。形状：
 - `paper` 宽高 50..5000pt；`map.x/y` 有限即可（越界只告警）；`map.width_pt > 1`；颜色只接受
   `#rrggbb`；数字 3 位小数；`items.length ≤ 500`；`seq` 为正整数且大于所有 item id。
   text item 的 `font_weight` 必须是 100..900 的整数，`letter_spacing_em` 必须是有限数且在 -1..2。
+- `text_style`（可选，缺省 `{}`，`normalizePage` 一定补上）：**分类文字样式覆盖表**。键必须属于
+  20 个分类 id（页面文字 `title`/`subtitle`/`annotation`/`note`/`source`/`label` + 地图地名
+  `city`/`city-reference`/`area`/`area-muted`/`area-accent-1` ~ `area-accent-4`/`country`/
+  `country-name`/`sea`/`river`/`highland`/`area-basin`，唯一真源是 `config/text-style.ts` 的
+  `TEXT_STYLE_CATEGORY_IDS`）；值对象的字段只允许 `font_size_pt`、`color`、`italic`、`font_weight`、
+  `letter_spacing_em`、`line_height`、`halo` 七个，且**只存用户显式改过的值**——默认值仍在
+  `config/text-style.ts`，不复制进文件。地图分类的字号**恒统一**：`font_size_pt` 缺省时使用
+  「分类默认统一字号」——取该分类全部 `geo.labels` 的 `font_size_pt` 中位数 × 地图缩放比 `s`，
+  夹到 4..40 并保留 1 位小数；该分类没有地名时回退 10pt；同一分类下所有地名永远使用同一个字号。
+  覆盖表是「覆盖 ?? 分类默认」的样式来源：设置时由 `core/text-style.ts` 把解析后的样式批量写回
+  该分类全部 item，默认排版（§5.6）也按它解析初始值；渲染仍只读 item 上的显式字段（§5.3）。
+- `text_style` 校验口径：`font_size_pt` 是 1..500 的有限数（地图分类允许 `null`，但 `null` 仅作
+  旧数据兼容、等价于缺省（回分类默认统一字号，归一化时删掉该键）；页面分类不允许 `null`）；
+  `color` `#rrggbb`；`italic` 布尔；`font_weight` 100..900 的整数；`letter_spacing_em` -1..2；
+  `line_height` 0.5..5；
+  `halo` 为 `null`（= 显式关光晕，与「没有该键」不同）或 `{ "color": "#rrggbb", "width_pt": 0..20 }`
+  （对象出现时两个字段都必须给）。未知分类/未知字段一律校验失败，与 page 块其它字段同一严格口径。
 
 ### 4.1 item 联合类型
 
@@ -258,8 +286,16 @@ Cartopy 直出的 geo.json 没有这个键。形状：
   "font_weight": 400, // 100..900 的整数；替换旧的 bold:boolean
   "letter_spacing_em": 0, // 字距（em，相对字号），-1..2
   "halo": null, // 或 {"color":"#ffffff","width_pt":2}（先描边后填充；开光晕时默认取 TEXT_HALO）
+  "geo_label_id": null, // 地图地名 item = 来源 geo.labels[].id；页面文字恒为 null
 }
 ```
+
+- `geo_label_id`（可选，`normalizePage` 一定补上）：只有地图地名 item 有值，指向来源
+  `geo.labels[].id`。它决定该 item 属于哪个地图分类（地图分类字号/样式统一与聚合都先按它归类）；
+  页面文字恒为 `null`。校验允许缺省（旧文件）、`null` 或非空字符串，
+  **不要求与本次 geo 一一对应**——打开时 `core/text-style.ts` 的 `reconcileGeoLabelIds` 会对
+  `space=map`、`role=label`、`geo_label_id=null` 的 item 按「文字相同、`x` 相同（容差 1e-6）、
+  `anchor` 相同」匹配 `geo.labels`，多个候选取 `y` 最近者；它只补 id，不改样式、不标脏。
 
 **legend**
 
@@ -367,6 +403,16 @@ paint-order=stroke` 的副本，再画正常填充（与 matplotlib 的 paint-or
 - SVG 文字属性顺序固定（成品字节确定性）：`font-family` → `font-size` → `font-style`(italic) →
   `font-weight` → `letter-spacing` → `fill` → 光晕的 `stroke`/`stroke-width`/`paint-order`。
 - 文本转义：`& < >`。
+- **分类覆盖不改变渲染口径**：渲染只读 item 上的显式样式字段（`font_size_pt`/`color`/`italic`/
+  `font_weight`/`letter_spacing_em`/`line_height`/`halo`）；`page.text_style` 只是「设置时批量写回
+  item」的来源。在「样式设置」窗口改一个分类时，`core/text-style.ts` 按「覆盖 ?? 分类默认」解析出
+  有效样式，逐条写回该分类全部 item（地图 item 若字号/行高变化，按「文字块垂直中心」修正 map
+  坐标 `y`，保住用户手动拖过的位置）。字号口径对所有分类一致：item 字号 = 覆盖 `font_size_pt` ??
+  分类默认字号（页面分类 = 该分类第一条 item 的实际字号 ?? 默认字号；地图分类 = **分类默认统一
+  字号**，即该分类底图字号中位数 × 地图缩放比 `s`，夹 4..40 并保留 1 位小数，无地名时 10pt）。
+  因此同一地图分类下所有地名**字号必须相等**：默认排版、批量应用（哪怕只改颜色）、恢复默认、
+  单条 item 切换分类都会写回该统一字号；旧 `page` 块打开时保留原 item 字号，直到用户在该分类改
+  一次样式（任意字段）才统一。
 
 ### 5.4 legend（高度派生，`legendLayout`）
 
@@ -405,10 +451,20 @@ title（show_title）：基线 y-4，anchor=middle，x = item.x+width_pt/2
 - 纸张默认 A4 横向；排版随纸张自适应：`k = clamp(min(长边/841.89, 短边/595.28), 0.62, 1.6)`
   缩放字号/间距；**横向**纸用「左地图 + 右栏」，**纵向**纸（`h > w*1.05`）用「地图满内容宽 +
   下方一排图例/注记/色标」，并让开地图底部的经度刻度标签。
-- 地名标注（`geo.labels`）按 map 空间铺上，字号随地图缩放比缩放：颜色/斜体按 `role` 查
+- 地名标注（`geo.labels`）按 map 空间铺上，**同分类统一字号**（见下条）：颜色/斜体按 `role` 查
   `config/text-style.ts` 的角色表，字重/字距/行高/描边取 `MAP_LABEL_STYLE`；`label.y` 是文字块
   垂直中心，按 `baseline_ratio` 换算回第一行基线后加回（见契约 §4），旋转默认 0。标题/副标题/
   注记/来源来自 `geo.suggestions`。
+- **分类样式覆盖参与默认排版**：`options.text_style` 是当前 `page.text_style` 覆盖表，返回值的
+  `text_style` 是它的深拷贝（缺省 `{}`），因此重新排默认版式后用户的分类覆盖仍在。标题/副标题/
+  注记/来源：字号 = 覆盖 `font_size_pt` ?? 原默认（`PAGE_*_SIZE_PT × k`）；颜色/斜体/字重/字距/
+  行高/光晕 = 覆盖 ?? `PAGE_TEXT_STYLES[role]`（注记/来源无颜色覆盖时仍沿用 `style.color`）；
+  注记/来源的折行测量与块高必须用**解析后的**字号/字重/行高，否则覆盖后文字会溢出或压到下一块。
+  地名：按 `label.role` 解析覆盖（颜色/斜体/字重/字距/行高/光晕），字号 = 覆盖 `font_size_pt` ??
+  **分类默认统一字号**（该分类底图字号中位数 × `s`，夹 4..40 并保留 1 位小数；分类没有地名时
+  回退 10pt），同一分类全部地名同字号；`geo_label_id = label.id`。注意这是相对改造前的行为变化：
+  旧默认排版按每条 `label` 自己的字号 × `s`，现在按分类中位数统一。「重新排默认版式」（§9）必须
+  把当前覆盖表传进来。
 - **可选块降级**（无后端后新增）：`hasLegend = geo.legend.entries.length > 0`、
   `hasNotes = suggestions.notes 有非空行`、`hasColorbar = geo.relief !== null`。
   - `hasLegend` 为假 → 不生成 legend item，也不留空图例框；
@@ -511,12 +567,20 @@ interface FinalMarkerPayload {
 实现见 `render/compose-svg.ts` 的 `makeMarker` 与 `core/page.ts` 的 `canonicalJson` / `geoDigest` /
 `pageDigest`。marker 从 v2 起把排版摘要的键名改为 `page`（旧 `scene` 键已删除）。
 
+2026-11-05 分类样式给 `page` 块新增 `text_style`、给 text item 新增 `geo_label_id` 后，**改造前导出
+的成品**其 `marker.page` 必然与新的 `pageDigest` 不同。打开校验为此做了窄兼容：`marker.page` 先与
+当前 `pageDigest` 比较，不匹配再回退 `legacyPageDigest`——剥掉 `page.text_style` 与 item 的
+`geo_label_id` 后按改造前口径计算摘要，只有逐字节相等才接受。兼容只放宽「打开旧成品」的校验，
+不改变导出/签名口径；真正的错配（剥掉新字段后仍不一致）照旧拒绝。
+
 自 2026-10-29 起 marker **会被读取**（`core/final-svg.ts` 的 `readFinalSvg`）：
 
 - 单文件打开（成品 SVG 自带内嵌源）：marker 摘要与内嵌 geo/page 不一致只**告警**（内嵌源才是可编辑
   真值；外部工具改过成品时仍允许打开，用户重新导出即可刷新 marker）；marker 缺失也只告警。
+  改造前成品按旧口径摘要判定为一致，不产生告警。
 - 「成品 SVG + 所选 geo.json」：marker 摘要与所选 geo 不一致**直接拒绝**（多半是拿错了配套 JSON，
-  继续打开会得到底图/排版互相错位的假文档）；marker 缺失时无法配对校验，只告警。
+  继续打开会得到底图/排版互相错位的假文档）；marker 缺失时无法配对校验，只告警。`marker.page`
+  同样接受旧口径摘要（兼容改造前导出的成品 + 当时配套的 geo.json）。
 - `mapdoc-final` / `mapdoc-overlay` 仍被 §7 的 C4 拒绝：它们不能被当成 Cartopy 底图内联。
 
 ### 6.2 内嵌可编辑源（成品 SVG 再编辑）
@@ -613,7 +677,8 @@ interface BaseSvgInfo {
     底图却缺 geo.json，core 给出「缺少 geo.json：请把与底图配套的 geo.json 一起上传；也可以只上传
     一份本编辑器导出的成品 SVG」。
   - 成品**自带内嵌源**时再选 geo.json：内嵌排版优先，JSON 只做交叉校验——带 `page` 且与 marker
-    不一致就拒绝；没有 `page`（Cartopy 原始 geo）只校验 geo 摘要并用内嵌排版（告警提示）。
+    不一致就拒绝（`marker.page` 同样接受旧口径摘要，见 §6.1）；没有 `page`（Cartopy 原始 geo）
+    只校验 geo 摘要并用内嵌排版（告警提示）。
   - SVG 栏与 JSON 栏各自独立替换：换底图不影响已选 JSON，换 JSON 也不影响已选底图；
   - 也支持把文件拖到页面任意位置：按扩展名自动落进对应栏，一次拖入两份会同时填好两栏；
     只拖一种时另一栏保持原值。
@@ -644,9 +709,14 @@ false`）并告警，viewBox/尺寸仍校验。
    - 路径 2：内嵌 `document` 必须可解码/校验；还原底图 sha256 必须与内嵌 geo 一致；marker 不一致只告警。
    - 路径 3：`marker` 摘要必须与所选 geo.json 一致，否则报「所选的 geo.json 与这份成品 SVG 不配套
      （marker 摘要不一致）：请选择导出该 SVG 时同时导出的 geo.json」；marker 缺失只告警。
+   - 两条路径的 `marker.page` 都先比当前 `pageDigest`，不一致再回退 `legacyPageDigest`（忽略
+     `page.text_style` 与 item 的 `geo_label_id`；见 §6.1），因此改造前导出的成品 + 配套 geo.json
+     仍可打开且保持干净状态；旧口径仍对不上才按上面的语义告警/拒绝。
 5. `page` 块（可选）：`page` 键存在 → `validatePage(raw, geo)`；通过则 `normalizePage` 作当前排版且
    **不标脏**；缺省 → `defaultPageLayout` 生成默认排版（标脏）；不合法 → 同样用 `defaultPageLayout`
-   并标脏（附告警）。底图身份只在 `geo.base`，不再有「排版记录的底图与本次上传不一致」的分支。
+   并标脏（附告警）。恢复排版后总会调用 `reconcileGeoLabelIds` 给旧地名 item 补 `geo_label_id`
+   （只补 id、不改样式、不标脏）。底图身份只在 `geo.base`，不再有「排版记录的底图与本次上传不一致」
+   的分支。
 6. 打开后状态：带合法 `page` 块 → 干净（路径 1「已载入 geo.json 中的排版…」；路径 2/3
    「已从成品 SVG 恢复排版；Ctrl+S 导出 geo.json」）；否则默认排版 → 脏（「已生成初始排版…」）。
 
@@ -654,7 +724,7 @@ false`）并告警，viewBox/尺寸仍校验。
 缺少或重复的 SVG / 多于一个 geo / 文件不是 UTF-8 / 不是合法 JSON / `format` 不是 `mapdoc-geo` 或
 `version` 不是 2（旧 v1 geo / 旧 `scene.json` 走这条）/ 底图不符合契约（列出前几条 C1–C4）/ geo 校验失败
 （列出前几条）/ sha256 不一致 / viewBox 不一致 / 尺寸不一致 / 成品内嵌源不可用 / 成品与 geo 不配套
-（marker 摘要不一致）/ 旧版成品缺少内嵌源（提示补 geo.json 或重新导出）。
+（marker 摘要不一致，旧口径摘要兼容后仍不一致）/ 旧版成品缺少内嵌源（提示补 geo.json 或重新导出）。
 
 ### 8.3 导出
 
@@ -690,19 +760,26 @@ false`）并告警，viewBox/尺寸仍校验。
 ```
 map.html                        # 入口：<script type="module" src="/src/app/page-main.ts">
 src/app/page-main.ts            # 组合根：建外壳 → 上传面板 → File 严格 UTF-8 解码 →
-                                #   core/open-map 打开 → 建 sidebar/editor/toolbar → start；
-                                #   「打开…」重开与拖拽兜底
-src/app/page-editor.ts          # 状态机：选择/拖拽/缩放/平移/脏标记；exportGeo()/exportFinal()/destroy()
-src/config/page.ts              # 格式标识、上传 accept、校验容差、纸张预设、默认排版参数、上限、交互系数
-src/config/text-style.ts        # 地图标注/页面文字样式常量（角色表 + 字重/字距/行高/光晕；样式唯一真源）
+                                #   core/open-map 打开 → 建 sidebar/editor → 建样式设置窗口 →
+                                #   toolbar → start；换文档时先销毁窗口；「打开…」重开与拖拽兜底
+src/app/page-editor.ts          # 状态机：选择/拖拽/缩放/平移/脏标记；分类样式补丁
+                                #   applyTextStyleChange / resetTextStyleChange；exportGeo()/exportFinal()/destroy()
+src/config/page.ts              # 格式标识、上传 accept、校验容差、纸张预设、默认排版参数、
+                                #   纸张比例系数 layoutScaleForPaper、上限、交互系数
+src/config/text-style.ts        # 文字样式常量与分类元信息（role 颜色表、页面文字默认字号、
+                                #   20 个分类 = 6 页面文字 + 14 地图地名 与两组顺序；样式唯一真源）
 src/core/base-svg.ts            # 底图契约 C1–C4 + 根标签内原文切片 inner/prefix/suffix（纯逻辑）
-src/core/open-map.ts            # 三条打开路径：分栏 → 校验 → PageDocument + 初始排版（纯逻辑）
+src/core/open-map.ts            # 三条打开路径：分栏 → 校验 → PageDocument + 初始排版（纯逻辑）；
+                                #   marker.page 兼容旧口径摘要（legacyPageDigest）
 src/core/final-svg.ts           # 成品 SVG 再编辑：内嵌源读取、mapdoc-map 定位、底图还原（纯逻辑）
 src/core/base64.ts              # 内嵌源 / marker 的 UTF-8 base64 编解码（纯逻辑）
 src/core/document.ts            # PageDocument、createPageDocument、上传文件分类、导出文件名（纯逻辑）
 src/core/page.ts                # geo/page 类型、normalize/validate、canonicalJson、sha256OfBytes、
-                                #   serializeMapDocFile、geoDigest/pageDigest（纯逻辑，node 可测）
-src/core/page-layout.ts         # §5 全部布局公式 + defaultPageLayout（可选块降级）
+                                #   serializeMapDocFile、geoDigest/pageDigest/legacyPageDigest（纯逻辑，node 可测）
+src/core/page-layout.ts         # §5 全部布局公式 + defaultPageLayout（可选块降级、按 text_style 出样式、
+                                #   地图分类统一字号）
+src/core/text-style.ts          # 分类文字样式：item→分类、分类有效样式与默认统一字号解析、
+                                #   覆盖表批量写回 item、恢复默认、旧 page 块 geo_label_id 还原（纯逻辑，node 可测）
 src/render/page-svg.ts          # 预览 SVG DOM（纸张/底图 image/图框刻度/items）
 src/render/compose-svg.ts       # 浏览器内合成 final.svg（纯函数：结构/marker/内嵌源/report）
 src/render/page-format.ts       # 数字格式化、颜色/转义、SVG 属性 helper
@@ -713,14 +790,18 @@ src/ui/page-sidebar-controls.ts # 控件登记表（数字/颜色/文本/开关/
 src/ui/page-panel-paper.ts      # 「页面」面板：纸张预设/方向/宽高/页边距/重新排默认版式
 src/ui/page-panel-map.ts        # 「地图」面板：摆放/派生高度/图框/刻度样式
 src/ui/page-fields-common.ts    # 元素公共字段：坐标空间 + x/y
-src/ui/page-fields-text.ts      # 文字字段：内容/角色/字号/行高/字距/旋转/颜色/对齐/光晕/字重
+src/ui/page-fields-text.ts      # 文字字段：内容/角色（仅页面文字）/对齐/旋转 + 「打开样式设置」入口；
+                                #   地图地名 item 显示指向地图分类的只读样式说明
 src/ui/page-fields-legend.ts    # 图例字段 + 条目增删/显隐（隐藏 = 移出 layout，会话内记住）
 src/ui/page-fields-colorbar.ts  # 色标字段：标题/单位/宽高/字号/显示开关
-src/ui/page-toolbar.ts          # 顶部工具条（文件/添加/视图三组）
+src/ui/page-toolbar.ts          # 顶部工具条（文件/添加/样式/视图四组；「样式设置」按钮）
+src/ui/page-style-window.ts     # 「样式设置」模态窗口：两组分类列表 + 按分类的样式字段 +
+                                #   恢复默认；地图分类字号与页面分类同为单个数字（同分类地名统一使用）
 src/ui/page-notify.ts           # 消息区（miko_ui MessageArea + 简单确认框）
 src/ui/download.ts              # downloadText / downloadSvg（Blob + <a download>）
 src/styles-page.css             # 本页样式（.page-*；token 复用 miko_ui/styles.css 与 styles.css）
 tests/core/page.test.ts         # codec/校验/布局公式
+tests/core/text-style.test.ts   # 分类映射、覆盖解析、批量应用/恢复默认、geo_label_id 还原
 tests/core/base-svg.test.ts     # 底图 C1–C4 与 inner/prefix/suffix 切片
 tests/core/base64.test.ts       # UTF-8 base64 往返与坏数据
 tests/core/final-svg.test.ts    # 内嵌源读取、底图逐字节还原、旧版成品外壳
@@ -742,10 +823,22 @@ tests/render/compose-svg.test.ts # 合成结构、marker、内嵌源、确定性
   「适应页面」/「1:1」按钮。
 - **选择与编辑**：点 item 选中（选中框 = §5.7 的声明几何框，随 `rotation_deg` 旋转；外观在
   `styles-page.css`）；拖拽移动（map 空间 item 写回底图坐标，page 空间写回 pt）；
-  方向键 1pt 微移（Shift 10pt）；Delete 删除（title 等也允许删）；双击文字 item → 侧栏内容框聚焦；
-  侧栏改内容/字号/颜色/对齐/旋转/行高/斜体/字重/字距/光晕；图例条目可改名/显隐/增删。
+  方向键 1pt 微移（Shift 10pt）；Delete 删除（title 等也允许删）；双击文字 item → 侧栏内容框聚焦。
+  选中文字时侧栏只剩**内容 / 角色（仅页面文字）/ 对齐 / 旋转**：样式字段已全部迁到「样式设置」
+  窗口，地图地名 item 还显示一条只读说明，指向地图分类；图例条目可改名/显隐/增删。
 - **工具条**：文件（打开… / 导出 geo.json / 导出 SVG）、添加（文字 / 标题 / 图例 / 色标）、
-  视图（适应页面 / 1:1）。
+  样式（样式设置）、视图（适应页面 / 1:1）。
+- **样式设置窗口**：工具条「样式设置」或侧栏底部「打开样式设置」拉起独立模态窗口。左列按
+  `config/text-style.ts` 的 `TEXT_STYLE_CATEGORY_GROUPS` 列出两组分类——「页面文字」6 类
+  （标题/副标题/标注/注记/来源/地名（手动））与「地图标注」14 类（城市/境外参照城市/行政区/
+  弱化行政区/强调区 1~4/国名/本国名/海域/河流/山系-地貌/流域），每项带该分类当前颜色色块；
+  右列按分类设置字号（pt）/颜色/字重/斜体/行高/字距/光晕（开关+颜色+宽度），**每个字段输入即时
+  生效**：窗口只发单字段补丁，由编辑器调 `core/text-style.ts` 写 `page.text_style` 并批量同步该
+  分类全部 item。地图分类与页面分类一样只有一个「字号（pt）」数字：该字号是分类级必设值，同一
+  分类全部地名永远使用它；字号下方有一行静态说明「该分类全部地名统一使用此字号」。
+  「恢复默认」删除该分类整个覆盖并恢复默认样式（地图分类回到分类默认统一字号）。
+  关闭方式：头部/底部「关闭」按钮、`Esc`、点遮罩；窗口打开时焦点进面板，
+  关闭后归还打开前的焦点。窗口读写最新 layout/geo，与当前文档同生命周期（换文档时销毁）。
 - **侧栏**：页面（纸张预设/方向/宽高/页边距「重新排默认版式」）、地图（x/y/宽度、图框开关/
   刻度开关/线宽/颜色/刻度字号）、元素列表（选中/删除/新增）、选中项属性（按 kind 分支）、
   图例条目编辑。
@@ -769,7 +862,8 @@ tests/render/compose-svg.test.ts # 合成结构、marker、内嵌源、确定性
 4. **单文件往返**：用「底图 + 导出的 geo.json」重新打开 → 排版原样恢复、状态为「已导出」（不标脏）
    → 再次导出 geo.json 字节一致（导出幂等：导出 → 重新打开 → 再导出，字节完全相同）。
 5. **成品再编辑**：只上传导出的成品 SVG → 排版原样恢复、底图逐字节还原 → 再次导出成品 SVG 与第一次
-   逐字节相同；旧版成品（无内嵌源）+ 配套 geo.json 能打开并告警。
+   逐字节相同；改造前导出的成品（marker.page 是旧口径摘要）单文件打开也判定一致、不标脏、不告警；
+   旧版成品（无内嵌源）+ 配套 geo.json 能打开并告警。
 6. 边界：只上传底图 svg / 只上传 geo / 成品 + 不配套 geo（marker 摘要不一致）/ geo 与底图不配套
    （sha 不符）/ 非法 JSON / 旧 `mapdoc-page`（`scene.json`）→ 面板给出中文原因且不崩；旧
    `scene.json` 的提示是「是旧版 scene.json：排版已并入 geo.json，请改用 Cartopy 产出的 geo.json（或本编辑器导出的 geo.json）」。
@@ -777,6 +871,15 @@ tests/render/compose-svg.test.ts # 合成结构、marker、内嵌源、确定性
    块）打开即恢复排版，两者都能作为输入。
 8. 可选但尽量：无 `legend` 的图或手工删除 `legend`/`relief` 键的 geo 不报错、默认布局合理
    （不生成空图例框/色标）。
+9. **分类样式**：上传 demo geo → 工具条「样式设置」打开窗口 → 左列出现两组共 20 个分类、
+   每项有颜色色块 → 改「城市」颜色/字号/字重/行高 → 画布上全部城市标注立即变化，右侧选中该
+   分类后字段值同步；改「页面文字/标题」字号 → 标题立即变化；地图分类改字号后该分类全部地名
+   **严格同字号**（只改颜色等其它字段时也保持统一）；「恢复默认」→ 该分类回到默认样式，
+   地图分类回到「分类默认统一字号」（该分类底图字号中位数 × 缩放，全部地名相等）。导出
+   `geo.json` 含 `page.text_style`（只出现用户设过的分类/字段）；重新打开该 geo.json 样式原样
+   恢复；点「重新排默认版式」后分类样式仍保留。侧栏选中单条文字只出现内容/角色/对齐/旋转，
+   没有字号/颜色等字段；切换页面文字角色后该条立即套用新分类样式；旧版导出（无 `geo_label_id`）
+   打开后地名 item 能还原关联（旧 page 块打开不自动改写字号，在该分类改一次样式后才统一）。
 
 ## 11. 非目标与已知限制
 
@@ -784,6 +887,12 @@ tests/render/compose-svg.test.ts # 合成结构、marker、内嵌源、确定性
   Inkscape/AI 转曲。字体子集载荷位置已预留（合成时可往 `<defs>` 加 `@font-face`），本轮不做。
 - 不做自动换行/两端对齐；换行由前端在创建条目时按宽度折好写进 `lines`；字距按 item 的
   `letter_spacing_em` 渲染（不再属于「不做」清单）。
+- **文字样式按分类统一覆盖**：单条 item 没有独立样式字段（侧栏只留内容/角色/对齐/旋转），改样式
+  只能在「样式设置」窗口按分类改，一次应用到该分类全部 item；要单条不同只能换角色/分类。
+  **地图标注按分类强制统一字号**，不能逐条保留底图字号层级；旧 `page` 块打开时 item 保留原字号，
+  需在分类里改一次样式（任意字段，包括只改颜色）才会把该分类统一到「覆盖 ?? 分类默认统一字号」。
+  旧 `page` 块没有 `geo_label_id` 时，地名 item 与 `geo.labels` 的关联只能按文字/位置/锚点
+  尽量还原（只补 id，不改样式）。
 - **无自动草稿**：不写 localStorage、不自动下载；刷新/关闭页面会丢未导出的修改（`beforeunload` 提醒）。
   排版落盘 = 手动「导出 geo.json」。
 - **大底图首次加载**：约 10 MB 的底图要一次性读入、严格 UTF-8 解码、求 sha256、做 C1–C4 扫描，

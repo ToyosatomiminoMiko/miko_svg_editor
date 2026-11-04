@@ -15,7 +15,8 @@
  * 样式导入顺序是契约：先 miko_ui 的 token/控件，再应用的页面 token（styles.css），
  * 最后本页专属的 `.page-*`（styles-page.css）。
  * 元信息：作者 frontend，2026-10-27；2026-10-28 改为无后端（上传打开 + 浏览器内合成）；
- *         2026-10-29 打开逻辑移入 core/open-map.ts 并支持成品 SVG 再编辑。
+ *         2026-10-29 打开逻辑移入 core/open-map.ts 并支持成品 SVG 再编辑；
+ *         作者 lead，2026-11-05，装配样式设置窗口（与编辑器同生命周期，切换文档时销毁）。
  */
 
 import 'miko_ui/styles.css';
@@ -29,6 +30,7 @@ import { createPageOpenPanel } from '../ui/page-open';
 import { PageNotifier } from '../ui/page-notify';
 import { PageSidebar } from '../ui/page-sidebar';
 import { buildPageToolbar } from '../ui/page-toolbar';
+import { StyleSettingsWindow } from '../ui/page-style-window';
 import { PageEditor } from './page-editor';
 
 /** 页面外壳的节点句柄 */
@@ -83,6 +85,8 @@ function boot(): void {
 
   /** 当前打开的编辑器与预览 objectURL（同一时刻最多一份） */
   let editor: PageEditor | null = null;
+  /** 文字样式设置窗口（与编辑器同生命周期，切换文档时销毁） */
+  let styleWindow: StyleSettingsWindow | null = null;
   let baseUrl: string | null = null;
   let opening = false;
 
@@ -92,8 +96,10 @@ function boot(): void {
     },
   });
 
-  /** 关掉当前地图：先停编辑器，再 revoke 预览地址，最后清空侧栏/工具条 */
+  /** 关掉当前地图：先停窗口与编辑器，再 revoke 预览地址，最后清空侧栏/工具条 */
   function closeSession(): void {
+    styleWindow?.destroy();
+    styleWindow = null;
     editor?.destroy();
     editor = null;
     if (baseUrl !== null) {
@@ -168,6 +174,7 @@ function boot(): void {
           void editorRef?.relayoutDefault(marginPt);
         },
         notify: (message) => notifier.info(message),
+        openStyleSettings: () => styleWindow?.open(),
       });
 
       const created = new PageEditor({
@@ -183,6 +190,15 @@ function boot(): void {
       editorRef = created;
       editor = created;
 
+      // 样式设置窗口：读写最新 layout/geo，改样式走编辑器的批量应用入口（脏标记/重绘/侧栏同步）
+      styleWindow = new StyleSettingsWindow({
+        host: document.body,
+        getLayout: () => editorRef?.currentLayout ?? opened.layout,
+        getGeo: () => pageDocument.geo,
+        onApply: (category, patch) => editorRef?.applyTextStyleChange(category, patch),
+        onReset: (category) => editorRef?.resetTextStyleChange(category),
+      });
+
       buildPageToolbar(shell.toolbar, {
         open: requestOpen,
         exportGeo: () => {
@@ -197,6 +213,7 @@ function boot(): void {
         addTitle: () => created.addTitle(),
         addLegend: () => created.addLegend(),
         addColorbar: () => created.addColorbar(),
+        openStyleSettings: () => styleWindow?.open(),
       });
       created.start();
       panel.hide();

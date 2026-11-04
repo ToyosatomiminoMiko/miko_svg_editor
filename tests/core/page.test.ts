@@ -3,7 +3,9 @@
  *
  * 为什么是 node 环境：这两层必须不碰 DOM——文本测量以参数注入，默认回退是纯字符宽度估算；
  * 这里用固定 geo/base 检查默认排版、刻度/图例/色标位置与序列化确定性。
- * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地。
+ * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地；
+ *         作者 core-dev，2026-11-05，补 `page.text_style` / text item `geo_label_id` 的
+ *         校验与 normalisePage 口径（`.work/STYLE-SETTINGS-SPEC.md` §1.1/§1.2/§4）。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -12,9 +14,11 @@ import {
   countItems,
   itemById,
   itemSummary,
+  legacyPageDigest,
   normalizePage,
   roundToPageDecimals,
   pageDigest,
+  serializeMapDocFile,
   serializePage,
   sha256Hex,
   validateGeo,
@@ -368,7 +372,9 @@ describe('defaultPageLayout（§9 初始排版）', () => {
     expect(labels[0]!.lines).toEqual(['甲国']);
     // 地名字号按地图缩放比换算（Lead 联调结论：否则相对原图放大 1.7 倍压字）
     const scale = layout.map.width_pt / makeGeo().base.width_pt;
-    expect(labels[0]!.font_size_pt).toBeCloseTo(12 * scale, 9);
+    // 地图分类字号恒统一：country 只有一条 12pt → 中位数 × s，夹 4..40 并保留 1 位小数
+    const expectedSize = Math.round(Math.min(40, Math.max(4, 12 * scale)) * 10) / 10;
+    expect(labels[0]!.font_size_pt).toBe(expectedSize);
     // 颜色/斜体来自 role 表；描边宽度是纸面常量（不随 s 缩放），旋转统一 0
     expect(labels[0]!.color).toBe('#3a3a3a');
     expect(labels[0]!.italic).toBe(false);
@@ -468,7 +474,11 @@ describe('纸张自适应（defaultPageLayout 的 k）', () => {
     const label = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.space === 'map',
     );
-    expect(label?.font_size_pt).toBeCloseTo(12 * (layout.map.width_pt / geo.base.width_pt), 9);
+    // 地图分类统一字号 = 该分类地名原始字号中位数 × s，夹 4..40、保留 1 位小数
+    const labelScale = layout.map.width_pt / geo.base.width_pt;
+    expect(label?.font_size_pt).toBe(
+      Math.round(Math.min(40, Math.max(4, 12 * labelScale)) * 10) / 10,
+    );
 
     // 来源仍在页内、且地图不越过来源预留区
     const source = layout.items.find(
@@ -777,5 +787,252 @@ describe('文字折行', () => {
     const paragraphs = wrapParagraphs(['第一行\n第二行'], font, 500);
     expect(paragraphs[0]).toBe('第一行');
     expect(paragraphs[1]).toBe('第二行');
+  });
+});
+
+/* ======================================================================
+ * 2026-11-05 分类文字样式：page.text_style 与 text item geo_label_id
+ * ====================================================================== */
+
+/** 把 layout 克隆成可写任意坏数据的普通对象（validatePage 接收 unknown） */
+function mutablePage(): Record<string, unknown> {
+  return structuredClone(makeScene()) as unknown as Record<string, unknown>;
+}
+
+/** 校验 page 块并只取错误清单（ok 时返回空数组） */
+function errorsOf(value: unknown): readonly string[] {
+  const result = validatePage(value);
+  return result.ok ? [] : result.errors;
+}
+
+/** 取 page 块里指定 index 的 text item 的可写引用 */
+function textItemAt(page: Record<string, unknown>, index: number): Record<string, unknown> {
+  const items = page['items'] as Record<string, unknown>[];
+  const item = items[index];
+  if (item === undefined || item['kind'] !== 'text')
+    throw new Error(`items[${index}] 不是文字元素`);
+  return item;
+}
+
+describe('page.text_style 校验（§1.1）', () => {
+  it('defaultPageLayout 回写 text_style:{} 且通过校验；text item 都带 geo_label_id', () => {
+    const layout = makeScene();
+    expect(layout.text_style).toEqual({});
+    expect(validatePage(layout, makeGeo()).ok).toBe(true);
+    for (const item of layout.items) {
+      if (item.kind !== 'text') continue;
+      // 地图地名 item 记录来源 label.id；页面文字恒为 null
+      if (item.space === 'map') expect(typeof item.geo_label_id).toBe('string');
+      else expect(item.geo_label_id).toBeNull();
+    }
+  });
+
+  it('合法覆盖（7 个字段 + 地图分类 font_size_pt:null）通过校验', () => {
+    // 文件里的覆盖允许地图分类 font_size_pt:null（旧数据兼容，等价缺省 = 分类默认统一字号），
+    // 与 PageLayout 的
+    // 内存类型（归一化后 null 已被删掉）不同，所以按「未知 JSON」构造再校验。
+    const page = mutablePage();
+    page['text_style'] = {
+      title: {
+        font_size_pt: 20,
+        color: '#111111',
+        italic: false,
+        font_weight: 600,
+        letter_spacing_em: 0.02,
+        line_height: 1.35,
+        halo: null,
+      },
+      city: { color: '#222222', font_size_pt: null, halo: { color: '#ffffff', width_pt: 2 } },
+      river: { font_size_pt: 8.5 },
+    };
+    expect(errorsOf(page)).toEqual([]);
+  });
+
+  it('text_style 非对象 / 未知分类 / 未知字段 / 值不是对象都报错', () => {
+    const notObject = mutablePage();
+    notObject['text_style'] = 'nope';
+    expect(errorsOf(notObject)).toContain('text_style: 必须是对象');
+
+    const unknownCategory = mutablePage();
+    unknownCategory['text_style'] = { 'not-a-category': {} };
+    expect(errorsOf(unknownCategory)).toContain('text_style.not-a-category: 不是合法分类 id');
+
+    const unknownField = mutablePage();
+    unknownField['text_style'] = { title: { junk: true } };
+    expect(errorsOf(unknownField)).toContain('text_style.title.junk: 未知字段');
+
+    const badValue = mutablePage();
+    badValue['text_style'] = { title: 'red' };
+    expect(errorsOf(badValue)).toContain('text_style.title: 必须是对象');
+  });
+
+  it('逐字段取值范围（页面分类 font_size 不允许 null，地图分类允许）', () => {
+    const cases: readonly [unknown, string][] = [
+      [{ title: { font_size_pt: 0 } }, 'text_style.title.font_size_pt: 必须是 1..500 的有限数字'],
+      [{ title: { font_size_pt: 501 } }, 'text_style.title.font_size_pt: 必须是 1..500 的有限数字'],
+      [
+        { title: { font_size_pt: Number.NaN } },
+        'text_style.title.font_size_pt: 必须是 1..500 的有限数字',
+      ],
+      [{ title: { font_size_pt: null } }, 'text_style.title.font_size_pt: 页面文字分类不能为 null'],
+      [{ city: { font_size_pt: -1 } }, 'text_style.city.font_size_pt: 必须是 1..500 的有限数字'],
+      [{ title: { color: 'red' } }, 'text_style.title.color: 必须是 #rrggbb'],
+      [{ title: { italic: 'yes' } }, 'text_style.title.italic: 必须是布尔值'],
+      [{ title: { font_weight: 450.5 } }, 'text_style.title.font_weight: 必须是 100..900 的整数'],
+      [
+        { title: { letter_spacing_em: 2.5 } },
+        'text_style.title.letter_spacing_em: 必须是 -1..2 的有限数字',
+      ],
+      [{ title: { line_height: 0.4 } }, 'text_style.title.line_height: 必须是 0.5..5 的有限数字'],
+    ];
+    for (const [textStyle, message] of cases) {
+      const page = mutablePage();
+      page['text_style'] = textStyle;
+      expect(errorsOf(page)).toContain(message);
+    }
+
+    // 边界合法：字号 1/500、字距 -1/2、行高 0.5/5、字重 100/900、光晕宽度 0
+    const boundary = makeScene();
+    boundary.text_style = {
+      title: {
+        font_size_pt: 1,
+        letter_spacing_em: -1,
+        line_height: 0.5,
+        font_weight: 100,
+      },
+      city: {
+        font_size_pt: 500,
+        letter_spacing_em: 2,
+        line_height: 5,
+        font_weight: 900,
+        halo: { color: '#000000', width_pt: 0 },
+      },
+    };
+    expect(errorsOf(boundary)).toEqual([]);
+  });
+
+  it('halo 必须是 null 或 { color, width_pt: 0..20 }，未知字段报错', () => {
+    const cases: readonly [unknown, string][] = [
+      [{ title: { halo: 1 } }, 'text_style.title.halo: 必须是对象或 null'],
+      [{ title: { halo: {} } }, 'text_style.title.halo.color: 缺少字段'],
+      [
+        { title: { halo: { color: '#fff', width_pt: 2 } } },
+        'text_style.title.halo.color: 必须是 #rrggbb',
+      ],
+      [
+        { title: { halo: { color: '#ffffff', width_pt: 25 } } },
+        'text_style.title.halo.width_pt: 必须是 0..20 的有限数字',
+      ],
+      [
+        { title: { halo: { color: '#ffffff', width_pt: 2, junk: 1 } } },
+        'text_style.title.halo.junk: 未知字段',
+      ],
+    ];
+    for (const [textStyle, message] of cases) {
+      const page = mutablePage();
+      page['text_style'] = textStyle;
+      expect(errorsOf(page)).toContain(message);
+    }
+  });
+
+  it('导出 page 块包含 text_style（只落用户改过的字段）', () => {
+    const layout = makeScene();
+    layout.text_style = { title: { color: '#ff0000', font_size_pt: 20 } };
+    const parsed = JSON.parse(serializeMapDocFile(makeGeo(), layout)) as {
+      page: { text_style: unknown };
+    };
+    expect(parsed.page.text_style).toEqual({ title: { color: '#ff0000', font_size_pt: 20 } });
+  });
+});
+
+describe('text item geo_label_id 校验（§1.2）', () => {
+  it('缺省（旧文件）与 null 都合法', () => {
+    const legacy = makeScene();
+    const text = legacy.items.find((item): item is TextItem => item.kind === 'text')!;
+    delete (text as { geo_label_id?: string | null }).geo_label_id;
+    expect(errorsOf(legacy)).toEqual([]);
+
+    const nulled = makeScene();
+    const nullText = nulled.items.find((item): item is TextItem => item.kind === 'text')!;
+    nullText.geo_label_id = null;
+    expect(errorsOf(nulled)).toEqual([]);
+  });
+
+  it('空串或非字符串报错', () => {
+    const page = mutablePage();
+    const index = (page['items'] as Record<string, unknown>[]).findIndex(
+      (item) => item['kind'] === 'text',
+    );
+    textItemAt(page, index)['geo_label_id'] = '';
+    expect(errorsOf(page)).toContain(`items[${index}].geo_label_id: 必须是非空字符串或 null`);
+
+    const badType = mutablePage();
+    const badIndex = (badType['items'] as Record<string, unknown>[]).findIndex(
+      (item) => item['kind'] === 'text',
+    );
+    textItemAt(badType, badIndex)['geo_label_id'] = 42;
+    expect(errorsOf(badType)).toContain(`items[${badIndex}].geo_label_id: 必须是非空字符串或 null`);
+  });
+});
+
+describe('normalizePage：text_style / geo_label_id 补默认（§1.1/§1.2）', () => {
+  it('缺省 text_style → {}、旧 text item 补 geo_label_id:null，且不修改入参', () => {
+    const raw = mutablePage();
+    delete raw['text_style'];
+    const items = raw['items'] as Record<string, unknown>[];
+    for (const item of items) {
+      if (item['kind'] === 'text') delete item['geo_label_id'];
+    }
+    const before = structuredClone(raw);
+    const normalized = normalizePage(raw as unknown as PageLayout);
+    expect(normalized.text_style).toEqual({});
+    for (const item of normalized.items) {
+      if (item.kind === 'text') expect(item.geo_label_id).toBeNull();
+    }
+    expect(raw).toEqual(before);
+  });
+
+  it('覆盖表收敛：未知分类/未知字段丢弃、空对象清理、地图 null 删除、halo null 保留、深拷贝', () => {
+    const raw = mutablePage();
+    raw['text_style'] = {
+      title: { color: '#123456', halo: null, junk: 1 },
+      city: { font_size_pt: null, color: '#222222' },
+      river: {},
+      'not-a-category': { color: '#000000' },
+    };
+    const normalized = normalizePage(raw as unknown as PageLayout);
+    expect(normalized.text_style).toEqual({
+      title: { color: '#123456', halo: null },
+      city: { color: '#222222' },
+    });
+    expect(normalized.text_style.title).not.toBe(
+      (raw['text_style'] as Record<string, unknown>)['title'],
+    );
+    // 空覆盖对象不落盘
+    expect(normalized.text_style.river).toBeUndefined();
+  });
+
+  it('覆盖里的数字按 page 口径 3 位小数', () => {
+    const raw = mutablePage();
+    raw['text_style'] = { title: { font_size_pt: 20.1234, line_height: 1.3375 } };
+    const normalized = normalizePage(raw as unknown as PageLayout);
+    expect(normalized.text_style.title?.font_size_pt).toBe(20.123);
+    expect(normalized.text_style.title?.line_height).toBe(1.338);
+  });
+});
+
+describe('legacyPageDigest：改造前口径的排版摘要（成品 marker 兼容）', () => {
+  it('忽略 text_style 与 geo_label_id；当前 pageDigest 仍对它们敏感', () => {
+    const layout = makeScene();
+    const plainLegacy = legacyPageDigest(layout);
+    const styled = structuredClone(layout);
+    styled.text_style = { title: { color: '#ff0000' } };
+    for (const item of styled.items) {
+      if (item.kind === 'text' && item.space === 'map') item.geo_label_id = 'changed-by-user';
+    }
+    // 旧口径：剥掉本次新增字段后逐字节相等
+    expect(legacyPageDigest(styled)).toBe(plainLegacy);
+    // 当前口径：新字段参与摘要（导出/签名不会被绕过）
+    expect(pageDigest(styled)).not.toBe(pageDigest(layout));
   });
 });

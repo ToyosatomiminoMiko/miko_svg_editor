@@ -24,6 +24,8 @@ export interface PageSidebarHandlers {
   onRelayout(marginPt: number): void;
   /** 轻提示（状态行）：纸张改变时提醒「重新排默认版式」 */
   notify(message: string): void;
+  /** 拉起「样式设置」窗口（单条 item 不再有样式字段，统一按分类改） */
+  openStyleSettings(): void;
 }
 
 /** 面板构建上下文：只暴露「读最新状态 + 写回入口」，面板模块不持有任何状态 */

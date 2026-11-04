@@ -7,14 +7,26 @@
  * - 只上传本编辑器导出的成品 SVG 就能恢复排版，再导出与第一次逐字节相同；
  * - 旧版成品（没有内嵌源）+ 配套 geo.json 能迁移打开、再导出后仍可单文件重开；
  * - 带 BOM 的底图/JSON 不会因重编码而误报 sha 不配套；
- * - 拿错文件 / 缺文件时给中文原因。
- * 元信息：作者 lead，2026-10-29，服务于「成品 SVG 可直接再编辑」数据流。
+ * - 拿错文件 / 缺文件时给中文原因；
+ * - 改造前导出的 page 块（无 text_style / geo_label_id）打开时补 geo_label_id、不标脏。
+ * 元信息：作者 lead，2026-10-29，服务于「成品 SVG 可直接再编辑」数据流；
+ *         作者 core-dev，2026-11-05，补旧 page 块 `reconcileGeoLabelIds`（§5.3）。
  */
 
 import { describe, expect, it } from 'vitest';
 import { openMapFromUploads, type MapUploadFile } from '../../src/core/open-map';
-import { pageDigest, serializeMapDocFile, sha256OfBytes } from '../../src/core/page';
+import { decodeBase64Utf8, encodeBase64Utf8 } from '../../src/core/base64';
+import {
+  canonicalJson,
+  legacyPageDigest,
+  pageDigest,
+  serializeMapDocFile,
+  sha256OfBytes,
+  type PageLayout,
+  type TextItem,
+} from '../../src/core/page';
 import { defaultPageLayout } from '../../src/core/page-layout';
+import { applyTextStyle } from '../../src/core/text-style';
 import { composeFinalSvg } from '../../src/render/compose-svg';
 import { BASE_SVG_TEXT, makeDocument, makeGeo } from '../fixtures/page-fixtures';
 
@@ -190,5 +202,171 @@ describe('openMapFromUploads：错误路径给中文原因', () => {
         { name: 'x.png', bytes: new Uint8Array([0xff, 0xfe]) },
       ]),
     ).toThrow(/不识别的文件/);
+  });
+});
+
+/* ======================================================================
+ * 2026-11-05 旧 page 块迁移：恢复后补 geo_label_id（§5.3）
+ * ====================================================================== */
+
+/** 默认排版去掉本改造新增字段，模拟改造前导出的 page 块（无 text_style / geo_label_id） */
+function legacyLayoutOf(geo: ReturnType<typeof makeGeo>): PageLayout {
+  const stripped = structuredClone(defaultPageLayout(geo)) as unknown as Record<string, unknown>;
+  delete stripped['text_style'];
+  for (const item of stripped['items'] as Record<string, unknown>[]) {
+    if (item['kind'] === 'text') delete item['geo_label_id'];
+  }
+  return stripped as unknown as PageLayout;
+}
+
+/** 用「改造前字段」的 page 块序列化 geo.json（模拟旧版导出文件） */
+function legacyGeoText(geo: ReturnType<typeof makeGeo>, layout: PageLayout): string {
+  const doc = JSON.parse(serializeMapDocFile(geo, layout)) as Record<string, unknown>;
+  const page = doc['page'] as Record<string, unknown>;
+  delete page['text_style'];
+  for (const item of page['items'] as Record<string, unknown>[]) {
+    if (item['kind'] === 'text') delete item['geo_label_id'];
+  }
+  return `${JSON.stringify(doc, null, 2)}\n`;
+}
+
+/** 把成品 SVG 的 marker.page 换成给定摘要（模拟改造前导出：marker 用旧口径 pageDigest） */
+function replaceMarkerPage(svg: string, page: string): string {
+  const pattern = /<!--\s*mapdoc-final:([A-Za-z0-9+/=\s]+?)\s*-->/;
+  const match = pattern.exec(svg);
+  if (match === null) throw new Error('成品缺少 mapdoc-final marker');
+  const payload = JSON.parse(decodeBase64Utf8(match[1] ?? '')) as Record<string, unknown>;
+  payload['page'] = page;
+  return svg.replace(match[0], `<!-- mapdoc-final:${encodeBase64Utf8(canonicalJson(payload))} -->`);
+}
+
+/** layout 里的地图地名文字 item（保持 items 顺序，与 geo.labels 的 order 一致） */
+function mapTextItems(layout: PageLayout): TextItem[] {
+  return layout.items.filter(
+    (item): item is TextItem => item.kind === 'text' && item.space === 'map',
+  );
+}
+
+describe('openMapFromUploads：旧 page 块补 geo_label_id（§5.3）', () => {
+  it('base + geo：恢复后按 text/x/anchor 还原，只补 id、不标脏', () => {
+    const geo = makeDocument(makeGeo()).geo;
+    const oldLayout = legacyLayoutOf(geo);
+    const opened = openMapFromUploads([
+      svgUpload(BASE_SVG_TEXT),
+      geoUpload(legacyGeoText(geo, oldLayout)),
+    ]);
+    expect(opened.source).toBe('base');
+    expect(opened.dirty).toBe(false);
+    // 旧 page 块没有 text_style：归一化补 {}（不改变「已导出态」判断）
+    expect(opened.layout.text_style).toEqual({});
+
+    const labels = [...geo.labels].sort((a, b) => a.order - b.order);
+    const openedItems = mapTextItems(opened.layout);
+    const oldItems = mapTextItems(oldLayout);
+    expect(openedItems).toHaveLength(labels.length);
+    openedItems.forEach((item, index) => {
+      // 只剩 id 被补：文字/字体/颜色/位置与旧 layout 一致（page 数字经 3 位小数归一化）
+      expect(item.geo_label_id).toBe(labels[index]!.id);
+      expect(item.lines).toEqual(oldItems[index]!.lines);
+      expect(item.font_size_pt).toBeCloseTo(oldItems[index]!.font_size_pt, 3);
+      expect(item.color).toBe(oldItems[index]!.color);
+      expect(item.y).toBeCloseTo(oldItems[index]!.y, 3);
+    });
+
+    // 再导出会带上新字段；重新打开再导出字节稳定（迁移后即幂等）
+    const exported = serializeMapDocFile(opened.document.geo, opened.layout);
+    const reopened = openMapFromUploads([svgUpload(BASE_SVG_TEXT), geoUpload(exported)]);
+    expect(reopened.dirty).toBe(false);
+    expect(serializeMapDocFile(reopened.document.geo, reopened.layout)).toBe(exported);
+  });
+
+  it('成品内嵌源：恢复后同样补齐（不标脏，marker 摘要不一致只告警）', () => {
+    const document = makeDocument(makeGeo());
+    const oldLayout = legacyLayoutOf(document.geo);
+    // 用旧字段 layout 合成成品：内嵌源里的 page 块也就没有 text_style / geo_label_id
+    const composed = composeFinalSvg(document, oldLayout).svg;
+    const opened = openMapFromUploads([svgUpload(composed)]);
+    expect(opened.source).toBe('final');
+    expect(opened.dirty).toBe(false);
+
+    const labels = [...document.geo.labels].sort((a, b) => a.order - b.order);
+    const items = mapTextItems(opened.layout);
+    expect(items).toHaveLength(labels.length);
+    items.forEach((item, index) => expect(item.geo_label_id).toBe(labels[index]!.id));
+
+    // marker 的 page 摘要按「补 id 前」的排版算，补齐后必然不一致：只告警、不阻止打开
+    expect(opened.warnings.some((warning) => warning.includes('排版摘要不一致'))).toBe(true);
+  });
+
+  it('样式覆盖随 geo.json 往返：重开后覆盖表与 item 显式字段都还在、再导出字节稳定', () => {
+    const { document, layout } = fixture();
+    const country = mapTextItems(layout)[0]!;
+    applyTextStyle(layout, document.geo, 'title', { color: '#ff0000', font_size_pt: 24 });
+    applyTextStyle(layout, document.geo, 'country', { color: '#00ff00', font_size_pt: 9 });
+    const geoText = serializeMapDocFile(document.geo, layout);
+
+    const opened = openMapFromUploads([svgUpload(BASE_SVG_TEXT), geoUpload(geoText)]);
+    expect(opened.source).toBe('base');
+    expect(opened.dirty).toBe(false);
+    expect(opened.layout.text_style).toEqual({
+      title: { color: '#ff0000', font_size_pt: 24 },
+      country: { color: '#00ff00', font_size_pt: 9 },
+    });
+    const reopenedTitle = opened.layout.items.find(
+      (item): item is TextItem => item.kind === 'text' && item.role === 'title',
+    )!;
+    expect(reopenedTitle.color).toBe('#ff0000');
+    expect(reopenedTitle.font_size_pt).toBe(24);
+    const reopenedCountry = mapTextItems(opened.layout).find(
+      (item) => item.geo_label_id === country.geo_label_id,
+    )!;
+    expect(reopenedCountry.color).toBe('#00ff00');
+    expect(reopenedCountry.font_size_pt).toBe(9);
+    // 覆盖表 + 已同步的 item 一起往返：字节稳定
+    expect(serializeMapDocFile(opened.document.geo, opened.layout)).toBe(geoText);
+  });
+});
+
+describe('openMapFromUploads：改造前导出的成品 marker 兼容（§5.3）', () => {
+  it('旧口径 marker.page 不被误判：单文件打开无告警、不标脏', () => {
+    const { layout, composed } = fixture();
+    const legacyMarkerSvg = replaceMarkerPage(composed, legacyPageDigest(layout));
+    expect(legacyPageDigest(layout)).not.toBe(pageDigest(layout));
+    const opened = openMapFromUploads([svgUpload(legacyMarkerSvg)]);
+    expect(opened.source).toBe('final');
+    expect(opened.dirty).toBe(false);
+    expect(opened.warnings).toEqual([]);
+  });
+
+  it('旧成品 + 当时的 geo.json 仍能打开（迁移路径与内嵌源路径都不误拒）', () => {
+    const document = makeDocument(makeGeo());
+    const layout = defaultPageLayout(document.geo);
+    const legacyMarkerSvg = replaceMarkerPage(
+      composeFinalSvg(document, layout).svg,
+      legacyPageDigest(layout),
+    );
+    const geoText = legacyGeoText(document.geo, legacyLayoutOf(document.geo));
+
+    // 旧版成品（无内嵌源）+ 配套 geo.json → 迁移路径
+    const migrated = openMapFromUploads([
+      svgUpload(stripSourceMetadata(legacyMarkerSvg)),
+      geoUpload(geoText),
+    ]);
+    expect(migrated.source).toBe('final-with-geo');
+    expect(migrated.dirty).toBe(false);
+    expect(mapTextItems(migrated.layout).every((item) => item.geo_label_id !== null)).toBe(true);
+
+    // 内嵌源 + 配套 geo.json → 内嵌排版优先路径
+    const withGeo = openMapFromUploads([svgUpload(legacyMarkerSvg), geoUpload(geoText)]);
+    expect(withGeo.source).toBe('final');
+    expect(withGeo.dirty).toBe(false);
+  });
+
+  it('真正不配套的 marker.page（既非当前也非旧口径）仍然拒绝', () => {
+    const { composed, geoText } = fixture();
+    const bogus = replaceMarkerPage(composed, 'f'.repeat(64));
+    expect(() =>
+      openMapFromUploads([svgUpload(stripSourceMetadata(bogus)), geoUpload(geoText)]),
+    ).toThrow(/不配套/);
   });
 });

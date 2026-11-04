@@ -64,22 +64,23 @@ flowchart TB
 
 ### 1.3 `src/core/`：纯逻辑领域层（可在 node 里直接测）
 
-| 文件                | 一句话职责                                                                                     |
-| ------------------- | ---------------------------------------------------------------------------------------------- |
-| `types.ts`          | 非图元的数据类型：`Point`、`Constraint`、`Selection`、`Snap`、`Marquee`、`MeasureText` 等      |
-| `vec.ts`            | 二维向量纯函数（`safeLen` 零长度返回 1，供残差归一化）                                         |
-| `camera.ts`         | 世界 ↔ 屏幕换算、缩放钳制、网格间距；全局 `cam` 快照 `CameraView`                              |
-| `viewport.ts`       | 视图交互写入口：`fitView` / `wheelZoom` / `beginPan` / `applyPan`                              |
-| `state.ts`          | 交互状态单例 `state` + 有序选择集操作（`setSelection` / `deselect` / `toggleSelected` 等）     |
-| `model.ts`          | 点/图元/约束容器单例 `model`（`pts`/`ents`/`cons`/`seq`）与增删查、级联清理、注入门面          |
-| `entities.ts`       | 图元多态类 `EntityBase` 子类（直线/圆/圆弧/点图元）→ 几何归一为 `EntityPrimitive`              |
-| `geometry.ts`       | 拾取、吸附、包围盒、框选判定；只对 `segment`/`circular`/`dot` 三种基元写一次数学               |
-| `constraints.ts`    | 引用校验 `isConstraintRefsValid` + 残差表 `RESID`（`Record<ConstraintKind, …>` 强制穷尽）      |
-| `solver.ts`         | `solveSketch`：LM + 数值雅可比，原地写回点坐标/圆半径，报告 `invalidConstraints`               |
-| `dimensions.ts`     | 尺寸单一元数据表 `DIM_META`：取值/设值/文案/校验/布局/命中/拖拽/图元匹配                       |
-| `selection.ts`      | 选择语义：单击/Shift/框选方向、拖拽点集、已选列表数据、命令悬停候选                            |
-| `sketch-actions.ts` | 原子领域动作与统一求解入口 `solve`：画图/加约束/删除/固定/构造/尺寸/拖拽                       |
-| `operations.ts`     | 统一操作引擎：`Operand`/`SlotSpec`/`OperationMeta`、命令会话、槽位填充、命令文案/预览、`TOOLS` |
+| 文件                | 一句话职责                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------ |
+| `types.ts`          | 非图元的数据类型：`Point`、`Constraint`、`Selection`、`Snap`、`Marquee`、`MeasureText` 等        |
+| `vec.ts`            | 二维向量纯函数（`safeLen` 零长度返回 1，供残差归一化）                                           |
+| `camera.ts`         | 世界 ↔ 屏幕换算、缩放钳制、网格间距；全局 `cam` 快照 `CameraView`                                |
+| `viewport.ts`       | 视图交互写入口：`fitView` / `wheelZoom` / `beginPan` / `applyPan`                                |
+| `state.ts`          | 交互状态单例 `state` + 有序选择集操作（`setSelection` / `deselect` / `toggleSelected` 等）       |
+| `model.ts`          | 点/图元/约束容器单例 `model`（`pts`/`ents`/`cons`/`seq`）与增删查、级联清理、注入门面            |
+| `entities.ts`       | 图元多态类 `EntityBase` 子类（直线/圆/圆弧/点图元）→ 几何归一为 `EntityPrimitive`                |
+| `geometry.ts`       | 拾取、吸附、包围盒、框选判定；只对 `segment`/`circular`/`dot` 三种基元写一次数学                 |
+| `constraints.ts`    | 引用校验 `isConstraintRefsValid` + 残差表 `RESID`（`Record<ConstraintKind, …>` 强制穷尽）        |
+| `solver.ts`         | `solveSketch`：LM + 数值雅可比，原地写回点坐标/圆半径，报告 `invalidConstraints`                 |
+| `dimensions.ts`     | 尺寸单一元数据表 `DIM_META`：取值/设值/文案/校验/布局/命中/拖拽/图元匹配                         |
+| `selection.ts`      | 选择语义：单击/Shift/框选方向、拖拽点集、已选列表数据、命令悬停候选                              |
+| `sketch-actions.ts` | 原子领域动作与统一求解入口 `solve`：画图/加约束/删除/固定/构造/尺寸/拖拽                         |
+| `operations.ts`     | 统一操作引擎：`Operand`/`SlotSpec`/`OperationMeta`、命令会话、槽位填充、命令文案/预览、`TOOLS`   |
+| `text-style.ts`     | 地图排版页：分类文字样式解析/批量应用/恢复默认、分类默认统一字号、旧 page 块 `geo_label_id` 还原 |
 
 ### 1.4 `src/render/`：绘图与输出层
 
@@ -98,19 +99,20 @@ flowchart TB
 
 ### 1.5 `src/ui/`：miko_ui 组件封装
 
-| 文件                 | 一句话职责                                                                           |
-| -------------------- | ------------------------------------------------------------------------------------ |
-| `app-shell.ts`       | `mountAppShell`：在 `#app` 网格里建侧栏/dock/画布/通知区宿主，并接侧栏拖拽条         |
-| `toolbar.ts`         | `buildToolbar`：顶部 dock（工具分段、约束按钮、固定/构造、吸附开关、适应/导出/清空） |
-| `editor-controls.ts` | 工具栏命令实现 + 唯一同步入口 `sync()`（重绘 + 已选列表 + 状态栏）                   |
-| `status-panel.ts`    | 左侧通高状态栏外壳：标题 + 「已选择」插槽 + 状态/输入插槽                            |
-| `selection-list.ts`  | 「已选择」列表：行、种类徽章、行内约束胶囊「×」、内容签名去重                        |
-| `hint-editor.ts`     | 状态区两行 `<output>` + 尺寸数字输入框（提交/取消/非法态/闪示 info）                 |
-| `parse-dim-input.ts` | 尺寸输入的纯解析（node 可测，无 DOM）                                                |
-| `notify.ts`          | error 进 miko_ui 消息区、info 交给状态栏闪示；自绘确认框 `askConfirm`                |
-| `download.ts`        | Blob/`<a download>`/objectURL 下载适配器                                             |
-| `measure-text.ts`    | `createTextMeasurer()`：canvas `measureText` 适配器（无 canvas 时回退估算）          |
-| `sidebar-resizer.ts` | 侧栏宽度拖拽/键盘调整、clamp、读屏值、localStorage 记忆                              |
+| 文件                   | 一句话职责                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------ |
+| `app-shell.ts`         | `mountAppShell`：在 `#app` 网格里建侧栏/dock/画布/通知区宿主，并接侧栏拖拽条         |
+| `toolbar.ts`           | `buildToolbar`：顶部 dock（工具分段、约束按钮、固定/构造、吸附开关、适应/导出/清空） |
+| `editor-controls.ts`   | 工具栏命令实现 + 唯一同步入口 `sync()`（重绘 + 已选列表 + 状态栏）                   |
+| `status-panel.ts`      | 左侧通高状态栏外壳：标题 + 「已选择」插槽 + 状态/输入插槽                            |
+| `selection-list.ts`    | 「已选择」列表：行、种类徽章、行内约束胶囊「×」、内容签名去重                        |
+| `hint-editor.ts`       | 状态区两行 `<output>` + 尺寸数字输入框（提交/取消/非法态/闪示 info）                 |
+| `parse-dim-input.ts`   | 尺寸输入的纯解析（node 可测，无 DOM）                                                |
+| `notify.ts`            | error 进 miko_ui 消息区、info 交给状态栏闪示；自绘确认框 `askConfirm`                |
+| `download.ts`          | Blob/`<a download>`/objectURL 下载适配器                                             |
+| `measure-text.ts`      | `createTextMeasurer()`：canvas `measureText` 适配器（无 canvas 时回退估算）          |
+| `sidebar-resizer.ts`   | 侧栏宽度拖拽/键盘调整、clamp、读屏值、localStorage 记忆                              |
+| `page-style-window.ts` | 地图排版页：「样式设置」模态窗口（两组分类列表 + 按分类的样式字段 + 恢复默认）       |
 
 ### 1.6 `src/config/`：常量与元数据
 
@@ -658,13 +660,17 @@ map.html（纯静态 Vite 站）
   core/base64.ts         内嵌源 / marker 的 UTF-8 base64
   core/document.ts       PageDocument + createPageDocument（三条路径共用一致性校验）
   core/page.ts           geo/page 类型、规范化/校验、canonicalJson/digest/serializeMapDocFile
-  core/page-layout.ts    §5 全部布局公式 + defaultPageLayout（可选块降级）
+  core/page-layout.ts    §5 全部布局公式 + defaultPageLayout（可选块降级；按 text_style 覆盖出分类样式，
+                         地图分类统一字号）
+  core/text-style.ts     分类文字样式：item→分类、分类有效样式与默认统一字号解析、覆盖表批量应用与
+                         恢复默认、旧 page 块 geo_label_id 还原（纯逻辑）
   render/compose-svg.ts  浏览器内合成 final.svg（纯函数）
         │ 编辑：排版只改内存里的 PageLayout
         │ 导出（Blob + <a download>）
         ▼
   <stem>.geo.json      统一文件：geo 全部字段 + `page` 排版块
-                       （纸张、地图摆放、图框/刻度、text/legend/colorbar items）；再次打开即恢复排版
+                       （纸张、地图摆放、图框/刻度、分类样式覆盖 `text_style`、text/legend/colorbar items）；
+                       再次打开即恢复排版
   <stem>.svg           交付成品：纸张尺寸、底图内容内联、文字可选中、单文件；
                        内嵌 `<metadata id="mapdoc-source">`（整份 geo.json + 底图前后缀）→ 可单文件再编辑
 ```
@@ -678,13 +684,13 @@ map.html（纯静态 Vite 站）
 
 ### 15.2 文件与分层落点（两个入口、同一套五层）
 
-| 层        | 草图（`index.html`）          | 地图排版（`map.html`）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| --------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `config/` | `config/*.ts`                 | `config/page.ts`：格式标识、上传 accept、校验容差、纸张预设、页边距/字号/图例/色标默认值、上限<br>`config/text-style.ts`：地图标注/页面文字样式常量（role 颜色表 + 字重/字距/行高/光晕；样式唯一真源，其余层只引用）                                                                                                                                                                                                                                                                                    |
-| `core/`   | 草图模型/约束/求解/尺寸       | `core/base-svg.ts`：底图 C1–C4 与 inner/prefix/suffix 切片<br>`core/open-map.ts`：三条打开路径 → PageDocument + 初始排版<br>`core/final-svg.ts`：成品 SVG 内嵌源读取 / 底图还原<br>`core/base64.ts`：UTF-8 base64<br>`core/document.ts`：PageDocument、createPageDocument、上传文件分类、导出命名<br>`core/page.ts`：geo/page 类型、规范化/校验/digest/序列化（纯逻辑，node 可测）<br>`core/page-layout.ts`：§5 布局公式 + `defaultPageLayout(geo, options)`（A4 横向/自适应纸张、可选块降级）          |
-| `render/` | canvas 渲染 + `export-svg.ts` | `render/page-format.ts`（3 位小数/转义/属性 helper）<br>`render/page-svg.ts`：layout+geo → 预览 SVG DOM（纸张/底图 image/框/刻度/文字/图例/色标）<br>`render/compose-svg.ts`：浏览器内合成 final.svg（结构/marker/内嵌源/report）                                                                                                                                                                                                                                                                       |
-| `ui/`     | 状态栏/dock/工具条/通知       | `ui/page-open.ts`（上传面板）、`ui/page-toolbar.ts`、`ui/page-notify.ts`、`ui/download.ts`；属性面板拆为 `ui/page-sidebar.ts`（编排：面板壳/sync/元素列表）+ `ui/page-sidebar-context.ts`（面板契约）+ `ui/page-sidebar-controls.ts`（控件登记与刷新）+ `ui/page-panel-paper.ts` / `ui/page-panel-map.ts`（页面/地图面板）+ `ui/page-fields-common.ts` / `ui/page-fields-text.ts` / `ui/page-fields-legend.ts` / `ui/page-fields-colorbar.ts`（元素公共/文字/图例/色标字段）（全部 miko_ui 或标准 DOM） |
-| `app/`    | `main.ts` + `editor.ts`       | `page-main.ts`（组合根：File 读成字节 + core/open-map 装配）、`page-editor.ts`（选择/拖拽/缩放/导出状态机）                                                                                                                                                                                                                                                                                                                                                                                             |
+| 层        | 草图（`index.html`）          | 地图排版（`map.html`）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config/` | `config/*.ts`                 | `config/page.ts`：格式标识、上传 accept、校验容差、纸张预设、页边距/字号/图例/色标默认值、纸张比例系数 `layoutScaleForPaper`、上限<br>`config/text-style.ts`：文字样式默认值 + 分类元信息（role 颜色表、页面文字默认字号、20 个分类 = 6 页面文字 + 14 地图地名 与两组顺序；样式唯一真源，其余层只引用）                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `core/`   | 草图模型/约束/求解/尺寸       | `core/base-svg.ts`：底图 C1–C4 与 inner/prefix/suffix 切片<br>`core/open-map.ts`：三条打开路径 → PageDocument + 初始排版<br>`core/final-svg.ts`：成品 SVG 内嵌源读取 / 底图还原<br>`core/base64.ts`：UTF-8 base64<br>`core/document.ts`：PageDocument、createPageDocument、上传文件分类、导出命名<br>`core/page.ts`：geo/page 类型、规范化/校验/digest/序列化（含 `text_style` 与 `geo_label_id`；纯逻辑，node 可测）<br>`core/page-layout.ts`：§5 布局公式 + `defaultPageLayout(geo, options)`（A4 横向/自适应纸张、可选块降级、按 `text_style` 覆盖出分类样式与地图分类统一字号）<br>`core/text-style.ts`：分类文字样式解析/批量应用/恢复默认、分类默认统一字号、旧 page 块 `geo_label_id` 还原（纯逻辑） |
+| `render/` | canvas 渲染 + `export-svg.ts` | `render/page-format.ts`（3 位小数/转义/属性 helper）<br>`render/page-svg.ts`：layout+geo → 预览 SVG DOM（纸张/底图 image/框/刻度/文字/图例/色标）<br>`render/compose-svg.ts`：浏览器内合成 final.svg（结构/marker/内嵌源/report）                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `ui/`     | 状态栏/dock/工具条/通知       | `ui/page-open.ts`（上传面板）、`ui/page-toolbar.ts`（文件/添加/样式/视图四组）、`ui/page-style-window.ts`（分类样式设置窗口）、`ui/page-notify.ts`、`ui/download.ts`；属性面板拆为 `ui/page-sidebar.ts`（编排：面板壳/sync/元素列表）+ `ui/page-sidebar-context.ts`（面板契约）+ `ui/page-sidebar-controls.ts`（控件登记与刷新）+ `ui/page-panel-paper.ts` / `ui/page-panel-map.ts`（页面/地图面板）+ `ui/page-fields-common.ts` / `ui/page-fields-text.ts`（内容/角色/对齐/旋转 + 打开样式设置） / `ui/page-fields-legend.ts` / `ui/page-fields-colorbar.ts`（元素公共/文字/图例/色标字段）（全部 miko_ui 或标准 DOM）                                                                                     |
+| `app/`    | `main.ts` + `editor.ts`       | `page-main.ts`（组合根：File 读成字节 + core/open-map 装配 + 样式窗口生命周期）、`page-editor.ts`（选择/拖拽/缩放/导出状态机 + 分类样式补丁）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 `npm run arch` 的层规则不变：两个入口都只使用 `app → ui/render/core/config` 的下行依赖。
 地图排版页与草图内核**不共享模块级单例**，因此刷新/切换模式不会互相污染。
@@ -700,20 +706,36 @@ page-main.ts:
     ① base.svg + geo.json（readBaseSvg + validateGeo + createPageDocument 一致性校验）；
     ② 成品 SVG 自带内嵌源（无 JSON，或 JSON 只交叉校验）：底图逐字节还原 → 恢复 page 排版；
     ③ 旧版成品（无内嵌源）+ 配套 geo.json：合成底图外壳 + marker 配套校验
-  → 有合法 page 块（或成品内嵌源）则恢复排版；否则 defaultPageLayout（标脏）
-  → URL.createObjectURL(baseBytes) 建预览地址 → 建 sidebar/editor/toolbar → start
+  → 有合法 page 块（或成品内嵌源）则恢复排版（旧 page 块缺 `geo_label_id` 时按文字/位置/锚点尽量
+    还原）；否则 defaultPageLayout（标脏）
+  → URL.createObjectURL(baseBytes) 建预览地址
+  → 建 sidebar → 建 PageEditor → 建 StyleSettingsWindow（宿主 document.body；getLayout/getGeo 每次
+    取最新值，onApply/onReset 转发编辑器的 applyTextStyleChange / resetTextStyleChange）
+  → buildPageToolbar（含「样式设置」）→ editor.start()
 交互：
   点击 = data-page-item 命中 → select（侧栏属性面板跟随）
   选中框/命中盒 = §5.7 item 几何框（page 块 + §5 公式 + 字体行盒），不是 DOM getBBox
   拖拽 = page 空间 item 写回 pt；map 空间 item 写回底图坐标（§5.1 反变换）
   方向键 = 1pt 微移（Shift 10pt）；滚轮 = 以指针为中心缩放；空格/中键 = 平移
   双击文字 = 侧栏内容框聚焦
-  工具条 = 打开… / 导出 geo.json / 导出 SVG + 添加 + 视图；Ctrl+S = 导出 geo.json
+  工具条 = 打开… / 导出 geo.json / 导出 SVG + 添加 + 「样式设置」+ 视图；Ctrl+S = 导出 geo.json
+  侧栏文字字段 = 内容/角色（仅页面文字）/对齐/旋转；切换角色立即套用新分类样式；
+                底部「打开样式设置」与工具条「样式设置」打开同一个窗口
+  样式设置窗口 = 两组分类（页面文字 6 / 地图标注 14）→ 单字段补丁（字号/颜色/字重/斜体/行高/字距/
+                光晕）→ core/text-style.applyTextStyle 批量写回该分类全部 item 并把覆盖记进
+                `page.text_style`；地图分类字号与页面分类同为单个数字、同分类全部地名强制统一
+                （缺省 = 分类默认统一字号，即该分类底图字号中位数 × 缩放），改任意字段（含只改
+                颜色）都会写回统一字号；「恢复默认」= resetTextStyle 删掉该分类覆盖并按默认样式
+                重写 item（地图分类回到分类默认统一字号）
+  「打开…」/换文档 = closeSession 先 destroy 样式窗口，再 destroy 编辑器、revoke 预览地址
 ```
 
 `page-editor.ts` 是唯一持有「当前 layout（`PageLayout`）+ 选中 id + 视图 viewBox + dirty」的地方；
-渲染是 `render/page-svg.ts` 的纯函数式重建（每帧全量重建 DOM，数量 ≤500，简单优先）。`destroy()`
-解绑 window/svg 监听并清空根节点；「打开…」在脏时先确认，再 destroy + revoke + 回到上传面板。
+渲染是 `render/page-svg.ts` 的纯函数式重建（每帧全量重建 DOM，数量 ≤500，简单优先）。分类样式修改
+经 `applyTextStyleChange`/`resetTextStyleChange` 落到 `core/text-style.ts`（同时改覆盖表与该分类的
+item 显式样式字段）+ 重绘；`relayoutDefault` 把当前 `text_style` 传给 `defaultPageLayout`，重排后
+用户覆盖仍在。`destroy()` 解绑 window/svg 监听并清空根节点；「打开…」在脏时先确认，再
+destroy + revoke + 回到上传面板。
 
 ### 15.4 导出与合成链（浏览器内）
 
@@ -737,7 +759,10 @@ page-main.ts:
 `<metadata id="mapdoc-source">`（内嵌可编辑源）→ `<defs>`（必含 `mapdoc-map-clip`，有 colorbar 时
 再放色标渐变）→ 地图 group（底图原文，`clip-path` 裁到地图框）→ `mapdoc-frame` → `mapdoc-overlay` →
 `<!-- mapdoc-final:B64 -->`。marker（v2）记录 counts / geoDigest / pageDigest / version，键名 `page`
-（旧 `scene` 键已删除）；打开成品时会被读取用于配对校验（单文件路径只告警，成品+geo 路径不一致即拒绝）。
+（旧 `scene` 键已删除）；打开成品时会被读取用于配对校验（单文件路径只告警，成品+geo 路径不一致即
+拒绝）。`marker.page` 先比当前 `pageDigest`，再回退 `legacyPageDigest`（剥掉 `page.text_style` 与
+item 的 `geo_label_id` 后按改造前口径计算），因此分类样式上线前导出的成品不会被误判为不配套——
+兼容只放宽打开校验，不改导出/签名口径，真正的错配仍拒绝。
 内嵌源让成品单文件可再编辑：底图只存 prefix/suffix，inner 已在 `mapdoc-map` 组里，三者相接即逐字节
 还原底图（`core/final-svg.ts`）；`base.sha256`/`base.exact` 让「旧版成品迁移后再导出」的合成底图外壳
 也能被单文件重开（exact=false 时对照内嵌摘要，不再误用 `geo.base.sha256`）。成品不引用外部底图资源，但底图内部自带的内联 `<image>`
@@ -761,6 +786,14 @@ prepare/extract 步骤。
   字体子集载荷位置已预留（未来往 `<defs>` 加 `@font-face`）。
 - 不做自动换行/两端对齐：`defaultPageLayout` 用 canvas 测量把注记/来源折成 `lines`，之后不再重排；
   字距按 item 的 `letter_spacing_em` 渲染。
+- 文字样式是**分类级覆盖**：侧栏单条 item 不再有字号/颜色/字重/斜体/行高/字距/光晕字段，同一分类下
+  所有文字共用一套样式，「样式设置」窗口改一次即批量写回该分类的全部 item；要单条不同样式只能换
+  角色/分类。地图地名 item 记录 `geo_label_id` 指向来源 `geo.labels[].id`（用于判断分类归属）；
+  旧 page 块没有该字段时，打开时按文字/水平位置/锚点尽量还原，只补 id、不改样式。
+- 地图标注**按分类强制统一字号**：不能逐条保留底图字号层级。默认排版、批量应用（哪怕只改颜色）、
+  恢复默认都写「覆盖 `font_size_pt` ?? 分类默认统一字号」（该分类底图字号中位数 × 地图缩放比 `s`，
+  夹 4..40 并保留 1 位小数；该分类没有地名时回退 10pt），同一分类全部地名同字号。旧 page 块打开时
+  item 保留原字号、不自动改写，需在分类里改一次样式（任意字段）才统一。
 - 无自动草稿：不写 localStorage、不自动下载；未导出即刷新/关闭会丢修改（`beforeunload` 提醒）。
 - 大底图（约 10MB）首次打开/导出在主线程一次完成（读取、UTF-8 解码、sha256、C1–C4 扫描、合成），
   未 Worker 化，可能卡顿。

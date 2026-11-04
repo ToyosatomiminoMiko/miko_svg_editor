@@ -10,7 +10,9 @@
  * 写回底图坐标；预览与成品共用 `core/page-layout.ts` 的同一套 §5 公式。
  * 缩放/平移通过根 `<svg>` 的 `viewBox` 实现；指针坐标转换统一走 `getScreenCTM().inverse()`，
  * 这样 letterbox（preserveAspectRatio）与设备像素比都不需要自己算。
- * 元信息：作者 frontend，2026-10-27；2026-10-28 改为无后端（上传文档 + 双导出）。
+ * 元信息：作者 frontend，2026-10-27；2026-10-28 改为无后端（上传文档 + 双导出）；
+ *         作者 lead，2026-11-05，增加分类文字样式补丁入口（applyTextStyleChange /
+ *         resetTextStyleChange），新建文字与「重新排默认版式」沿用 page.text_style。
  */
 
 import {
@@ -47,7 +49,17 @@ import {
   mapTransform,
   type DefaultPageLayoutOptions,
 } from '../core/page-layout';
-import { PAGE_TEXT_STYLES } from '../config/text-style';
+import {
+  applyCategoryStyleToItem,
+  applyTextStyle,
+  resetTextStyle,
+  type TextStylePatch,
+} from '../core/text-style';
+import {
+  PAGE_TEXT_DEFAULT_FONT_SIZE_PT,
+  PAGE_TEXT_STYLES,
+  type TextStyleCategoryId,
+} from '../config/text-style';
 import { formatPageNumber } from '../render/page-format';
 import { composeFinalSvg, type ComposeReport } from '../render/compose-svg';
 import { renderPageSvg } from '../render/page-svg';
@@ -205,6 +217,23 @@ export class PageEditor {
     mutate(this.layout, this.geo);
     this.dirty = true;
     this.renderAll();
+  }
+
+  /**
+   * 样式设置窗口的一次补丁：写 `page.text_style` 覆盖并批量同步该分类所有文字。
+   * 为什么走 applyPageChange：改的是排版真值，必须记脏、重绘预览并刷新侧栏（选中项的样式说明）。
+   */
+  applyTextStyleChange(category: TextStyleCategoryId, patch: TextStylePatch): void {
+    this.applyPageChange((layout, geo) => {
+      applyTextStyle(layout, geo, category, patch);
+    });
+  }
+
+  /** 样式设置窗口的「恢复默认」：删掉该分类覆盖，恢复代码默认样式。 */
+  resetTextStyleChange(category: TextStyleCategoryId): void {
+    this.applyPageChange((layout, geo) => {
+      resetTextStyle(layout, geo, category);
+    });
   }
 
   /** 选中元素（null = 取消选中） */
@@ -396,6 +425,8 @@ export class PageEditor {
       margin_pt: marginPt,
       paper: { ...this.layout.paper },
       measureText: this.measureText.width,
+      // 重新排版要保留用户已经设过的分类样式（否则「样式设置」会被一次重排全部清掉）
+      text_style: structuredClone(this.layout.text_style),
     };
     this.layout = defaultPageLayout(this.geo, options);
     this.selectedId = null;
@@ -679,74 +710,55 @@ export class PageEditor {
 
   /* =========================== 新建元素 =========================== */
 
-  /** 文字模板：按 role 给默认位置/字号/对齐（用户随后可改） */
+  /**
+   * 文字模板：按 role 给默认位置/文案/对齐，样式（含字号）取该分类的有效样式。
+   * 为什么样式不在这里写死：2026-11-05 起所有文字样式统一在「样式设置」窗口按分类配置，
+   * 覆盖值落 `page.text_style`；新建文字必须与分类当前样式一致，否则刚加出来就和同类不同步。
+   */
   private newTextItem(layout: PageLayout, id: number, role: TextRole): TextItem {
     const paper = layout.paper;
-    const centerX = paper.width_pt / 2;
-    // 样式默认值只从 config/text-style.ts 的页面文字角色表取，不在这里写死
     const style = PAGE_TEXT_STYLES[role];
-    const base = {
+    const item: TextItem = {
       id,
-      kind: 'text' as const,
-      space: 'page' as const,
+      kind: 'text',
+      space: 'page',
       role,
+      x: paper.width_pt / 2,
+      y: paper.height_pt / 2,
+      lines: ['新文字'],
+      font_size_pt: PAGE_TEXT_DEFAULT_FONT_SIZE_PT[role],
       font_family: null,
       color: style.color,
+      anchor: 'middle',
       rotation_deg: 0,
       line_height: style.line_height,
       italic: style.italic,
       font_weight: style.font_weight,
       letter_spacing_em: style.letter_spacing_em,
       halo: style.halo ? { ...style.halo } : null,
+      geo_label_id: null,
     };
+    const placed = this.placeNewText(item, layout, role);
+    applyCategoryStyleToItem(layout, this.geo, placed);
+    return placed;
+  }
+
+  /** 新文字的默认位置/文案/对齐（样式由 `newTextItem` 随后按分类统一覆盖） */
+  private placeNewText(item: TextItem, layout: PageLayout, role: TextRole): TextItem {
+    const paper = layout.paper;
     switch (role) {
       case 'title':
-        return {
-          ...base,
-          x: centerX,
-          y: layout.map.y - 26,
-          lines: ['新标题'],
-          font_size_pt: 18,
-          anchor: 'middle',
-        };
+        return { ...item, y: layout.map.y - 26, lines: ['新标题'] };
       case 'subtitle':
-        return {
-          ...base,
-          x: centerX,
-          y: layout.map.y - 10,
-          lines: ['副标题'],
-          font_size_pt: 9,
-          anchor: 'middle',
-        };
+        return { ...item, y: layout.map.y - 10, lines: ['副标题'] };
       case 'source':
-        return {
-          ...base,
-          x: centerX,
-          y: paper.height_pt - 14,
-          lines: ['来源说明'],
-          font_size_pt: 7,
-          anchor: 'middle',
-        };
+        return { ...item, y: paper.height_pt - 14, lines: ['来源说明'] };
       case 'note':
-        return {
-          ...base,
-          x: paper.width_pt - 210,
-          y: paper.height_pt / 2,
-          lines: ['新注记'],
-          font_size_pt: 7.5,
-          anchor: 'start',
-        };
+        return { ...item, x: paper.width_pt - 210, lines: ['新注记'], anchor: 'start' };
       case 'label':
       case 'annotation':
       default:
-        return {
-          ...base,
-          x: centerX,
-          y: paper.height_pt / 2,
-          lines: ['新文字'],
-          font_size_pt: 10,
-          anchor: 'middle',
-        };
+        return item;
     }
   }
 

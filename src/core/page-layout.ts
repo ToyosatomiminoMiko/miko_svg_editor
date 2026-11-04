@@ -11,6 +11,8 @@
  * 全部来自 `config/text-style.ts`；这里只做几何与换算。
  * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地；
  *         2026-10-29 geo v2：地名 y 改为「文字块垂直中心」，makeLabelItem 按固定比例换算回基线。
+ *         作者 core-dev，2026-11-05，默认排版按 `page.text_style` 分类覆盖解析页面文字与地名
+ *         样式/字号（`.work/STYLE-SETTINGS-SPEC.md` §5.1/§5.2）。
  */
 
 import {
@@ -32,8 +34,6 @@ import {
   PAGE_DEFAULT_RIGHT_COLUMN_MIN_PT,
   PAGE_DEFAULT_TEXT_COLOR,
   PAGE_FRAME_DEFAULTS,
-  PAGE_LAYOUT_SCALE_MAX,
-  PAGE_LAYOUT_SCALE_MIN,
   PAGE_LEGEND_DEFAULTS,
   PAGE_MAX_TEXT_LINE_CHARS,
   PAGE_MAX_TEXT_LINES,
@@ -49,8 +49,12 @@ import {
   PAGE_TEXT_FALLBACK_DESCENT_RATIO,
   PAGE_TITLE_BASELINE_OFFSET_PT,
   PAGE_TITLE_SIZE_PT,
+  layoutScaleForPaper,
 } from '../config/page';
-import { MAP_LABEL_ROLE_STYLES, MAP_LABEL_STYLE, PAGE_TEXT_STYLES } from '../config/text-style';
+import { MAP_LABEL_STYLE, PAGE_TEXT_STYLES } from '../config/text-style';
+import { mapCategoryDefaultFontSizePt, resolveTextStyleFields } from './text-style';
+import type { ResolvedTextStyleFields } from './text-style';
+import { cloneTextStyleOverrides } from './page';
 import type { MeasureText, TextMeasure } from './types';
 import type {
   ColorbarItem,
@@ -72,6 +76,7 @@ import type {
   TextAnchor,
   TextItem,
   TextRole,
+  TextStyleOverrides,
 } from './page';
 
 /* =========================== 底图 → 纸张（§5.1） =========================== */
@@ -682,6 +687,12 @@ export interface DefaultPageLayoutOptions {
   readonly paper?: PagePaper;
   /** 文本测量器；缺省用无 DOM 估算 */
   readonly measureText?: MeasureText;
+  /**
+   * 分类样式覆盖（`page.text_style`）。重新排默认版式时必须把当前覆盖表传进来，
+   * 否则用户设过的分类样式会被一次重排全部清掉（见规格 §6）。
+   * 结果里的 `text_style` 是它的深拷贝；缺省 `{}`。
+   */
+  readonly text_style?: TextStyleOverrides;
 }
 
 /** A4 横向的默认纸张 */
@@ -760,8 +771,11 @@ function haloOf(halo: Halo | null): Halo | null {
 
 /**
  * 文字元素工厂：所有可选字段都显式写出，保证 layout 形状固定。
- * 颜色/斜体/字重/字距/行高/光晕的默认值全部来自 `PAGE_TEXT_STYLES[role]`（单一真源）；
- * overrides 只用于调用方确有语义差异的字段（如锚点、坐标空间）。
+ * 无覆盖时颜色/斜体/字重/字距/行高/光晕全部来自 `PAGE_TEXT_STYLES[role]`（单一真源）；
+ * overrides 承载两件事：调用方确有语义差异的字段（锚点/坐标空间），以及 `defaultPageLayout`
+ * 按分类覆盖解析出的样式（解析口径见 `core/text-style.ts`）。
+ * `halo` 的 undefined 与 null 语义不同：undefined = 用角色默认，null = 显式关光晕，
+ * 所以不能用 `??` 合并（默认光晕可能非 null 的角色会吞掉「关光晕」）。
  */
 function makeTextItem(
   id: number,
@@ -803,7 +817,9 @@ function makeTextItem(
     italic: overrides.italic ?? style.italic,
     font_weight: overrides.font_weight ?? style.font_weight,
     letter_spacing_em: overrides.letter_spacing_em ?? style.letter_spacing_em,
-    halo: haloOf(overrides.halo ?? style.halo),
+    halo: overrides.halo === undefined ? haloOf(style.halo) : haloOf(overrides.halo),
+    // 页面文字不是任何 geo.labels 的来源
+    geo_label_id: null,
   };
 }
 
@@ -819,22 +835,35 @@ function makeTextItem(
  * 纸面 pt 再除以 mapScale 加回去，底图坐标 → 纸面后的视觉位置与旧图一致（多行统一 1.2 行高，
  * 整块中心最多 ≤1pt 位移，可接受）。
  * 字号/描边换算：geo 字号按原图 896pt 地图设计，放到 A4 左栏需乘地图缩放 s；字号夹到 4..40pt
- * 避免不可读；描边宽度是纸面常量（不随 s 缩放）。颜色/斜体/字重/字距/行高全部来自
- * `config/text-style.ts`。地名只跟地图缩放 s，不跟纸张自适应比例 k（两者语义不同）。
+ * 避免不可读；描边宽度是纸面常量（不随 s 缩放）。
+ * 字号（§12.1）：地图分类的字号恒统一——`label.role` 的覆盖字号 ?? 分类默认统一字号
+ * （该分类全部地名原始字号的中位数 × 地图缩放 s，夹 4..40、保留 1 位小数）。不再使用单条
+ * label 的字号，同一分类下所有地名 item 逐值相等。
+ * 分类覆盖（§5.2）：颜色/斜体/字重/字距/行高/halo 按 `label.role` 查 `layout.text_style`
+ * 解析；没有覆盖时逐字段等于 `config/text-style.ts` 的默认值。
+ * 行高/字号参与 y 换算，所以必须用解析后的值。
  * 生成端不再给旋转：`rotation_deg` 固定 0（编辑器里仍可旋转）。
  */
-function makeLabelItem(id: number, label: GeoLabel, mapScale: number): TextItem {
+function makeLabelItem(
+  id: number,
+  label: GeoLabel,
+  geo: Geo,
+  mapScale: number,
+  textStyle: TextStyleOverrides,
+): TextItem {
   const lines = label.text
     .split('\n')
     .slice(0, PAGE_MAX_TEXT_LINES)
     .map((line) => line.slice(0, PAGE_MAX_TEXT_LINE_CHARS));
-  const sourceSize = label.font_size_pt > 0 ? label.font_size_pt : 12;
-  const scaledSize = Math.min(40, Math.max(4, sourceSize * mapScale));
-  // 防御式回退：正常路径已由 validateGeo 保证 role 在枚举内，坏数据落到 area 也不崩。
-  const roleStyle = MAP_LABEL_ROLE_STYLES[label.role] ?? MAP_LABEL_ROLE_STYLES.area;
-  const step = scaledSize * MAP_LABEL_STYLE.line_height;
-  const offsetPaper = MAP_LABEL_STYLE.baseline_ratio * scaledSize - ((lines.length - 1) * step) / 2;
   const scale = mapScale > 0 ? mapScale : 1;
+  // 防御式回退：正常路径已由 validateGeo 保证 role 在枚举内，坏数据由 resolveTextStyleFields
+  // 落到 area 的样式（覆盖表里也不存在这个未知分类的键）。
+  const override = textStyle[label.role];
+  const style = resolveTextStyleFields(label.role, override);
+  // 分类统一字号：覆盖 ?? 中位数默认值（同一 role 的每条 label 都算出同一个字号）
+  const fontSize = override?.font_size_pt ?? mapCategoryDefaultFontSizePt(label.role, geo, scale);
+  const step = fontSize * style.line_height;
+  const offsetPaper = MAP_LABEL_STYLE.baseline_ratio * fontSize - ((lines.length - 1) * step) / 2;
   return {
     id,
     kind: 'text',
@@ -843,35 +872,19 @@ function makeLabelItem(id: number, label: GeoLabel, mapScale: number): TextItem 
     x: label.x,
     y: label.y + offsetPaper / scale,
     lines,
-    font_size_pt: scaledSize,
+    font_size_pt: fontSize,
     font_family: null,
-    color: roleStyle.color,
+    color: style.color,
     anchor: label.anchor,
     rotation_deg: 0,
-    line_height: MAP_LABEL_STYLE.line_height,
-    italic: roleStyle.italic,
-    font_weight: MAP_LABEL_STYLE.font_weight,
-    letter_spacing_em: MAP_LABEL_STYLE.letter_spacing_em,
-    halo: { color: MAP_LABEL_STYLE.halo_color, width_pt: MAP_LABEL_STYLE.halo_width_pt },
+    line_height: style.line_height,
+    italic: style.italic,
+    font_weight: style.font_weight,
+    letter_spacing_em: style.letter_spacing_em,
+    halo: style.halo,
+    // 让分类统一样式/回算底图原始字号时能找到来源 label
+    geo_label_id: label.id,
   };
-}
-
-/**
- * 纸张自适应比例 k（相对 A4 纸面）：A4/A3/Letter/A5 共用同一套版式公式。
- *
- * 用「长边 / 短边」分别对照 A4 的长边/短边，而不是直接拿 width/height 对 A4 横向：
- * 这样 A4 横向与 A4 纵向都得到 k=1（同一张纸换个方向，字号不该变），A5 两个方向都是
- * ≈0.705，A3 两个方向都是 ≈1.414。夹在 0.62..1.6，避免字号不可读或版面失衡。
- * 为什么需要：A5 只有 A4 的 70% 线性尺寸，字号/行高/间距不缩会把右栏（或纵向的下方一排）
- * 挤出纸面并互相重叠。
- */
-function layoutScaleFor(paper: PagePaper): number {
-  const paperLong = Math.max(paper.width_pt, paper.height_pt);
-  const paperShort = Math.min(paper.width_pt, paper.height_pt);
-  const a4Long = Math.max(PAGE_DEFAULT_PAPER_WIDTH_PT, PAGE_DEFAULT_PAPER_HEIGHT_PT);
-  const a4Short = Math.min(PAGE_DEFAULT_PAPER_WIDTH_PT, PAGE_DEFAULT_PAPER_HEIGHT_PT);
-  const ratio = Math.min(paperLong / a4Long, paperShort / a4Short);
-  return Math.min(PAGE_LAYOUT_SCALE_MAX, Math.max(PAGE_LAYOUT_SCALE_MIN, ratio));
 }
 
 /**
@@ -881,7 +894,10 @@ function layoutScaleFor(paper: PagePaper): number {
  * - 横向（默认）：左地图 + 右栏（图例→注记→色标）；
  * - 纵向（`paper.height > paper.width * 1.05`）：整宽地图 + 下方一排（图例 / 注记 / 色标），
  *   避免竖版纸上地图只占半宽、下方大片空白。
- * 两套都按纸张自适应比例 k 缩放纸面字号与间距；地名只按地图缩放 s（见 makeLabelItem）。
+ * 两套都按纸张自适应比例 k（`config/page.ts` 的 `layoutScaleForPaper`，唯一真源）缩放纸面
+ * 字号与间距；地名只按地图缩放 s（见 makeLabelItem）。
+ * 分类覆盖（§5.2）：`options.text_style` 里的覆盖逐字段取代默认值；注记/来源的折行测量与
+ * 块高用解析后的字号/字重/行高（否则覆盖后文字会溢出或压到下一块）。
  */
 export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = {}): PageLayout {
   const measure = options.measureText ?? fallbackMeasureText;
@@ -894,6 +910,9 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   };
   const frame: PageFrame = { ...PAGE_FRAME_DEFAULTS };
   const legendTitle = geo.suggestions.legend_title || geo.legend.title || '图例';
+  // 分类样式覆盖表：深拷贝进 layout（调用方与 layout 不共享可变对象）；键名/字段名收敛见
+  // core/page.ts 的 cloneTextStyleOverrides。
+  const textStyle: TextStyleOverrides = cloneTextStyleOverrides(options.text_style);
 
   /*
    * 可选块降级：Cartopy 不画图例 / 不画色标 / 没有默认文案时，这些块整体缺省。
@@ -907,7 +926,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   const hasRightColumn = hasLegend || hasNotes || hasColorbar;
 
   // 纸张自适应比例 k：所有「纸面元素」的字号/间距按它缩放（地名另有地图缩放 s）
-  const k = layoutScaleFor(paper);
+  const k = layoutScaleForPaper(paper.width_pt, paper.height_pt);
   const columnGap = PAGE_DEFAULT_COLUMN_GAP_PT * k;
   const sourceReserved = PAGE_SOURCE_RESERVED_PT * k;
   const titleArea = (PAGE_DEFAULT_MAP_TOP_PT - PAGE_DEFAULT_MARGIN_PT) * k;
@@ -917,6 +936,36 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   const baseRatio = geo.base.height_pt / geo.base.width_pt;
   // 竖版判定：高度超过宽度 1.05 倍（容忍近方形自定义纸仍走横向）
   const portrait = paper.height_pt > paper.width_pt * 1.05;
+
+  /*
+   * 分类样式解析：页面文字与地图地名都按 `page.text_style` 的覆盖逐字段取代默认值
+   * （解析口径见 core/text-style.ts，与样式设置窗口完全同源）。默认排版里字号还要乘纸张
+   * 比例 k；地图地名另乘地图缩放 s（在 makeLabelItem 里）。
+   */
+  const pageStyleOf = (role: TextRole): ResolvedTextStyleFields =>
+    resolveTextStyleFields(role, textStyle[role]);
+  const pageFontSizeOf = (role: TextRole, defaultSizePt: number): number =>
+    textStyle[role]?.font_size_pt ?? defaultSizePt;
+  /** 解析后的分类样式 → makeTextItem 的 overrides；color 可另行兜底（注记/来源沿用 style.color） */
+  const textOverridesOf = (fields: ResolvedTextStyleFields, color?: string) => ({
+    color: color ?? fields.color,
+    italic: fields.italic,
+    font_weight: fields.font_weight,
+    letter_spacing_em: fields.letter_spacing_em,
+    line_height: fields.line_height,
+    halo: fields.halo,
+  });
+
+  // 注记/来源的解析值同时参与折行测量与块高：覆盖字号/行高后必须按新值重算，
+  // 否则右栏会溢出、纵向一排会互相压字（规格 §5.2）。
+  const noteStyle = pageStyleOf('note');
+  const noteSize = pageFontSizeOf('note', PAGE_NOTE_SIZE_PT * k);
+  const noteLineHeight = noteStyle.line_height;
+  const noteColor = textStyle.note?.color ?? style.color;
+  const sourceStyle = pageStyleOf('source');
+  const sourceSize = pageFontSizeOf('source', PAGE_SOURCE_SIZE_PT * k);
+  const sourceLineHeight = sourceStyle.line_height;
+  const sourceColor = textStyle.source?.color ?? style.color;
 
   // 图例最小宽度：先按文字测量，再按纸张比例夹到可读区间。
   // 横向沿用固定 150..260pt 区间（A5 横向已验证）；纵向随 k 收缩，避免小纸上图例占比过大。
@@ -1007,7 +1056,8 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
         paper.width_pt / 2,
         titleY,
         [geo.suggestions.title],
-        PAGE_TITLE_SIZE_PT * k,
+        pageFontSizeOf('title', PAGE_TITLE_SIZE_PT * k),
+        textOverridesOf(pageStyleOf('title')),
       ),
     );
   }
@@ -1022,7 +1072,8 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
         paper.width_pt / 2,
         subtitleY,
         [geo.suggestions.subtitle],
-        PAGE_SUBTITLE_SIZE_PT * k,
+        pageFontSizeOf('subtitle', PAGE_SUBTITLE_SIZE_PT * k),
+        textOverridesOf(pageStyleOf('subtitle')),
       ),
     );
   }
@@ -1033,7 +1084,6 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     // （刻度字号是纸面字号、不随 k 缩），纵向一排必须让开这段高度。
     // 注意 notes 的首行基线 = rowY，但文字 group 的包围盒上沿还要再高约 0.9em：
     // 所以让位量按「刻度标签基线 + max(16k, 注记上沿+4)」算，保证注记上沿不压 "35°E…"。
-    const noteSize = PAGE_NOTE_SIZE_PT * k;
     const tickLabelExtent = frame.ticks
       ? frame.tick_length_pt +
         frame.tick_gap_pt +
@@ -1050,7 +1100,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
       40,
       contentWidth - legendWidth - leadingGap - (hasColorbar ? colorbarWidth + columnGap : 0),
     );
-    const noteFont = fontShorthand(noteSize, style.font_family, PAGE_TEXT_STYLES.note.font_weight);
+    const noteFont = fontShorthand(noteSize, style.font_family, noteStyle.font_weight);
     const noteLines = wrapParagraphs(geo.suggestions.notes, noteFont, notesWidth, measure).filter(
       (line) => line.length > 0,
     );
@@ -1068,10 +1118,10 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
       items.push(
         makeTextItem(nextId++, 'note', notesX, rowY, noteLines, noteSize, {
           anchor: 'start',
-          color: style.color,
+          ...textOverridesOf(noteStyle, noteColor),
         }),
       );
-      noteBlockHeight = noteLines.length * noteSize * PAGE_TEXT_STYLES.note.line_height;
+      noteBlockHeight = noteLines.length * noteSize * noteLineHeight;
     }
 
     if (hasColorbar && relief !== null) {
@@ -1119,8 +1169,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
       contentTop = mapTop + legendLayout(legendItem).height;
     }
 
-    const noteSize = PAGE_NOTE_SIZE_PT * k;
-    const noteFont = fontShorthand(noteSize, style.font_family, PAGE_TEXT_STYLES.note.font_weight);
+    const noteFont = fontShorthand(noteSize, style.font_family, noteStyle.font_weight);
     const noteLines = wrapParagraphs(geo.suggestions.notes, noteFont, rightWidth, measure).filter(
       (line) => line.length > 0,
     );
@@ -1130,10 +1179,10 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
       items.push(
         makeTextItem(nextId++, 'note', rightX, notesY, noteLines, noteSize, {
           anchor: 'start',
-          color: style.color,
+          ...textOverridesOf(noteStyle, noteColor),
         }),
       );
-      notesBottom = notesY + noteLines.length * noteSize * PAGE_TEXT_STYLES.note.line_height;
+      notesBottom = notesY + noteLines.length * noteSize * noteLineHeight;
     }
 
     if (hasColorbar && relief !== null) {
@@ -1161,12 +1210,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   }
 
   // 4) 来源（页底一行或折行后多行，最后一行基线贴住页边距）
-  const sourceSize = PAGE_SOURCE_SIZE_PT * k;
-  const sourceFont = fontShorthand(
-    sourceSize,
-    style.font_family,
-    PAGE_TEXT_STYLES.source.font_weight,
-  );
+  const sourceFont = fontShorthand(sourceSize, style.font_family, sourceStyle.font_weight);
   const sourceLines = wrapParagraphs(
     geo.suggestions.source.length > 0 ? [geo.suggestions.source] : [],
     sourceFont,
@@ -1175,26 +1219,28 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   ).filter((line) => line.length > 0);
   if (sourceLines.length > 0) {
     const baselines = sourceLines.length;
-    const firstY =
-      paper.height_pt - margin - (baselines - 1) * sourceSize * PAGE_TEXT_STYLES.source.line_height;
+    // 块高用解析后的行高，保证多行来源的最后一行仍贴住页边距
+    const firstY = paper.height_pt - margin - (baselines - 1) * sourceSize * sourceLineHeight;
     items.push(
       makeTextItem(nextId++, 'source', paper.width_pt / 2, firstY, sourceLines, sourceSize, {
         anchor: 'middle',
-        color: style.color,
+        ...textOverridesOf(sourceStyle, sourceColor),
       }),
     );
   }
 
-  // 5) 地名标注：按 geo 原始绘制顺序铺成 map 空间文字（字号/光晕按地图缩放比 s 换算）
+  // 5) 地名标注：按 geo 原始绘制顺序铺成 map 空间文字（样式/字号按分类覆盖解析，见 makeLabelItem）
   const mapScale = geo.base.width_pt > 0 ? mapWidth / geo.base.width_pt : 1;
   const labels = [...geo.labels].sort((a, b) => a.order - b.order);
-  for (const label of labels) items.push(makeLabelItem(nextId++, label, mapScale));
+  for (const label of labels) items.push(makeLabelItem(nextId++, label, geo, mapScale, textStyle));
 
   return {
     paper,
     map: { x: margin, y: mapTop, width_pt: mapWidth },
     frame,
     style,
+    // 覆盖表随 layout 持久化（导出进 page.text_style；重新打开继续生效）
+    text_style: textStyle,
     items,
     // seq 是「下一个可用 id」：保证大于所有 item id（契约 §4）
     seq: nextId,

@@ -15,7 +15,10 @@
  * sha/逐字节还原仍成立；JSON 在 parse 前单独去掉 BOM）；geo 校验 format/字段；底图 C1–C4；
  * sha256 / viewBox / 尺寸一致（成品合成的底图外壳例外，见上）；
  * `page` 块缺省 → 默认排版（标脏），存在且合法 → 恢复排版，不合法只告警并回退默认排版。
- * 元信息：作者 lead，2026-10-29，从 `app/page-main.ts` 抽出并新增成品 SVG 两条打开路径。
+ * 元信息：作者 lead，2026-10-29，从 `app/page-main.ts` 抽出并新增成品 SVG 两条打开路径；
+ *         作者 core-dev，2026-11-05，恢复 page 后补 `reconcileGeoLabelIds`（只补 geo_label_id，
+ *         不改样式、不标脏，见 `.work/STYLE-SETTINGS-SPEC.md` §5.3）；成品 marker 的 page 摘要
+ *         兼容改造前口径（`legacyPageDigest`），「改造前导出的成品 + 当时的 geo.json」仍可打开。
  */
 
 import { PAGE_GEO_FORMAT } from '../config/page';
@@ -24,6 +27,7 @@ import { classifyUploadFile, createPageDocument, type PageDocument } from './doc
 import { readFinalSvg, reconstructFinalBase, type FinalSvgInfo } from './final-svg';
 import {
   geoDigest,
+  legacyPageDigest,
   MAP_DOC_PAGE_KEY,
   normalizeGeo,
   normalizePage,
@@ -34,6 +38,7 @@ import {
   type PageLayout,
 } from './page';
 import { defaultPageLayout } from './page-layout';
+import { reconcileGeoLabelIds } from './text-style';
 import type { MeasureText } from './types';
 
 /** 一个上传文件的原始字节与文件名（core 不认识 `File`/DOM，UTF-8 解码也在 core 内做） */
@@ -144,23 +149,30 @@ function buildPageLayout(
 ): { layout: PageLayout; dirty: boolean; warnings: string[] } {
   const warnings: string[] = [];
   const makeDefault = (): PageLayout => defaultPageLayout(geo, { measureText });
-  if (pageValue === null || pageValue === undefined) {
-    return { layout: makeDefault(), dirty: true, warnings };
-  }
-  const result = validatePage(pageValue, geo);
   let layout: PageLayout;
   let dirty: boolean;
-  if (!result.ok) {
-    warnings.push(
-      `geo.json 里的 page 排版块不合法，已改用默认排版：${result.errors.slice(0, 3).join('；')}`,
-    );
+  if (pageValue === null || pageValue === undefined) {
     layout = makeDefault();
     dirty = true;
   } else {
-    layout = normalizePage(result.layout);
-    warnings.push(...result.warnings);
-    dirty = false;
+    const result = validatePage(pageValue, geo);
+    if (!result.ok) {
+      warnings.push(
+        `geo.json 里的 page 排版块不合法，已改用默认排版：${result.errors.slice(0, 3).join('；')}`,
+      );
+      layout = makeDefault();
+      dirty = true;
+    } else {
+      layout = normalizePage(result.layout);
+      warnings.push(...result.warnings);
+      dirty = false;
+    }
   }
+
+  // 改造前导出的 page 块没有 geo_label_id：打开时按 text/x/anchor 尽量还原（规格 §5.3）。
+  // 只补 id、不改样式，也不标脏——这是数据迁移，不是用户修改；两条恢复路径（page 块、
+  // 成品内嵌源）都会经过这里，所以只需调一次。
+  reconcileGeoLabelIds(layout, geo);
 
   // geo 没有 relief（Cartopy 不画色标）时，排版里的 colorbar 无法合成：
   // 预览会静默跳过、导出 SVG 会抛「色标需要 geo.relief」。与其让用户到导出时才看到失败，
@@ -246,6 +258,17 @@ function openFromBaseAndGeo(
 }
 
 /**
+ * marker.page 是否与当前排版一致：先按当前口径比较，再回退「改造前口径」的摘要
+ * （`legacyPageDigest`：剥掉 2026-11-05 新增的 text_style / geo_label_id）。
+ * 为什么要回退：旧成品 marker 是旧版 `pageDigest` 算的，新字段归一化后必然存在，
+ * 不兼容的话「改造前导出的成品 + 当时的 geo.json」会被误判成不配套而拒绝打开（§5.3 的
+ * 旧文件迁移路径就断了）。回退只接受「剥掉新字段后逐字节相等」的排版，真正的错配仍会被拒绝。
+ */
+function markerPageMatches(markerPage: string, layout: PageLayout): boolean {
+  return markerPage === pageDigest(layout) || markerPage === legacyPageDigest(layout);
+}
+
+/**
  * marker 与文档摘要对照（单文件路径）：不一致只告警，因为内嵌源才是可编辑真值；
  * 外部工具改过成品时 marker 可能停留在旧值，此时仍应允许打开、由用户重新导出。
  */
@@ -260,7 +283,7 @@ function markerWarnings(final: FinalSvgInfo, geo: Geo, layout: PageLayout): stri
   if (marker.geo !== geoDigest(geo)) {
     warnings.push('成品 SVG 的 marker 与内嵌 geo 摘要不一致（文件可能被外部修改过）');
   }
-  if (marker.page !== pageDigest(layout)) {
+  if (!markerPageMatches(marker.page, layout)) {
     warnings.push('成品 SVG 的 marker 与内嵌排版摘要不一致（文件可能被外部修改过）');
   }
   return warnings;
@@ -274,7 +297,7 @@ function markerWarnings(final: FinalSvgInfo, geo: Geo, layout: PageLayout): stri
 function assertMarkerPairing(final: FinalSvgInfo, geo: Geo, layout: PageLayout): void {
   const marker = final.marker;
   if (marker === null) return;
-  if (marker.geo !== geoDigest(geo) || marker.page !== pageDigest(layout)) {
+  if (marker.geo !== geoDigest(geo) || !markerPageMatches(marker.page, layout)) {
     throw new Error(
       '所选的 geo.json 与这份成品 SVG 不配套（marker 摘要不一致）：请选择导出该 SVG 时同时导出的 geo.json',
     );
@@ -388,7 +411,10 @@ function openFromFinalWithProvidedGeo(
   if (marker !== null) {
     if (hasPage) {
       const providedLayout = buildPageLayout(providedGeo, pageValueOf(parsed), measureText).layout;
-      if (marker.geo !== geoDigest(providedGeo) || marker.page !== pageDigest(providedLayout)) {
+      if (
+        marker.geo !== geoDigest(providedGeo) ||
+        !markerPageMatches(marker.page, providedLayout)
+      ) {
         throw new Error(
           '所选的 geo.json 与这份成品 SVG 不配套（marker 摘要不一致）：请选择导出该 SVG 时同时导出的 geo.json，或只打开成品 SVG',
         );

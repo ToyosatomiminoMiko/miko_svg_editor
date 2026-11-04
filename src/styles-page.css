@@ -484,6 +484,217 @@
   color: var(--color-text-active);
 }
 
+/* ---------------- 样式设置窗口 ---------------- */
+
+/* 遮罩与 .page-confirm-overlay 同风格；z-index 低于确认框（100），窗口开着时确认框仍能压住它 */
+.page-style-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(4, 7, 16, 0.62);
+}
+
+/* 作者样式里的 display:grid 会盖过 UA 的 [hidden]，这里显式收回 */
+.page-style-overlay[hidden] {
+  display: none;
+}
+
+/* 窗口 = 面板外观（与 .ui-panel 同一套 token），列排布：头部 / 两列正文 / 底部 */
+.page-style-window {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, calc(100vw - 32px));
+  height: min(560px, 90vh);
+  overflow: hidden;
+  color: var(--color-text);
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border-panel);
+  border-radius: var(--radius-md);
+  box-shadow: 0 18px 48px var(--color-shadow-panel);
+  outline: none;
+}
+
+.page-style-window:focus-visible {
+  outline: 1px solid var(--color-accent-focus);
+  outline-offset: -1px;
+}
+
+.page-style-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: var(--panel-header-padding);
+  background: var(--color-bg-header);
+  border-bottom: 1px solid var(--color-border-panel);
+}
+
+.page-style-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-strong);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.page-style-close {
+  flex: none;
+}
+
+/* 两列：260px 分类列表 + 剩余宽度的字段区；两列各自滚动 */
+.page-style-body {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.page-style-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 10px;
+  overflow-y: auto;
+  border-right: 1px solid var(--color-border-panel);
+  background: var(--color-bg-sunken);
+}
+
+.page-style-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.page-style-group-title {
+  margin: 0 0 2px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-meta);
+}
+
+/* 分类按钮：与侧栏元素列表同一套「行」视觉（描边 + 悬停 accent + 激活 accent 底） */
+.page-style-category {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  background: var(--color-fill-row);
+  border: 1px solid var(--color-border-faint);
+  border-radius: var(--radius-sm);
+}
+
+.page-style-category:hover {
+  border-color: var(--color-accent-border);
+}
+
+.page-style-category.is-active {
+  color: var(--color-text-active);
+  background: var(--color-accent-active-bg);
+  border-color: var(--color-accent-border);
+}
+
+/* 色块底色由 TS 写（该分类当前颜色）；描边用专门的 swatch token，保证深色底上可见 */
+.page-style-swatch {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--color-border-swatch);
+  border-radius: var(--radius-sm);
+}
+
+.page-style-category-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.page-style-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.page-style-fields-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-strong);
+}
+
+.page-style-fields-kind {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--color-text-meta);
+}
+
+.page-style-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-text-meta);
+}
+
+/* 光晕关闭时颜色/宽度行整行变淡（控件本身也已 disabled，这里只是视觉提示） */
+.page-style-fields .control-row.is-disabled {
+  opacity: 0.5;
+}
+
+/* 「字重」一行：文字标签 + 分段按钮组，分段按钮组吃掉剩余宽度 */
+.page-style-weight-row .segmented {
+  flex: 1 1 auto;
+}
+
+.page-style-row-label {
+  flex: none;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.page-style-footer {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--color-bg-header);
+  border-top: 1px solid var(--color-border-panel);
+}
+
+@media (max-width: 640px) {
+  .page-style-overlay {
+    padding: 8px;
+  }
+
+  .page-style-window {
+    height: min(560px, calc(100vh - 16px));
+  }
+
+  .page-style-body {
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+}
+
 /* ---------------- SVG 预览内部 ---------------- */
 
 .page-paper {

@@ -1,12 +1,21 @@
 /**
- * 文字元素的属性字段：内容 / 角色 / 字号 / 行高 / 字距 / 旋转 / 颜色 / 对齐 / 斜体 / 光晕 / 字重。
+ * 文字元素的属性字段：内容 / 角色（仅页面文字）/ 对齐 / 旋转 + 「打开样式设置」入口。
  *
- * 是什么：选中 text 元素时构建的属性面板片段；默认值口径与 `config/text-style.ts` 一致。
- * 为什么单独成模块：文字字段最多（含光晕三条联动字段），单独一块改样式不会牵动图例/色标。
- * 元信息：作者 lead，2026-10-31，从 `ui/page-sidebar.ts` 原样搬出（行为不变）。
+ * 是什么：选中 text 元素时构建的属性面板片段。字号/颜色/字重/斜体/行高/字距/光晕已全部
+ * 迁到「样式设置」窗口（按分类统一覆盖），本面板不再写这些字段，只保留单条 item 自己的
+ * 内容、角色、对齐与旋转；地图地名 item 不显示角色切换（role 固定 'label'），改为显示
+ * 一条只读说明，指向窗口里的地图分类。
+ * 为什么改角色后要调 core 的 applyCategoryStyleToItem：角色变了就等于换了一个分类，
+ * 这条 item 必须立刻套用新分类的有效样式（覆盖优先），否则会保留旧角色的样式直到下次
+ * 批量应用（`.work/STYLE-SETTINGS-SPEC.md` §7.2）。
+ * 为什么单独成模块：文字字段仍是最多的一块（内容文本域 + 角色分段 + 对齐 + 旋转），
+ * 单独一块改样式不会牵动图例/色标。
+ * 元信息：作者 lead，2026-10-31，从 `ui/page-sidebar.ts` 原样搬出（行为不变）；
+ *         作者 ui-dev，2026-11-05，样式字段迁往 `ui/page-style-window.ts`（spec §7.2）。
  */
 
 import {
+  createButton,
   createControlGroup,
   create_element,
   createFieldLabel,
@@ -14,8 +23,8 @@ import {
   createSegmented,
   nextWidgetId,
 } from 'miko_ui';
-import { PAGE_TEXT_STYLES, TEXT_HALO } from '../config/text-style';
 import { itemById, type TextAnchor, type TextItem, type TextRole } from '../core/page';
+import { applyCategoryStyleToItem } from '../core/text-style';
 import type { SidebarContext } from './page-sidebar-context';
 
 const ROLE_LABELS: Readonly<Record<TextRole, string>> = {
@@ -33,19 +42,7 @@ const ANCHOR_LABELS: Readonly<Record<TextAnchor, string>> = {
   end: '右',
 };
 
-/**
- * 字重分段选项（四档，4 列）。
- * 为什么存字符串：`createSegmented` 的值域只接受 `string`，写回 `font_weight` 时再转数字；
- * 只暴露规格给出的四档，导入的 page 里其它合法字重（100..900）仍原样保留、不在此被改写。
- */
-const FONT_WEIGHT_OPTIONS = [
-  { value: '400', label: '常规' },
-  { value: '500', label: '中等' },
-  { value: '600', label: '半粗' },
-  { value: '700', label: '粗' },
-] as const;
-
-/** 文字属性面板片段（内容 / 角色 / 文字 / 对齐 / 字重 / 样式） */
+/** 文字属性面板片段：内容 / 角色（页面文字）/ 对齐 / 旋转 / 打开样式设置 */
 export function buildTextFields(ctx: SidebarContext, item: TextItem): HTMLElement[] {
   const fragments: HTMLElement[] = [];
 
@@ -70,109 +67,45 @@ export function buildTextFields(ctx: SidebarContext, item: TextItem): HTMLElemen
   textRow.classList.add('page-text-row');
   fragments.push(textRow);
 
-  const roleSegmented = createSegmented<TextRole>({
-    columns: 3,
-    ariaLabel: '文字角色',
-    value: item.role,
-    items: (Object.keys(ROLE_LABELS) as TextRole[]).map((role) => ({
-      value: role,
-      label: ROLE_LABELS[role],
-    })),
-  });
-  roleSegmented.onChange((role) =>
-    ctx.handlers.onChange((layout) => {
-      const target = itemById(layout, item.id);
-      if (target?.kind === 'text') target.role = role;
-    }),
-  );
-  ctx.controls.registerSegmented(
-    'prop.role',
-    () => {
-      const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'text' ? target.role : 'annotation';
-    },
-    (value) => roleSegmented.set(value as TextRole),
-  );
-  fragments.push(createControlGroup('角色', roleSegmented.element));
-
-  const styleRow = create_element({ tag: 'div' }, { class: 'page-field-grid' });
-  ctx.controls.addNumberRow(
-    styleRow,
-    'prop.fontSize',
-    '字号（pt）',
-    () => {
-      const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'text' ? target.font_size_pt : 12;
-    },
-    (value) =>
-      ctx.handlers.onChange((layout) => {
+  // 页面文字可以换角色；地图地名 item 的 role 是生成端语义（固定 'label'），不提供切换。
+  if (item.space === 'page') {
+    const roleSegmented = createSegmented<TextRole>({
+      columns: 3,
+      ariaLabel: '文字角色',
+      value: item.role,
+      items: (Object.keys(ROLE_LABELS) as TextRole[]).map((role) => ({
+        value: role,
+        label: ROLE_LABELS[role],
+      })),
+    });
+    roleSegmented.onChange((role) =>
+      ctx.handlers.onChange((layout, geo) => {
         const target = itemById(layout, item.id);
-        if (target?.kind === 'text') target.font_size_pt = value;
+        if (target?.kind !== 'text') return;
+        target.role = role;
+        // 角色 = 分类：立即把新分类的有效样式写进这条 item（含字号）
+        applyCategoryStyleToItem(layout, geo, target);
       }),
-    { min: 0.5, step: 0.5 },
-  );
-  ctx.controls.addNumberRow(
-    styleRow,
-    'prop.lineHeight',
-    '行高（倍数）',
-    () => {
-      const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'text' ? target.line_height : PAGE_TEXT_STYLES.annotation.line_height;
-    },
-    (value) =>
-      ctx.handlers.onChange((layout) => {
-        const target = itemById(layout, item.id);
-        if (target?.kind === 'text') target.line_height = value;
-      }),
-    { min: 0.5, step: 0.05 },
-  );
-  ctx.controls.addNumberRow(
-    styleRow,
-    'prop.letterSpacing',
-    '字距（em）',
-    () => {
-      const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'text'
-        ? target.letter_spacing_em
-        : PAGE_TEXT_STYLES.annotation.letter_spacing_em;
-    },
-    (value) =>
-      ctx.handlers.onChange((layout) => {
-        const target = itemById(layout, item.id);
-        if (target?.kind === 'text') target.letter_spacing_em = value;
-      }),
-    { min: -0.5, step: 0.01 },
-  );
-  ctx.controls.addNumberRow(
-    styleRow,
-    'prop.rotation',
-    '旋转（°）',
-    () => {
-      const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'text' ? target.rotation_deg : 0;
-    },
-    (value) =>
-      ctx.handlers.onChange((layout) => {
-        const target = itemById(layout, item.id);
-        if (target?.kind === 'text') target.rotation_deg = value;
-      }),
-    { step: 1 },
-  );
-  ctx.controls.addColorRow(
-    styleRow,
-    'prop.textColor',
-    '文字颜色',
-    () => {
-      const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'text' ? target.color : PAGE_TEXT_STYLES.annotation.color;
-    },
-    (value) =>
-      ctx.handlers.onChange((layout) => {
-        const target = itemById(layout, item.id);
-        if (target?.kind === 'text') target.color = value;
-      }),
-  );
-  fragments.push(createControlGroup('文字', styleRow));
+    );
+    ctx.controls.registerSegmented(
+      'prop.role',
+      () => {
+        const target = itemById(ctx.getLayout(), item.id);
+        return target?.kind === 'text' ? target.role : 'annotation';
+      },
+      (value) => roleSegmented.set(value as TextRole),
+    );
+    fragments.push(createControlGroup('角色', roleSegmented.element));
+  } else {
+    // 只读说明：样式不在这里改，避免用户在本面板找不到字号/颜色
+    fragments.push(
+      create_element(
+        { tag: 'p' },
+        { class: 'page-hint' },
+        '字号/颜色等样式在地图分类「城市/行政区…」里统一设置',
+      ),
+    );
+  }
 
   const anchorSegmented = createSegmented<TextAnchor>({
     columns: 3,
@@ -199,90 +132,31 @@ export function buildTextFields(ctx: SidebarContext, item: TextItem): HTMLElemen
   );
   fragments.push(createControlGroup('对齐', anchorSegmented.element));
 
-  const styleSwitches = create_element({ tag: 'div' }, { class: 'page-field-grid' });
-  ctx.controls.addSwitchRow(
-    styleSwitches,
-    'prop.italic',
-    '斜体',
-    () => {
-      const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'text' ? target.italic : false;
-    },
-    (value) =>
-      ctx.handlers.onChange((layout) => {
-        const target = itemById(layout, item.id);
-        if (target?.kind === 'text') target.italic = value;
-      }),
-  );
-  ctx.controls.addSwitchRow(
-    styleSwitches,
-    'prop.halo',
-    '文字光晕',
-    () => {
-      const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'text' && target.halo !== null;
-    },
-    (value) =>
-      ctx.handlers.onChange((layout) => {
-        const target = itemById(layout, item.id);
-        if (target?.kind !== 'text') return;
-        target.halo = value ? { ...TEXT_HALO } : null;
-      }),
-  );
-  ctx.controls.addColorRow(
-    styleSwitches,
-    'prop.haloColor',
-    '光晕颜色',
-    () => {
-      const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'text' && target.halo ? target.halo.color : TEXT_HALO.color;
-    },
-    (value) =>
-      ctx.handlers.onChange((layout) => {
-        const target = itemById(layout, item.id);
-        if (target?.kind !== 'text') return;
-        target.halo = { color: value, width_pt: target.halo?.width_pt ?? TEXT_HALO.width_pt };
-      }),
-  );
+  const rotationGrid = create_element({ tag: 'div' }, { class: 'page-field-grid' });
   ctx.controls.addNumberRow(
-    styleSwitches,
-    'prop.haloWidth',
-    '光晕宽度',
+    rotationGrid,
+    'prop.rotation',
+    '旋转（°）',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'text' && target.halo ? target.halo.width_pt : TEXT_HALO.width_pt;
+      return target?.kind === 'text' ? target.rotation_deg : 0;
     },
     (value) =>
       ctx.handlers.onChange((layout) => {
         const target = itemById(layout, item.id);
-        if (target?.kind !== 'text') return;
-        target.halo = { color: target.halo?.color ?? TEXT_HALO.color, width_pt: value };
+        if (target?.kind === 'text') target.rotation_deg = value;
       }),
-    { min: 0, step: 0.5 },
+    { step: 1 },
   );
-  const weightSegmented = createSegmented<string>({
-    columns: 4,
-    ariaLabel: '字重',
-    value: String(item.font_weight),
-    items: FONT_WEIGHT_OPTIONS,
+  fragments.push(createControlGroup('旋转', rotationGrid));
+
+  // 面板底部：样式编辑的唯一入口（窗口状态由 app 持有，这里只转发打开动作）
+  const styleButton = createButton({
+    text: '打开样式设置',
+    title: '按分类统一设置字号/颜色/字重/行高/字距/光晕',
+    class: 'page-wide-button',
   });
-  weightSegmented.onChange((value) =>
-    ctx.handlers.onChange((layout) => {
-      const target = itemById(layout, item.id);
-      if (target?.kind === 'text') target.font_weight = Number(value);
-    }),
-  );
-  ctx.controls.registerSegmented(
-    'prop.fontWeight',
-    () => {
-      const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'text'
-        ? String(target.font_weight)
-        : String(PAGE_TEXT_STYLES.annotation.font_weight);
-    },
-    (value) => weightSegmented.set(value),
-  );
-  fragments.push(createControlGroup('字重', weightSegmented.element));
-  fragments.push(createControlGroup('样式', styleSwitches));
+  styleButton.onClick(() => ctx.handlers.openStyleSettings());
+  fragments.push(styleButton.element);
   return fragments;
 }

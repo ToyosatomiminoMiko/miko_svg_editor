@@ -2,14 +2,18 @@
  * 出版排版编辑器的顶部工具条。
  *
  * 是什么：文件（打开… / 导出 geo.json / 导出 SVG）、添加（文字 / 标题 / 图例 / 色标）、
- * 视图（适应页面 / 1:1）三组命令按钮；宿主由 `app/page-main.ts` 建好（`.dock.page-topbar`，
- * 已带 `role="toolbar"`），本文件只往里填分组。
+ * 样式（样式设置）、视图（适应页面 / 1:1）四组命令按钮；宿主由 `app/page-main.ts` 建好
+ * （`.dock.page-topbar`，已带 `role="toolbar"`），本文件只往里填分组。
  * 为什么没有「保存」按钮：页面是纯静态的，导出 geo.json 就是落盘（`Ctrl+S` 走同一入口），
  * 导出 SVG 是另一份独立产物；两者都在浏览器内直接生成文件，不需要任何远端确认，
  * 也就不需要任何按钮禁用态。
+ * 为什么要单独的「样式设置」入口：文字样式已改为按分类统一覆盖（`page.text_style`），
+ * 单条 item 的侧栏不再放样式字段，所有样式编辑都从这一个按钮拉起独立窗口
+ * （`.work/STYLE-SETTINGS-SPEC.md` §7.1）；工具条只负责转发打开动作，窗口状态归 app。
  * 为什么不用草图模式的 `ui/toolbar.ts`：那个工具条绑定约束求解内核（工具/约束/吸附），
  * 与出版排版编辑器无关；这里只保留 miko_ui 的按钮与 `dock` 外观词汇。
- * 元信息：作者 frontend，2026-10-27；2026-10-28 改为无后端双导出。
+ * 元信息：作者 frontend，2026-10-27；2026-10-28 改为无后端双导出；
+ *         作者 ui-dev，2026-11-05，新增「样式」组与「样式设置」按钮。
  */
 
 import { create_element, createButton, createControlGroup } from 'miko_ui';
@@ -34,6 +38,8 @@ export interface PageToolbarHandlers {
   addLegend(): void;
   /** 空色标 */
   addColorbar(): void;
+  /** 拉起「样式设置」窗口（按分类统一改字号/颜色/光晕等） */
+  openStyleSettings(): void;
 }
 
 /** 一个命令按钮：文案、悬停提示、点击动作 */
@@ -50,6 +56,7 @@ interface ToolbarAction {
 export function buildPageToolbar(root: HTMLElement, handlers: PageToolbarHandlers): void {
   const fileRow = create_element({ tag: 'div' }, { class: 'page-button-row' });
   const addRow = create_element({ tag: 'div' }, { class: 'page-button-row' });
+  const styleRow = create_element({ tag: 'div' }, { class: 'page-button-row' });
   const viewRow = create_element({ tag: 'div' }, { class: 'page-button-row' });
 
   const add = (row: HTMLElement, action: ToolbarAction): void => {
@@ -95,6 +102,12 @@ export function buildPageToolbar(root: HTMLElement, handlers: PageToolbarHandler
     run: () => handlers.addColorbar(),
   });
 
+  add(styleRow, {
+    text: '样式设置',
+    title: '按分类统一设置标题/副标题/城市/行政区等所有文字样式',
+    run: () => handlers.openStyleSettings(),
+  });
+
   add(viewRow, {
     text: '适应页面',
     title: '缩放显示整页',
@@ -109,6 +122,7 @@ export function buildPageToolbar(root: HTMLElement, handlers: PageToolbarHandler
   root.replaceChildren(
     createControlGroup('文件', fileRow),
     createControlGroup('添加', addRow),
+    createControlGroup('样式', styleRow),
     createControlGroup('视图', viewRow),
   );
 }

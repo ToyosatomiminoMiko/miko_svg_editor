@@ -174,6 +174,26 @@ export const PAGE_COLORBAR_GAP_PT = 18;
 export const PAGE_LAYOUT_SCALE_MIN = 0.62;
 export const PAGE_LAYOUT_SCALE_MAX = 1.6;
 
+/**
+ * 纸张自适应比例 k（相对 A4 纸面）：A4/A3/Letter/A5 共用同一套版式公式。
+ *
+ * 用「长边 / 短边」分别对照 A4 的长边/短边，而不是直接拿 width/height 对 A4 横向：
+ * 这样 A4 横向与 A4 纵向都得到 k=1（同一张纸换个方向，字号不该变），A5 两个方向都是
+ * ≈0.705，A3 两个方向都是 ≈1.414。夹在 0.62..1.6，避免字号不可读或版面失衡。
+ * 为什么需要：A5 只有 A4 的 70% 线性尺寸，字号/行高/间距不缩会把右栏（或纵向的下方一排）
+ * 挤出纸面并互相重叠。
+ * 为什么放在 config 而不是 core/page-layout：默认排版（core/page-layout）与分类样式默认字号
+ * （core/text-style）都要用同一口径，放在 config 才不会形成 core 内部的运行期环。
+ */
+export function layoutScaleForPaper(widthPt: number, heightPt: number): number {
+  const paperLong = Math.max(widthPt, heightPt);
+  const paperShort = Math.min(widthPt, heightPt);
+  const a4Long = Math.max(PAGE_DEFAULT_PAPER_WIDTH_PT, PAGE_DEFAULT_PAPER_HEIGHT_PT);
+  const a4Short = Math.min(PAGE_DEFAULT_PAPER_WIDTH_PT, PAGE_DEFAULT_PAPER_HEIGHT_PT);
+  const ratio = Math.min(paperLong / a4Long, paperShort / a4Short);
+  return Math.min(PAGE_LAYOUT_SCALE_MAX, Math.max(PAGE_LAYOUT_SCALE_MIN, ratio));
+}
+
 /** 色标在默认排版里的最小高度（pt）：再小就压成一条线，不如与注记留 8pt 后贴底 */
 export const PAGE_MIN_COLORBAR_HEIGHT_PT = 40;
 
