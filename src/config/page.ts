@@ -83,9 +83,6 @@ export const PAGE_MIN_MAP_WIDTH_PT = 1;
 export const PAGE_MAX_TEXT_LINES = 40;
 export const PAGE_MAX_TEXT_LINE_CHARS = 200;
 
-/** 图例条目数的软上限：只用于 UI 防御，契约未规定 */
-export const PAGE_MAX_LEGEND_ENTRIES = 100;
-
 /* ---------------- 纸张预设 ---------------- */
 
 /** 预设 id；`Custom` 表示自定义尺寸（只记忆在 paper.preset 里） */
@@ -130,9 +127,7 @@ export function presetSize(
     : { width_pt: preset.width_pt, height_pt: preset.height_pt };
 }
 
-/** 默认纸张：A4 横向（契约 §9） */
-export const PAGE_DEFAULT_PAPER_PRESET: PaperPresetId = 'A4';
-export const PAGE_DEFAULT_ORIENTATION: PaperOrientation = 'landscape';
+/** 默认纸张宽高：A4 横向（契约 §9） */
 export const PAGE_DEFAULT_PAPER_WIDTH_PT = 841.889764;
 export const PAGE_DEFAULT_PAPER_HEIGHT_PT = 595.275591;
 
@@ -262,4 +257,3 @@ export const PAGE_TEXT_FALLBACK_DESCENT_RATIO = 0.2;
 export const PAGE_NEW_COLORBAR_WIDTH_PT = 14;
 export const PAGE_NEW_COLORBAR_HEIGHT_PT = 160;
 export const PAGE_NEW_LEGEND_WIDTH_PT = 172.2;
-export const PAGE_NEW_LEGEND_HEIGHT_PT = 120;

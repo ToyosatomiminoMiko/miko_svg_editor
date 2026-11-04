@@ -707,7 +707,15 @@ src/render/page-svg.ts          # 预览 SVG DOM（纸张/底图 image/图框刻
 src/render/compose-svg.ts       # 浏览器内合成 final.svg（纯函数：结构/marker/内嵌源/report）
 src/render/page-format.ts       # 数字格式化、颜色/转义、SVG 属性 helper
 src/ui/page-open.ts             # 上传面板（SVG / JSON 两栏各自选择 + 打开按钮 + 错误文案）
-src/ui/page-sidebar.ts          # 右侧属性面板（页面/地图/图框/元素/属性/图例编辑）
+src/ui/page-sidebar.ts          # 右侧属性面板编排：面板壳 / sync / 元素列表 / 选中项重建
+src/ui/page-sidebar-context.ts  # 面板模块与侧栏状态的唯一契约（PageSidebarHandlers / SidebarContext）
+src/ui/page-sidebar-controls.ts # 控件登记表（数字/颜色/文本/开关/分段 + 未聚焦控件回写）
+src/ui/page-panel-paper.ts      # 「页面」面板：纸张预设/方向/宽高/页边距/重新排默认版式
+src/ui/page-panel-map.ts        # 「地图」面板：摆放/派生高度/图框/刻度样式
+src/ui/page-fields-common.ts    # 元素公共字段：坐标空间 + x/y
+src/ui/page-fields-text.ts      # 文字字段：内容/角色/字号/行高/字距/旋转/颜色/对齐/光晕/字重
+src/ui/page-fields-legend.ts    # 图例字段 + 条目增删/显隐（隐藏 = 移出 layout，会话内记住）
+src/ui/page-fields-colorbar.ts  # 色标字段：标题/单位/宽高/字号/显示开关
 src/ui/page-toolbar.ts          # 顶部工具条（文件/添加/视图三组）
 src/ui/page-notify.ts           # 消息区（miko_ui MessageArea + 简单确认框）
 src/ui/download.ts              # downloadText / downloadSvg（Blob + <a download>）
@@ -749,8 +757,8 @@ tests/render/compose-svg.test.ts # 合成结构、marker、内嵌源、确定性
 ## 10. 验收
 
 1. `npm run check`（typecheck/lint/arch/format:check/test/build）全绿。
-2. `npm run dev` → `http://localhost:5173/map.html`：上传真实 Cartopy 产物（`.work/cartopy-fixtures/`
-   的 `<stem>.svg + <stem>.geo.json`，或 demo 里的同类文件）→ 生成默认排版（标题/地图/刻度/地名/
+2. `npm run dev` → `http://localhost:5173/map.html`：上传真实 Cartopy 产物（`demo/figures/Volga/`
+   的底图 `.build/…base.svg` + 同名 `.geo.json`）→ 生成默认排版（标题/地图/刻度/地名/
    图例/注记/色标/来源）；编辑标题；「导出 geo.json」「导出 SVG」各得到一个文件；刷新页面无后端请求、
    无 404。
 3. `final.svg` 不变量：根 `width/height` 带 `pt`、viewBox 一致；`<g id="mapdoc-map">` 内是底图内容

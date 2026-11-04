@@ -35,7 +35,7 @@ flowchart TB
 
 “只能向下”指上图的实线方向；反向依赖先被 ESLint 的 `no-restricted-imports` 挡住，运行期反向依赖与循环依赖再由 `npm run arch`（`scripts/check_architecture.mjs`）兜底（详见 §8）。`core`/`render`/`ui` 还额外禁止依赖 miko_ui（`ui` 除外）。`config` 是叶子层，只允许被依赖；唯一例外是 `config/constraints-meta.ts` 用 `import type` 引用 `core` 的类型，运行期仍只有 `core → config`。
 
-想最快建立直觉，按这个顺序读：`src/app/main.ts`（37 行装配）→ `src/app/editor.ts`（事件路由）→ `src/core/operations.ts` 文件头（命令模型）→ `src/core/model.ts`（数据）→ 本文 §4/§5 两条链路。
+想最快建立直觉，按这个顺序读：`src/app/main.ts`（43 行装配）→ `src/app/editor.ts`（事件路由）→ `src/core/operations.ts` 文件头（命令模型）→ `src/core/model.ts`（数据）→ 本文 §4/§5 两条链路。
 
 ## 1. 目录地图
 
@@ -138,7 +138,7 @@ flowchart TB
 
 ## 2. 从 `index.html` 到第一帧：装配顺序
 
-`src/app/main.ts` 只有 37 行，但顺序是契约。按真实执行顺序：
+`src/app/main.ts` 只有 43 行，但顺序是契约。按真实执行顺序：
 
 1. **`index.html`** 加载 `src/app/main.ts`（`<script type="module">`），页面里只有 `#app`。
 2. **样式加载顺序（契约）**：`import 'miko_ui/styles.css'` 先、`import '../styles.css'` 后——后者可以覆盖库的 token，也给 `.app-*` 写布局。
@@ -440,7 +440,7 @@ ESLint 的 `no-restricted-imports` 只看「源码里写的 import 路径」，�
 - **运行期依赖只能向下**：扫描 `src/**/*.ts` 的相对 import/export，先剔除 `import type` / `export type`（运行期会被 TypeScript / 打包器擦除，不算边），再按 `src/<layer>/…` 归层。允许边为 `app → app|ui|render|core|config`、`ui → ui|render|core|config`、`render → render|core|config`、`core → core|config`、`config → config`；`src` 根目录散落的文件会被判违规（必须归入五层之一）。
 - **没有运行期环**：对依赖图做 DFS 三色标记（回到「当前递归栈上」的节点才算环），报告完整路径。
 
-脚本失败时 `process.exit(1)`，打印「文件: 层禁止运行期依赖 层（路径）」或「运行期循环依赖：A → B → A」；成功时打印 `架构依赖检查通过：N 个文件、0 个反向依赖、0 个运行期环。`。当前结果：**45 个文件、0 个反向依赖、0 个运行期环**。
+脚本失败时 `process.exit(1)`，打印「文件: 层禁止运行期依赖 层（路径）」或「运行期循环依赖：A → B → A」；成功时打印 `架构依赖检查通过：N 个文件、0 个反向依赖、0 个运行期环。`。当前结果：**72 个文件、0 个反向依赖、0 个运行期环**。
 
 接入点：
 
@@ -494,7 +494,7 @@ npm run typecheck   # 编译期穷尽/未使用/索引检查
 
 1. `README` 的「快速开始」「UI 怎么搭起来的」「操作说明」扫一遍（知道产品形态与 miko_ui 分工）。
 2. 本文 §1 分层 + §2 装配顺序 + §3 统一命令模型。
-3. 源码：`src/app/main.ts`（37 行）→ `src/app/editor.ts` 的 `attachEvents` / `onPointerDown` / `onPrimaryClick` / `onKeyDown`。
+3. 源码：`src/app/main.ts`（43 行）→ `src/app/editor.ts` 的 `attachEvents` / `onPointerDown` / `onPrimaryClick` / `onKeyDown`。
 4. `src/core/operations.ts` 文件头 + `SlotSpec` / `Operand` / `OperationMeta` / `CommandSession` / `TOOLS`。
 5. `src/core/model.ts` 全文；`src/core/entities.ts` 只看 `EntityBase` 的方法签名与四个子类。
 6. `src/render/renderer.ts` 的 `render()`（看编排顺序）+ 五个 `draw-*.ts` 各看函数头。
@@ -547,7 +547,7 @@ const input = (w: Vec, snap: Snap | null = null): ClickInput => ({
 ```
 
 - 尺寸输入纯解析在 `tests/ui/parse-dim-input.test.ts`；`ui/` 其余模块依赖 DOM/miko_ui，不做单测。
-- 写作时 `npm run test` 为 17 个文件 / 387 个用例全绿；用例数会变，以实际输出为准。
+- 写作时 `npm run test` 为 26 个文件 / 548 个用例全绿；用例数会变，以实际输出为准。
 
 ### 11.2 调试一条交互链路
 
@@ -570,7 +570,7 @@ const input = (w: Vec, snap: Snap | null = null): ClickInput => ({
 | `npm run dev`                     | 本地开发（`predev` 自动链接本地 miko_ui，若存在）                                        |
 | `npm run typecheck`               | `tsc --noEmit`；分层/穷尽问题最先在这里暴露                                              |
 | `npm run lint`                    | ESLint 分层 import 禁令 + 通用规则                                                       |
-| `npm run arch`                    | 运行期依赖只能向下 + 无运行期环（`scripts/check_architecture.mjs`，当前 45 文件 0 违规） |
+| `npm run arch`                    | 运行期依赖只能向下 + 无运行期环（`scripts/check_architecture.mjs`，当前 72 文件 0 违规） |
 | `npm run format` / `format:check` | Prettier（文档也受管）                                                                   |
 | `npm run build`                   | `tsc --noEmit && vite build` → `dist/`                                                   |
 | `npm run ui:status`               | 看 miko_ui 当前解析到本地库还是 npm 版                                                   |
@@ -678,13 +678,13 @@ map.html（纯静态 Vite 站）
 
 ### 15.2 文件与分层落点（两个入口、同一套五层）
 
-| 层        | 草图（`index.html`）          | 地图排版（`map.html`）                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| --------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `config/` | `config/*.ts`                 | `config/page.ts`：格式标识、上传 accept、校验容差、纸张预设、页边距/字号/图例/色标默认值、上限<br>`config/text-style.ts`：地图标注/页面文字样式常量（role 颜色表 + 字重/字距/行高/光晕；样式唯一真源，其余层只引用）                                                                                                                                                                                                                                                                           |
-| `core/`   | 草图模型/约束/求解/尺寸       | `core/base-svg.ts`：底图 C1–C4 与 inner/prefix/suffix 切片<br>`core/open-map.ts`：三条打开路径 → PageDocument + 初始排版<br>`core/final-svg.ts`：成品 SVG 内嵌源读取 / 底图还原<br>`core/base64.ts`：UTF-8 base64<br>`core/document.ts`：PageDocument、createPageDocument、上传文件分类、导出命名<br>`core/page.ts`：geo/page 类型、规范化/校验/digest/序列化（纯逻辑，node 可测）<br>`core/page-layout.ts`：§5 布局公式 + `defaultPageLayout(geo, options)`（A4 横向/自适应纸张、可选块降级） |
-| `render/` | canvas 渲染 + `export-svg.ts` | `render/page-format.ts`（3 位小数/转义/属性 helper）<br>`render/page-svg.ts`：layout+geo → 预览 SVG DOM（纸张/底图 image/框/刻度/文字/图例/色标）<br>`render/compose-svg.ts`：浏览器内合成 final.svg（结构/marker/内嵌源/report）                                                                                                                                                                                                                                                              |
-| `ui/`     | 状态栏/dock/工具条/通知       | `ui/page-open.ts`（上传面板）、`ui/page-toolbar.ts`、`ui/page-sidebar.ts`、`ui/page-notify.ts`、`ui/download.ts`（全部 miko_ui 或标准 DOM）                                                                                                                                                                                                                                                                                                                                                    |
-| `app/`    | `main.ts` + `editor.ts`       | `page-main.ts`（组合根：File 读成字节 + core/open-map 装配）、`page-editor.ts`（选择/拖拽/缩放/导出状态机）                                                                                                                                                                                                                                                                                                                                                                                    |
+| 层        | 草图（`index.html`）          | 地图排版（`map.html`）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config/` | `config/*.ts`                 | `config/page.ts`：格式标识、上传 accept、校验容差、纸张预设、页边距/字号/图例/色标默认值、上限<br>`config/text-style.ts`：地图标注/页面文字样式常量（role 颜色表 + 字重/字距/行高/光晕；样式唯一真源，其余层只引用）                                                                                                                                                                                                                                                                                    |
+| `core/`   | 草图模型/约束/求解/尺寸       | `core/base-svg.ts`：底图 C1–C4 与 inner/prefix/suffix 切片<br>`core/open-map.ts`：三条打开路径 → PageDocument + 初始排版<br>`core/final-svg.ts`：成品 SVG 内嵌源读取 / 底图还原<br>`core/base64.ts`：UTF-8 base64<br>`core/document.ts`：PageDocument、createPageDocument、上传文件分类、导出命名<br>`core/page.ts`：geo/page 类型、规范化/校验/digest/序列化（纯逻辑，node 可测）<br>`core/page-layout.ts`：§5 布局公式 + `defaultPageLayout(geo, options)`（A4 横向/自适应纸张、可选块降级）          |
+| `render/` | canvas 渲染 + `export-svg.ts` | `render/page-format.ts`（3 位小数/转义/属性 helper）<br>`render/page-svg.ts`：layout+geo → 预览 SVG DOM（纸张/底图 image/框/刻度/文字/图例/色标）<br>`render/compose-svg.ts`：浏览器内合成 final.svg（结构/marker/内嵌源/report）                                                                                                                                                                                                                                                                       |
+| `ui/`     | 状态栏/dock/工具条/通知       | `ui/page-open.ts`（上传面板）、`ui/page-toolbar.ts`、`ui/page-notify.ts`、`ui/download.ts`；属性面板拆为 `ui/page-sidebar.ts`（编排：面板壳/sync/元素列表）+ `ui/page-sidebar-context.ts`（面板契约）+ `ui/page-sidebar-controls.ts`（控件登记与刷新）+ `ui/page-panel-paper.ts` / `ui/page-panel-map.ts`（页面/地图面板）+ `ui/page-fields-common.ts` / `ui/page-fields-text.ts` / `ui/page-fields-legend.ts` / `ui/page-fields-colorbar.ts`（元素公共/文字/图例/色标字段）（全部 miko_ui 或标准 DOM） |
+| `app/`    | `main.ts` + `editor.ts`       | `page-main.ts`（组合根：File 读成字节 + core/open-map 装配）、`page-editor.ts`（选择/拖拽/缩放/导出状态机）                                                                                                                                                                                                                                                                                                                                                                                             |
 
 `npm run arch` 的层规则不变：两个入口都只使用 `app → ui/render/core/config` 的下行依赖。
 地图排版页与草图内核**不共享模块级单例**，因此刷新/切换模式不会互相污染。

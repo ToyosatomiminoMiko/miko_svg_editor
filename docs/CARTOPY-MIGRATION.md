@@ -77,7 +77,7 @@
 - Cartopy `git status` 干净；miko 9 个未提交文件属端口重构（`studio.toml` 5173、`vite.config.ts` 读取
   同一真值、`studio.py` 去掉默认端口），未触及本文主题。
 - `docs/merge/DESIGN.md` 文件头已标注**被 `PAGE-EDITOR.md` 取代**，不要当契约使用。
-- `docs/*` 默认被 `.gitignore` 忽略，只有 `ARCHITECTURE.md` / `PAGE-EDITOR.md` 例外；本文同样加例外后入库。
+- `docs/*` 默认被 `.gitignore` 忽略，只有 `ARCHITECTURE.md` / `PAGE-EDITOR.md` / `CARTOPY-MIGRATION.md`（本文）例外，三者均已入库。
 
 ## 3. Cartopy 的「地理 / 标注」切分
 

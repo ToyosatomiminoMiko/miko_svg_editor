@@ -248,7 +248,7 @@ describe('normalizeGeo：可选块补默认（返回新对象）', () => {
   });
 
   it('真实 myanmar 型 geo（无 legend、suggestions 只有 4 键）全链路合法', () => {
-    // 与 .work/cartopy-fixtures/myanmar_*.geo.json 同形：只有 relief/suggestions，
+    // 与 Cartopy 真实产出的 myanmar 型 geo 同形：只有 relief/suggestions，
     // 且 suggestions 只写 {title,subtitle,source,colorbar_title}（Cartopy 只写调用方给的键）。
     const raw = mutableGeo(makeGeo());
     delete raw['legend'];

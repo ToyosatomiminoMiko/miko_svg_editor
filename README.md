@@ -448,7 +448,15 @@ src/
     download.ts              Blob/<a download>/objectURL 下载适配器（downloadText / downloadSvg）
     measure-text.ts          canvas measureText 适配器（无 canvas 时回退估算）
     page-open.ts             排版编辑器上传面板（SVG / JSON 两栏；JSON 可选，支持单文件成品 SVG）
-    page-sidebar.ts          排版编辑器右侧属性面板（页面/地图/图框/元素列表/选中项/图例编辑）
+    page-sidebar.ts          排版编辑器右侧属性面板编排：面板壳、sync、元素列表、选中项重建
+    page-sidebar-context.ts  面板模块与侧栏状态的唯一契约（PageSidebarHandlers / SidebarContext）
+    page-sidebar-controls.ts 属性面板控件登记表（数字/颜色/文本/开关/分段 + 未聚焦控件回写）
+    page-panel-paper.ts      「页面」面板：纸张预设/方向/宽高/页边距/重新排默认版式
+    page-panel-map.ts        「地图」面板：摆放/派生高度/图框/刻度样式
+    page-fields-common.ts    元素公共字段：坐标空间 + x/y
+    page-fields-text.ts      文字字段：内容/角色/字号/行高/字距/旋转/颜色/对齐/光晕/字重
+    page-fields-legend.ts    图例字段 + 条目增删/显隐（隐藏 = 移出 layout，会话内记住）
+    page-fields-colorbar.ts  色标字段：标题/单位/宽高/字号/显示开关
     page-toolbar.ts          排版编辑器顶部工具条（打开…/导出 geo.json/导出 SVG/添加/视图）
     page-notify.ts           排版编辑器消息区（miko_ui MessageArea + 简单确认框）
   config/                    纯数据/常量层（index.ts 统一出口；只许 type-only 引 core 类型）
@@ -481,8 +489,8 @@ tsconfig.json                strict + noUncheckedIndexedAccess；include src/tes
 vite.config.ts               两个 HTML 入口；base: './'；本地库存在时把它的路径加入 server.fs.allow，
                              并 dedupe signals；dev 端口 5173（strictPort，唯一真值在本文件）
 .prettierrc.json             单引号 / printWidth 100 / trailingComma all / semi
-.prettierignore              dist、node_modules、audit、package-lock、.npm-cache、coverage
-.github/workflows/ci.yml      CI：Node 24 → npm ci → typecheck → lint → test → build
+.prettierignore              dist、node_modules、audit、package-lock、.npm-cache、coverage、.work、demo
+.github/workflows/ci.yml      CI：Node 24 → npm ci → typecheck → lint → arch → format:check → test → build
 ```
 
 ## 依赖方向与配置分层
