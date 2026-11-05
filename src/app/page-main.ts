@@ -167,9 +167,6 @@ function boot(): void {
         onDelete: (id) => {
           editorRef?.deleteItem(id);
         },
-        onRelayout: (marginPt) => {
-          void editorRef?.relayoutDefault(marginPt);
-        },
         notify: (message) => notifier.info(message),
         openStyleSettings: (category) => styleWindow?.open(category),
       });
@@ -194,6 +191,7 @@ function boot(): void {
         getGeo: () => pageDocument.geo,
         onApply: (category, patch) => editorRef?.applyTextStyleChange(category, patch),
         onReset: (category) => editorRef?.resetTextStyleChange(category),
+        onResetField: (category, field) => editorRef?.resetTextStyleFieldChange(category, field),
       });
 
       buildPageToolbar(shell.toolbar, {

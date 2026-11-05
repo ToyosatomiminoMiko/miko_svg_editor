@@ -2,7 +2,7 @@
  * 出版排版编辑器（map.html）的常量与默认值。
  *
  * 是什么：单文件地图文档 `<stem>.geo.json`（format `mapdoc-geo`）与成品 SVG 内嵌可编辑源
- * （format `mapdoc-final-source`）的格式标识、上传/下载参数、纸张预设、默认页边距/字号/图框/
+ * （format `mapdoc-final-source`）的格式标识、上传/下载参数、纸张预设、默认排版间距/字号/图框/
  * 图例/色标参数、校验上下限与交互缩放系数。
  * 为什么集中在这里：预览（浏览器 DOM）与成品（浏览器内 `render/compose-svg.ts`）必须共享同一套
  * 默认值；把它们放在 config 层，core/render/ui/app 只读不写，避免「预览与成品标定不一致」。
@@ -130,7 +130,7 @@ export const PAGE_DEFAULT_PAPER_HEIGHT_PT = 595.275591;
 
 /* ---------------- 默认排版（defaultPageLayout 用） ---------------- */
 
-/** 默认页边距（pt）；「重新排默认版式」的初始值 */
+/** 默认排版的内边距（pt）：只在 `defaultPageLayout` 的初始排版公式内部使用，不是可配置项 */
 export const PAGE_DEFAULT_MARGIN_PT = 28;
 
 /** 地图顶部起始 y：给标题/副标题留出的高度 */

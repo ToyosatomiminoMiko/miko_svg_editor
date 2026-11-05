@@ -14,7 +14,6 @@
  */
 
 import {
-  PAGE_DEFAULT_MARGIN_PT,
   PAGE_FIT_PADDING_RATIO,
   PAGE_KEY_MOVE_LARGE_PT,
   PAGE_KEY_MOVE_PT,
@@ -43,15 +42,13 @@ import {
   type TextItem,
   type TextRole,
 } from '../core/page';
-import {
-  defaultPageLayout,
-  mapTransform,
-  type DefaultPageLayoutOptions,
-} from '../core/page-layout';
+import { mapTransform } from '../core/page-layout';
 import {
   applyCategoryStyleToItem,
   applyTextStyle,
   resetTextStyle,
+  resetTextStyleField,
+  type TextStyleResetField,
   type TextStylePatch,
 } from '../core/text-style';
 import {
@@ -240,6 +237,13 @@ export class PageEditor {
     });
   }
 
+  /** 样式设置窗口单字段旁的 reset：只删该字段覆盖并重算该分类全部文字。 */
+  resetTextStyleFieldChange(category: TextStyleCategoryId, field: TextStyleResetField): void {
+    this.applyPageChange((layout, geo) => {
+      resetTextStyleField(layout, geo, category, field);
+    });
+  }
+
   /** 选中元素（null = 取消选中） */
   select(id: number | null): void {
     if (this.selectedId === id) return;
@@ -417,27 +421,6 @@ export class PageEditor {
       layout.items.push(colorbar);
     });
     this.select(newId);
-  }
-
-  /** 用当前页边距重新生成默认版式（脏时先确认；会替换整份 layout） */
-  async relayoutDefault(marginPt = PAGE_DEFAULT_MARGIN_PT): Promise<void> {
-    if (this.dirty) {
-      const accepted = await this.notifier.ask('重新生成默认版式会覆盖当前排版，继续？');
-      if (!accepted) return;
-    }
-    const options: DefaultPageLayoutOptions = {
-      margin_pt: marginPt,
-      paper: { ...this.layout.paper },
-      measureText: this.measureText.width,
-      // 重新排版要保留用户已经设过的分类样式（否则「样式设置」会被一次重排全部清掉）
-      text_style: structuredClone(this.layout.text_style),
-    };
-    this.layout = defaultPageLayout(this.geo, options);
-    this.selectedId = null;
-    this.dirty = true;
-    this.fitPage();
-    this.renderAll();
-    this.notifier.info('已重新生成默认版式');
   }
 
   /* =========================== 渲染与状态 =========================== */

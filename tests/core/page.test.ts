@@ -416,22 +416,22 @@ describe('defaultPageLayout（§9 初始排版）', () => {
     );
   });
 
-  it('保留传入纸张（重新排默认版式不重置纸张）', () => {
+  it('保留传入纸张（默认排版不重置纸张）', () => {
     const paper = {
       preset: 'A5' as const,
       orientation: 'landscape' as const,
       width_pt: 595.275591,
       height_pt: 419.527559,
     };
-    const layout = defaultPageLayout(makeGeo(), { paper, margin_pt: 20 });
+    const layout = defaultPageLayout(makeGeo(), { paper });
     expect(layout.paper).toEqual(paper);
     expect(layout.paper).not.toBe(paper);
-    expect(layout.map.x).toBe(20);
+    expect(layout.map.x).toBe(28);
   });
 });
 
 describe('纸张自适应（defaultPageLayout 的 k）', () => {
-  it('A5 横向重新排默认版式：注记与色标不重叠、不越过页底预留区', () => {
+  it('A5 横向默认排版：注记与色标不重叠、不越过页底预留区', () => {
     const geo = makeGeo();
     const a5 = {
       preset: 'A5' as const,
@@ -439,7 +439,7 @@ describe('纸张自适应（defaultPageLayout 的 k）', () => {
       width_pt: 595.275591,
       height_pt: 419.527559,
     };
-    const layout = defaultPageLayout(geo, { paper: a5, margin_pt: 28 });
+    const layout = defaultPageLayout(geo, { paper: a5 });
     const result = validatePage(layout, geo);
     expect(result.ok).toBe(true);
 
@@ -527,7 +527,7 @@ describe('纸张自适应（defaultPageLayout 的 k）', () => {
       },
     ];
     for (const { paper } of cases) {
-      const layout = defaultPageLayout(geo, { paper, margin_pt: 28 });
+      const layout = defaultPageLayout(geo, { paper });
       expect(validatePage(layout, geo).ok).toBe(true);
 
       const longSide = Math.max(paper.width_pt, paper.height_pt);

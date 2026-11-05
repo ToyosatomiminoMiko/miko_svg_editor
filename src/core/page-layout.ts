@@ -685,15 +685,13 @@ export function itemBoundsPt(
 /* =========================== 默认排版 =========================== */
 
 export interface DefaultPageLayoutOptions {
-  /** 页边距（「重新排默认版式」可改） */
-  readonly margin_pt?: number;
-  /** 纸张（重新排版时保留用户当前纸张）；缺省 A4 横向 */
+  /** 纸张（保留用户当前纸张）；缺省 A4 横向 */
   readonly paper?: PagePaper;
   /** 文本测量器；缺省用无 DOM 估算 */
   readonly measureText?: MeasureText;
   /**
-   * 分类样式覆盖（`page.text_style`）。重新排默认版式时必须把当前覆盖表传进来，
-   * 否则用户设过的分类样式会被一次重排全部清掉（见规格 §6）。
+   * 分类样式覆盖（`page.text_style`）。打开带 page 块的文件时要把覆盖表传进来，
+   * 否则用户设过的分类样式会被一次生成全部清掉（见规格 §6）。
    * 结果里的 `text_style` 是它的深拷贝；缺省 `{}`。
    */
   readonly text_style?: TextStyleOverrides;
@@ -911,7 +909,8 @@ function makeLabelItem(
  */
 export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = {}): PageLayout {
   const measure = options.measureText ?? fallbackMeasureText;
-  const margin = options.margin_pt ?? PAGE_DEFAULT_MARGIN_PT;
+  // 初始排版公式的内部间距口径，不是可配置项：生成后所有位置都落在各元素 x/y 上
+  const margin = PAGE_DEFAULT_MARGIN_PT;
   const paper = options.paper === undefined ? defaultPaper() : { ...options.paper };
   const style: PageStyle = {
     paper_color: PAGE_DEFAULT_PAPER_COLOR,

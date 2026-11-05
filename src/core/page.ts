@@ -89,7 +89,7 @@ export interface TextItem extends ItemBase {
   /**
    * 「左右居中」约束开关（只对 `space === 'page'` 有意义）。
    * true 时水平锚点恒为纸张中心 `paper.width_pt / 2`、`anchor` 恒为 `'middle'`：
-   * 纸张宽度/方向改变后不需要「重新排默认版式」也能保持标题/来源居中；拖拽只能改 y。
+   * 纸张宽度/方向改变后不需要重新生成排版也能保持标题/来源居中；拖拽只能改 y。
    * 约束是派生值，`normalizePage` 每次都会把 x/anchor 拉回一致；map 空间必须为 false
    * （地图地名的位置由底图数据决定，不能被纸张宽度覆盖）。
    */

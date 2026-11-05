@@ -512,7 +512,7 @@
   display: none;
 }
 
-/* 窗口 = 面板外观（与 .ui-panel 同一套 token）：头部 / 总说明 / 两列正文 / 底部 */
+/* 窗口 = 面板外观（与 .ui-panel 同一套 token）：头部 / 总说明 / 两列正文 */
 .page-style-window {
   display: flex;
   flex-direction: column;
@@ -841,16 +841,10 @@
   overflow-y: auto;
 }
 
-/* 字号下方的默认值来源说明：比 .page-style-hint 略突出，用户看不懂窗口主要卡在这里 */
-.page-style-default-hint {
-  margin: 0;
-  padding: 5px 8px;
-  font-size: 11px;
-  line-height: 1.55;
-  color: var(--color-text-muted);
-  background: var(--color-fill-inset);
-  border-left: 2px solid var(--color-accent-line);
-  border-radius: var(--radius-sm);
+/* 数值字段右侧的 reset：用 miko_ui 的重置按钮口径（.slider-field-reset 即 Button 基线），
+   这里只保证它不被 flex 压缩（默认值来源不再用说明段落解释，改为按字段重置） */
+.page-style-fields .slider-field-reset {
+  flex: none;
 }
 
 .page-style-hint {
@@ -874,17 +868,6 @@
   flex: none;
   font-size: 12px;
   color: var(--color-text-muted);
-}
-
-/* footer 只剩「关闭」：贴右，不抢视线 */
-.page-style-footer {
-  display: flex;
-  flex: 0 0 auto;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--color-bg-header);
-  border-top: 1px solid var(--color-border-panel);
 }
 
 @media (max-width: 720px) {

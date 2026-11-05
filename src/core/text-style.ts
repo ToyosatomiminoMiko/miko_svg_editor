@@ -26,6 +26,7 @@ import {
   MAP_LABEL_STYLE,
   PAGE_TEXT_DEFAULT_FONT_SIZE_PT,
   PAGE_TEXT_STYLES,
+  TEXT_HALO,
   TEXT_STYLE_CATEGORY_META,
   isTextStyleCategoryId,
 } from '../config/text-style';
@@ -43,6 +44,13 @@ import type { Geo, GeoLabel, Halo, PageLayout, TextItem, TextStyleOverride } fro
 export interface TextStylePatch extends Omit<TextStyleOverride, 'font_size_pt'> {
   font_size_pt?: number;
 }
+
+/**
+ * 可分字段恢复默认的字段 id（样式设置窗口每个数值控件旁的 reset 用）。
+ * 光晕宽度不是覆盖表的一级键（halo 是整对象），单列一个 id 表示「只把宽度回默认、颜色保留」。
+ */
+export type TextStyleResetField =
+  'font_size_pt' | 'line_height' | 'letter_spacing_em' | 'halo_width_pt';
 
 /** 覆盖解析后的样式字段（不含字号：地图分类的字号要按每条 item 回算底图数据） */
 export interface ResolvedTextStyleFields {
@@ -449,6 +457,61 @@ export function resetTextStyle(
   }
 
   const fontSize = mapCategoryFontSizePt(layout, geo, category as MapLabelRole, mapScale);
+  for (const item of items) {
+    if (writeItemStyle(item, fields, fontSize, mapScale)) changed += 1;
+  }
+  return changed;
+}
+
+/**
+ * 单字段恢复默认：删掉该字段的覆盖，并把该分类全部 item 的样式重算一遍，返回改到的 item 数。
+ *
+ * 与 `applyTextStyle` 的区别：不是「把默认值写成覆盖」——覆盖表里不会留下与默认相同的冗余键；
+ * 与 `resetTextStyle` 的区别：只动一个字段，该分类其它覆盖保留。
+ * 字号必须显式写回：页面分类「无覆盖」的口径是「该分类现有 item 的字号」而不是固定默认，
+ * 只删覆盖的话 item 仍保留旧字号（窗口数字不会变），所以页面分类按 `defaultTextFontSizePt`
+ * 写回固定默认值；地图分类按分类默认统一字号重算。
+ * 光晕宽度是 halo 对象内的字段：保留当前光晕颜色、只把宽度换回默认；换完后与默认光晕完全
+ * 相同时删掉 halo 键（不留冗余覆盖）。当前分类没有光晕时什么都不做。
+ */
+export function resetTextStyleField(
+  layout: PageLayout,
+  geo: Geo,
+  category: TextStyleCategoryId,
+  field: TextStyleResetField,
+): number {
+  const current = layout.text_style[category];
+  const next: TextStyleOverride = { ...(current ?? {}) };
+  const defaults = defaultTextStyleFields(category);
+
+  if (field === 'halo_width_pt') {
+    const resolvedHalo = resolveTextStyleFields(category, current).halo;
+    const defaultHalo = defaults.halo;
+    if (resolvedHalo === null) return 0;
+    const width = defaultHalo?.width_pt ?? TEXT_HALO.width_pt;
+    const color = resolvedHalo.color;
+    if (defaultHalo !== null && color === defaultHalo.color && width === defaultHalo.width_pt) {
+      delete next.halo;
+    } else {
+      next.halo = { color, width_pt: width };
+    }
+  } else {
+    delete next[field];
+  }
+
+  if (Object.keys(next).length === 0) delete layout.text_style[category];
+  else layout.text_style[category] = next;
+
+  const fields = resolveTextStyleFields(category, layout.text_style[category]);
+  const mapScale = mapScaleOf(geo, layout);
+  const items = itemsOfTextCategory(layout, geo, category);
+  const isPage = TEXT_STYLE_CATEGORY_META[category].kind === 'page';
+  const fontSize = !isPage
+    ? mapCategoryFontSizePt(layout, geo, category as MapLabelRole, mapScale)
+    : field === 'font_size_pt'
+      ? defaultTextFontSizePt(category, layout)
+      : pageFontSizePt(layout, geo, category);
+  let changed = 0;
   for (const item of items) {
     if (writeItemStyle(item, fields, fontSize, mapScale)) changed += 1;
   }

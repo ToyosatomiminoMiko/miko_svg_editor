@@ -352,7 +352,7 @@ describe('打开时页面文字字号保持（纸张改宽不重排的导出→�
     );
     if (titleBefore === undefined) throw new Error('fixture 缺少标题');
     const titleSize = titleBefore.font_size_pt;
-    resized.paper.width_pt = 700; // 模拟侧栏改宽但不点「重新排默认版式」
+    resized.paper.width_pt = 700; // 模拟侧栏改宽（排版不会自动重排）
     const geoText = serializeMapDocFile(document.geo, resized);
 
     const opened = openMapFromUploads([svgUpload(BASE_SVG_TEXT), geoUpload(geoText)]);

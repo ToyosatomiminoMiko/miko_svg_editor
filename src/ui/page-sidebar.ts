@@ -1,7 +1,7 @@
 /**
  * 出版排版编辑器的右侧属性面板（编排层）。
  *
- * 是什么：持有面板外壳与侧栏本地状态（页边距、隐藏图例条目、文字编辑框、派生高度读数），
+ * 是什么：持有面板外壳与侧栏本地状态（隐藏图例条目、文字编辑框、派生高度读数），
  * 在 `sync()` 里驱动四块面板刷新；具体控件构建拆在 `page-panel-*` / `page-fields-*` 模块，
  * 控件登记与刷新在 `page-sidebar-controls.ts`，两者之间的契约是 `SidebarContext`。
  * 为什么这样组织：所有控件都只是「读最新 layout → 写回 mutator」的薄封装，真正的状态在
@@ -13,7 +13,6 @@
  */
 
 import { create_element, createButton, createPanel } from 'miko_ui';
-import { PAGE_DEFAULT_MARGIN_PT } from '../config/page';
 import {
   itemById,
   itemKindLabel,
@@ -60,8 +59,6 @@ export class PageSidebar {
   private mapHeightEl: HTMLElement | null = null;
   /** 元素计数读数 */
   private elementCountEl: HTMLElement | null = null;
-  /** 初始排版页边距：只作为「重新排默认版式」的输入（面板本地状态，不落 layout、不约束已放置元素） */
-  private marginPt = PAGE_DEFAULT_MARGIN_PT;
   /** 会话内隐藏的图例条目：legend id → 被移除的条目与原位置 */
   private readonly hiddenLegendEntries = new Map<number, { entry: LegendEntry; index: number }[]>();
 
@@ -78,10 +75,6 @@ export class PageSidebar {
       getLayout: () => this.layout,
       getGeo: () => this.geo,
       getSelectedId: () => this.selectedId,
-      getMarginPt: () => this.marginPt,
-      setMarginPt: (value) => {
-        this.marginPt = value;
-      },
       setTextEditor: (input) => {
         this.textEditor = input;
       },

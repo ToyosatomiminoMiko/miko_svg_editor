@@ -38,7 +38,7 @@ map.html（Vite 静态站；npm run dev → http://localhost:5173/map.html）
   core/page.ts          normalizeGeo / validateGeo / normalizePage / validatePage /
                         enforceHorizontalCenter（左右居中约束）/ sha256OfBytes / canonicalJson /
                         geoDigest / pageDigest / serializeMapDocFile
-  core/text-style.ts    分类文字样式：item → 分类、覆盖表解析/批量写回 item、恢复默认、
+  core/text-style.ts    分类文字样式：item → 分类、覆盖表解析/批量写回 item、整分类/单字段恢复默认、
                         打开时按分类重建逐条文字样式（resyncTextStyles；纯逻辑，node 可测）
   core/page-layout.ts   §5 全部布局公式 + defaultPageLayout（缺可选块时降级；
                         title/subtitle/source 默认开启左右居中）
@@ -332,8 +332,8 @@ Cartopy 直出的 geo.json 没有这个键。形状：
   `space=map` 的地图地名必须为 `false`（位置由底图数据决定，纸张变宽不能改变地名在地图上的
   相对位置），`validatePage` 对 map 空间给 `true` 直接判错。`normalizePage` 把缺失/非布尔兜底成
   `false`，随后调用 `enforceHorizontalCenter` 把 `center_h=true` 的 item 拉回纸张中心；打开文件、
-  每次排版修改（包括改纸张宽度/方向）后也都会执行同一约束，因此居中项不需要「重新排默认版式」就
-  会跟随纸张宽度重新贴合。拖拽与方向键移动对居中项只改 `y`（水平位移被约束吃掉）；在侧栏关掉
+  每次排版修改（包括改纸张宽度/方向）后也都会执行同一约束，因此居中项会自动跟随纸张宽度重新
+  贴合。拖拽与方向键移动对居中项只改 `y`（水平位移被约束吃掉）；在侧栏关掉
   开关后保持当前 `x`/`anchor` 不变。新建文字时 `title`/`subtitle`/`source` 默认开启，其余关闭。
 
 **legend**
@@ -502,24 +502,23 @@ title（show_title）：基线 y-4，anchor=middle，x = item.x+width_pt/2
   `PAGE_SUBTITLE_SIZE_PT=9` / `PAGE_NOTE_SIZE_PT=7.5` / `PAGE_SOURCE_SIZE_PT=7`，不随纸张缩放）；
   **横向**纸用「左地图 + 右栏」，**纵向**纸（`h > w*1.05`）用「地图满内容宽 + 下方一排图例/注记/
   色标」，并让开地图底部的经度刻度标签。
-- **页边距只是初始排版参数**：`options.margin_pt`（缺省 `PAGE_DEFAULT_MARGIN_PT = 28`）只在
-  `defaultPageLayout` 生成初始排版时使用，不写进 `page` 块，也不约束已放置元素；侧栏改「初始排版
-  页边距」后需要点「重新排默认版式」才生效。
+- **页边距固定为内部常量**：`PAGE_DEFAULT_MARGIN_PT = 28` 只在 `defaultPageLayout` 生成初始
+  排版时作为纸面内边距使用，不作为任何设置项暴露，也不写进 `page` 块；已放置元素只由各自 x/y
+  决定位置，不受页边距约束，改纸张尺寸后位置不变。
 - 地名标注（`geo.labels`）按 map 空间铺上，**同分类统一字号**（见下条）：颜色/斜体按 `role` 查
   `config/text-style.ts` 的角色表，字重/字距/行高/描边取 `MAP_LABEL_STYLE`；`label.y` 是文字块
   垂直中心，按 `baseline_ratio` 换算回第一行基线后加回（见契约 §4），旋转默认 0。标题/副标题/
   注记/来源来自 `geo.suggestions`。
-- **分类样式覆盖参与默认排版**：`options.text_style` 是当前 `page.text_style` 覆盖表，返回值的
-  `text_style` 是它的深拷贝（缺省 `{}`），因此重新排默认版式后用户的分类覆盖仍在。标题/副标题/
+- **分类样式覆盖参与默认排版**：`defaultPageLayout` 仍接受 `options.text_style` 覆盖表，返回值的
+  `text_style` 是它的深拷贝（缺省 `{}`）；打开时的初始排版没有已有覆盖，传入缺省 `{}`。标题/副标题/
   注记/来源：字号 = 覆盖 `font_size_pt` ?? **固定默认字号**（`PAGE_TITLE_SIZE_PT=18` /
   `PAGE_SUBTITLE_SIZE_PT=9` / `PAGE_NOTE_SIZE_PT=7.5` / `PAGE_SOURCE_SIZE_PT=7`，不乘 `k`）；
   颜色/斜体/字重/字距/行高/光晕 = 覆盖 ?? `PAGE_TEXT_STYLES[role]`（注记/来源无颜色覆盖时仍沿用
   `style.color`）；注记/来源的折行测量与块高必须用**解析后的**字号/字重/行高，否则覆盖后文字会
   溢出或压到下一块。地名：按 `label.role` 解析覆盖（颜色/斜体/字重/字距/行高/光晕），字号 = 覆盖
   `font_size_pt` ?? **分类默认统一字号**（该分类底图字号中位数 × `s`，夹 4..40 并保留 1 位小数；
-  分类没有地名时回退 10pt），同一分类全部地名同字号；`geo_label_id = label.id`。「重新排默认
-  版式」（§9）必须把当前覆盖表传进来；重排会把无覆盖的页面文字字号重置为固定默认字号，不重排时
-  既有 item 的字号保持不变（§5.3）。
+  分类没有地名时回退 10pt），同一分类全部地名同字号；`geo_label_id = label.id`。默认排版只用于
+  打开时的初始生成；之后改纸张尺寸/方向不会重新生成版式，既有 item 的字号保持不变（§5.3）。
 - **可选块降级**（无后端后新增）：`hasLegend = geo.legend.entries.length > 0`、
   `hasNotes = suggestions.notes 有非空行`、`hasColorbar = geo.relief !== null`。
   - `hasLegend` 为假 → 不生成 legend item，也不留空图例框；
@@ -830,10 +829,11 @@ src/app/page-main.ts            # 组合根：建外壳 → 上传面板 → Fil
                                 #   core/open-map 打开 → 建 sidebar/editor → 建样式设置窗口 →
                                 #   toolbar → start；换文档时先销毁窗口；「打开…」重开与拖拽兜底
 src/app/page-editor.ts          # 状态机：选择/拖拽/缩放/平移/脏标记；分类样式补丁
-                                #   applyTextStyleChange / resetTextStyleChange；每次排版修改后执行
-                                #   enforceHorizontalCenter；exportGeo()/exportFinal()/destroy()
+                                #   applyTextStyleChange / resetTextStyleChange / resetTextStyleFieldChange；
+                                #   每次排版修改后执行 enforceHorizontalCenter；
+                                #   exportGeo()/exportFinal()/destroy()
 src/config/page.ts              # 格式标识、上传 accept、校验容差、纸张预设、默认排版参数、
-                                #   页面文字固定默认字号、初始排版页边距、纸张比例系数 layoutScaleForPaper、
+                                #   页面文字固定默认字号、默认排版内部页边距常量、纸张比例系数 layoutScaleForPaper、
                                 #   上限、交互系数
 src/config/text-style.ts        # 文字样式常量与分类元信息（role 颜色表、页面文字默认字号、
                                 #   20 个分类 = 6 页面文字 + 14 地图地名 与两组顺序；样式唯一真源；
@@ -851,7 +851,7 @@ src/core/page.ts                # geo/page 类型、normalize/validate、text it
 src/core/page-layout.ts         # §5 全部布局公式 + defaultPageLayout（可选块降级、按 text_style 出样式、
                                 #   地图分类统一字号、title/subtitle/source 默认居中）
 src/core/text-style.ts          # 分类文字样式：item→分类、分类有效样式与默认统一字号解析、
-                                #   覆盖表批量写回 item、恢复默认、打开时按分类重建逐条样式（resyncTextStyles）
+                                #   覆盖表批量写回 item、整分类/单字段恢复默认、打开时按分类重建逐条样式（resyncTextStyles）
 src/render/page-svg.ts          # 预览 SVG DOM（纸张/底图 image/图框刻度/items）
 src/render/compose-svg.ts       # 浏览器内合成 final.svg（纯函数：结构/marker/内嵌源/report）
 src/render/page-format.ts       # 数字格式化、颜色/转义、SVG 属性 helper
@@ -859,7 +859,7 @@ src/ui/page-open.ts             # 上传面板（SVG / JSON 两栏各自选择 +
 src/ui/page-sidebar.ts          # 右侧属性面板编排：面板壳 / sync / 元素列表 / 选中项重建
 src/ui/page-sidebar-context.ts  # 面板模块与侧栏状态的唯一契约（PageSidebarHandlers / SidebarContext）
 src/ui/page-sidebar-controls.ts # 控件登记表（数字/颜色/文本/开关/分段 + 未聚焦控件回写）
-src/ui/page-panel-paper.ts      # 「页面」面板：纸张预设/方向/宽高 + 初始排版页边距（仅影响「重新排默认版式」）
+src/ui/page-panel-paper.ts      # 「页面」面板：纸张预设/方向/宽高 + 落盘说明（改纸张不移动已放置元素）
 src/ui/page-panel-map.ts        # 「地图」面板：摆放/派生高度/图框/刻度样式
 src/ui/page-fields-common.ts    # 元素公共字段：坐标空间 + x/y + 页面文字「左右居中」开关（x/y 正下方；
                                 #   开启时 x 冻结并置灰）
@@ -872,8 +872,8 @@ src/ui/page-toolbar.ts          # 顶部工具条（文件/添加/样式/视图�
 src/ui/page-style-window.ts     # 「样式设置」模态窗口：头部总说明 + 左列两组分类（语义小标题/数量徽标/
                                 #   已改标记/地图 0 项置灰）+ 右列分类头（影响数量/默认·已改·排版值/
                                 #   示例/恢复默认（有覆盖或排版值时可用）/实时预览）+ 四组字段
-                                #   （字号/颜色与字形/行距与字距/描边光晕）+ 字号默认值说明
-                                #   （页面分类：覆盖 ?? 现值 ?? 固定默认）
+                                #   （字号/颜色与字形/行距与字距/描边光晕）；字号/行高/字距/光晕宽度旁
+                                #   各有字段级 reset（删该字段覆盖回默认，已是默认时禁用）
 src/ui/page-notify.ts           # 消息区（miko_ui MessageArea + 简单确认框）
 src/ui/download.ts              # downloadText / downloadSvg（Blob + <a download>）
 src/styles-page.css             # 本页样式（.page-*；token 复用 miko_ui/styles.css 与 styles.css）
@@ -931,28 +931,25 @@ tests/render/compose-svg.test.ts # 合成结构、marker、内嵌源、确定性
     前 1~2 条地名首行；没有 item 时用 `config/text-style.ts` 的静态示例）。「排版值」= 页面分类
     没有覆盖、但当前 item 字号与固定默认字号不同（排版里保留了早先的纸面字号）；「恢复「X」默认
     值」按钮在「有覆盖」或「排版值」时可用（地图分类只在有覆盖时可用）；点击后有覆盖则删除覆盖，
-    页面分类按固定默认字号重写 item，地图分类回到分类默认统一字号。footer 只留「关闭」。
+    页面分类按固定默认字号重写 item，地图分类回到分类默认统一字号。
   - 分类头下方是实时预览：用当前分类样式重绘示例文字（背景取纸张色；地图分类用浅色地图底；光晕
     副本先画、填充副本后画，与渲染层同口径），字号/颜色/光晕改动立刻可见。
   - 预览下方字段分四组：字号 / 颜色与字形（文字颜色、字重四档、斜体）/ 行距与字距（行高、字距）/
     描边（光晕）（开关 + 颜色 + 宽度，关闭时颜色/宽度禁用）。**每个字段输入即时生效**：窗口只发
     单字段补丁，由编辑器调 `core/text-style.ts` 的 `applyTextStyle` 写 `page.text_style` 并批量同步
     该分类全部 item；地图分类只有一个「字号（pt）」数字，改任意字段（哪怕只改颜色）都会把该分类
-    全部地名统一到窗口值。
-  - 字号默认值说明（字段下方一行）：页面分类当前值 = 覆盖 ?? 该分类现有 item 的字号 ?? 固定默认
-    字号 `defaultTextFontSizePt`；固定默认字号不随纸张尺寸缩放，当前值与固定默认不同时分类头状态
-    显示「排版值」，说明行说明当前字号来自排版、恢复默认会写回固定默认值。地图分类「默认 X pt =
-    该分类地名原始字号中位数 × 地图缩放（当前缩放 s）；修改后同分类全部地名统一为窗口值」，该
-    分类没有地名时显示兜底值 10 pt。
-  - 关闭方式：头部/底部「关闭」按钮、`Esc`、点遮罩；窗口打开时焦点进面板，关闭后归还打开前的
+    全部地名统一到窗口值。字号/行高/字距/光晕宽度四个数字字段旁各有 reset 按钮：点它删除该字段
+    覆盖、恢复代码默认值（不是把默认值写成覆盖），字段值已是默认时禁用；页面分类字号写回固定
+    默认值，地图分类字号回到分类默认统一字号（该分类地名原始字号中位数 × 地图缩放），光晕宽度
+    只重置宽度、保留当前颜色。分类头「恢复「X」默认值」仍保留，用于整分类恢复。
+  - 关闭方式：头部「关闭」按钮、`Esc`、点遮罩（窗口不设底部操作条）；窗口打开时焦点进面板，关闭后归还打开前的
     焦点。窗口读写最新 layout/geo，与当前文档同生命周期（换文档时销毁）；外部 `sync` 就地刷新数值、
     分类头、左列徽标与预览，跳过聚焦中的控件（数字输入不被打断），光晕开关只切换颜色/宽度的
     可用性而不重建字段。
-- **侧栏**：页面（纸张预设/方向/宽高/「初始排版页边距」+「重新排默认版式」）、地图（x/y/宽度、
-  图框开关/刻度开关/线宽/颜色/刻度字号）、元素列表（选中/删除/新增）、选中项属性（按 kind 分支）、
-  图例条目编辑。页边距只是「重新排默认版式」的初始输入，不落 `page` 块、也不约束已放置元素；
-  输入框标签为「初始排版页边距（pt）」，旁边说明「只影响重新生成的默认版式；已放置元素可直接
-  拖拽或改 x/y，不受页边距约束」。
+- **侧栏**：页面（纸张预设/方向/宽高；底部说明「纸张尺寸与元素位置都以 pt 落盘；预览与导出的
+  final.svg 共用同一套排版公式」；改纸张不移动已放置元素，状态行提示「纸张已改变：已放置元素
+  位置不变，可拖拽或改 x/y 调整」）、地图（x/y/宽度、图框开关/刻度开关/线宽/颜色/刻度字号）、
+  元素列表（选中/删除/新增）、选中项属性（按 kind 分支）、图例条目编辑。
 - **快捷键**：`Ctrl+S` = 导出 geo.json；未导出时 `beforeunload` 提醒。
 - 选中 item 的 id 通过 SVG 数据属性命中；渲染是每帧全量重建 DOM（元素 ≤500，简单优先）。
 - 不引入新依赖；只用 `miko_ui` 与标准 DOM。禁止 `alert/confirm`、`console`（沿用 eslint）。
@@ -964,8 +961,8 @@ tests/render/compose-svg.test.ts # 合成结构、marker、内嵌源、确定性
 2. `npm run dev` → `http://localhost:5173/map.html`：上传真实 Cartopy 产物（`demo/figures/Volga/`
    的底图 `.build/…base.svg` + 同名 `.geo.json`）→ 生成默认排版（标题/地图/刻度/地名/
    图例/注记/色标/来源）；编辑标题；「导出 geo.json」「导出 SVG」各得到一个文件；刷新页面无后端请求、
-   无 404。在「页面」面板改「初始排版页边距」→ 已放置元素位置不变；点「重新排默认版式」后新排版
-   按该页边距生成。
+   无 404。在「页面」面板改纸张宽度/方向 → 已放置元素位置不变，状态行提示「纸张已改变：已放置
+   元素位置不变，可拖拽或改 x/y 调整」。
 3. `final.svg` 不变量：根 `width/height` 带 `pt`、viewBox 一致；`<g id="mapdoc-map">` 内是底图内容
    （不引用外部 `base.svg`；底图自带的 base64 内联 `<image>` 允许存在），且带 `clip-path` 指向
    `<defs>` 里的 `mapdoc-map-clip`（矩形 = `geo.base.view_box`）；文字为 `<text>`；有
@@ -987,24 +984,26 @@ tests/render/compose-svg.test.ts # 合成结构、marker、内嵌源、确定性
 9. **分类样式**：上传 demo geo → 工具条「样式设置」打开窗口 → 左列出现两组共 20 个分类（每组有
    标题与一句分组说明，组内有语义小标题），每项有颜色色块与当前元素数量徽标，改过的分类显示
    「已改」；该底图没有对应 `role` 地名的地图分类置灰但仍可选中，右列说明原因；右列分类头显示
-   类型徽标/影响 N 个元素/默认·已改·排版值/示例，下方有实时预览与四组字段，字号下方解释默认值来源
-   （页面分类 = 固定默认字号 18/9/7.5/7pt；地图分类 = 该分类地名原始字号中位数 × 地图缩放）→ 改
-   「城市」颜色/字号/字重/行高 → 画布上全部城市标注立即变化，右侧选中该分类后字段值同步；改
-   「页面文字/标题」字号 → 标题立即变化；地图分类改字号后该分类全部地名**严格同字号**（只改颜色等
-   其它字段时也保持统一）；「恢复默认」→ 该分类回到默认样式，页面分类回到固定默认字号，地图分类
-   回到「分类默认统一字号」（该分类底图字号中位数 × 缩放，全部地名相等）。导出 `geo.json` 含
-   `page.text_style`（只出现用户设过的分类/字段）；重新打开该 geo.json 样式原样恢复；点「重新排
-   默认版式」后分类样式仍保留。侧栏选中单条文字显示坐标空间/x-y（含「左右居中」开关）/内容/角色/
+   类型徽标/影响 N 个元素/默认·已改·排版值/示例，下方有实时预览与四组字段，字号/行高/字距/光晕
+   宽度旁各有 reset 按钮（字段值为默认时禁用）→ 改「城市」颜色/字号/字重/行高 → 画布上全部城市
+   标注立即变化，右侧选中该分类后字段值同步；改「页面文字/标题」字号 → 标题立即变化；地图分类
+   改字号后该分类全部地名**严格同字号**（只改颜色等其它字段时也保持统一）；「恢复默认」→ 该分类
+   回到默认样式，页面分类回到固定默认字号，地图分类回到「分类默认统一字号」（该分类底图字号中位数
+   × 缩放，全部地名相等）。字段级 reset：把「城市」字号改掉后点字号旁的 reset → 字号回分类默认
+   统一字号，`page.text_style` 里该分类的 `font_size_pt` 覆盖键消失；行高/字距/光晕宽度同理
+   （光晕宽度只重置宽度、保留颜色），字段值已是默认时按钮禁用。导出 `geo.json` 含
+   `page.text_style`（只出现用户设过的分类/字段）；重新打开该 geo.json 样式原样恢复；改纸张尺寸/
+   方向不会丢掉分类样式。侧栏选中单条文字显示坐标空间/x-y（含「左右居中」开关）/内容/角色/
    对齐/旋转，没有字号/颜色等字段；切换页面文字角色后该条立即套用新分类样式。**反例**：旧 page
    块缺 `geo_label_id`（或指向不存在的 id）→ 告警并回退默认排版；带合法 page 块但逐条样式与分类
    覆盖不一致 → 打开时按分类覆盖、标脏并告警「旧排版中的逐条文字样式已按分类设置统一（N 条）」。
 10. **左右居中约束**：默认排版里标题/副标题/来源 `center_h = true` 且 x = 纸张中心；改大/改小
-    纸张宽度或切换方向 → 三条仍水平居中（x 跟随纸张中心、anchor=middle），不需要点「重新排默认
-    版式」。单条选中标题：开启「左右居中」时侧栏 x 输入框冻结并置灰、对齐分段禁用，只能上下
-    移动；关掉开关后 x 恢复可编辑、对齐分段恢复可用，可水平拖动/方向键移动；再打开开关 → 立即
-    回到中心。地图地名 item 不显示该开关。导出的 geo.json 里 `page.items[]`
-    带 `center_h` 与居中 x；手改该标题的 `x`/`anchor` 后重新打开 → 纠回纸张中心、标脏并告警
-    「排版中的左右居中约束已按纸张宽度重新贴合（N 条）」；再导出并重新打开 → 干净（幂等）。
+    纸张宽度或切换方向 → 三条仍水平居中（x 跟随纸张中心、anchor=middle），不需要重排。单条
+    选中标题：开启「左右居中」时侧栏 x 输入框冻结并置灰、对齐分段禁用，只能上下移动；关掉开关
+    后 x 恢复可编辑、对齐分段恢复可用，可水平拖动/方向键移动；再打开开关 → 立即回到中心。地图
+    地名 item 不显示该开关。导出的 geo.json 里 `page.items[]` 带 `center_h` 与居中 x；手改该
+    标题的 `x`/`anchor` 后重新打开 → 纠回纸张中心、标脏并告警「排版中的左右居中约束已按纸张宽度
+    重新贴合（N 条）」；再导出并重新打开 → 干净（幂等）。
 11. **页面字号固定与旧排版「排版值」**：页面文字（标题/副标题/注记/来源）默认字号固定为
     18/9/7.5/7pt，改变纸张宽/方向不会改变它们；导出 → 重新打开字号一致，状态干净（不标脏、
     不出现「逐条文字样式已按分类设置统一」告警），再次导出字节一致。打开保留了非固定字号的
@@ -1035,8 +1034,8 @@ tests/render/compose-svg.test.ts # 合成结构、marker、内嵌源、确定性
   其它字号显示为「排版值」，点「恢复默认」写回固定默认值。
 - **左右居中只作用于页面文字**：地图地名的 `center_h` 恒为 `false`（位置来自底图数据）；页面文字
   开启后水平位置由纸张宽度决定，拖拽/方向键只能改 `y`，要自由摆放需先关掉「左右居中」（关闭时
-  保持当前位置）。纸张宽度/方向变化后居中项自动重新贴合，不需要「重新排默认版式」；非居中项
-  仍不会自动重排。
+  保持当前位置）。纸张宽度/方向变化后居中项自动重新贴合；非居中项保持原位置（位置只由各自
+  x/y 决定）。
 - **无自动草稿**：不写 localStorage、不自动下载；刷新/关闭页面会丢未导出的修改（`beforeunload` 提醒）。
   排版落盘 = 手动「导出 geo.json」。
 - **大底图首次加载**：约 10 MB 的底图要一次性读入、严格 UTF-8 解码、求 sha256、做 C1–C4 扫描，
@@ -1051,11 +1050,11 @@ tests/render/compose-svg.test.ts # 合成结构、marker、内嵌源、确定性
 - 外部工具对成品渲染内容的修改（移动文字、改颜色等）**不会**被读回：再编辑以内嵌的 geo.json/page
   排版真值为准，渲染层只用于显示。
 - 默认排版只是起点：小纸张（A5）+ 多图例 + 多条注记时，图例/色标与间距按 k 缩小后容易偏挤，
-  需要手工调字号/位置或换纸张；页面文字字号固定，不随纸张缩放。用户改过排版后切纸张不会自动重排
-  （需点「重新排默认版式」）。
+  需要手工调字号/位置或换纸张；页面文字字号固定，不随纸张缩放。用户改过排版后切纸张不会自动
+  重排：已放置元素位置只由各自 x/y 决定，需要时手动拖拽或改 x/y。
 - Cartopy 侧旧的带字产物不再被本仓解析：需要重新用 Cartopy 生成 `base.svg + geo.json`。
 - **不再支持旧 `mapdoc-page`/`scene.json`**：排版已并入 geo.json 的 `page` 块，旧产物无法导入；
-  需用 Cartopy 重新生成 `base.svg + geo.json`，再按新流程重新排版（或用本编辑器导出的 geo.json）。
+  需用 Cartopy 重新生成 `base.svg + geo.json`，再按新流程重新导入排版（或用本编辑器导出的 geo.json）。
 
 **迁移计划**：Cartopy 只做地理、直出 `base.svg + geo.json`（含初始标注候选），字体改为前端按字符裁子集后
 交给合成，以及要搬过来的比例尺/指北针/引线/图例能力，统一记在

@@ -10,8 +10,9 @@
  * 批量写回该分类下所有 item（`.work/STYLE-SETTINGS-SPEC.md` §0/§3）。窗口只负责发
  * 「单字段补丁」与「恢复默认」，脏标记/重绘/侧栏同步全部由宿主的 onApply/onReset 完成；
  * 本模块不持有 layout，每次读都走 getLayout/getGeo 取最新值。
- * 字号口径：窗口必须解释「默认值从哪来、改了会影响谁」：页面分类显示固定的代码默认字号；
- * 地图分类显示「该分类地名原始字号中位数 × 地图缩放」，并说明同分类全部地名统一为窗口值。
+ * 字号口径：页面分类跟固定的代码默认字号；地图分类跟「该分类地名原始字号中位数 × 地图缩放」，
+ * 且同分类全部地名统一为窗口值。默认值不再用说明段落解释，而是每个数值字段旁的 reset 按钮：
+ * 点它删掉该字段覆盖并恢复代码默认值（值已是默认时按钮禁用）。
  * 左列数量徽标与右列「影响 N 个元素」都按 `itemsOfTextCategory` 的 item 数量算，
  * 保证窗口说的数字与实际会被改到的元素一致。
  * 刷新口径：选中分类切换 / 打开窗口 / 恢复默认时只重建右侧字段（分类头与预览是固定节点，
@@ -21,7 +22,7 @@
  * 实时预览用 SVG 重画示例文字（与 `render/page-svg.ts` 同一套属性口径：halo 副本先画、
  * 填充副本后画），背景取纸张色（地图分类用浅色地图底），让字号/颜色/光晕的改动立刻可见。
  * 无障碍：模态 `role="dialog" aria-modal="true" aria-label="样式设置"`，头部总说明用
- * `aria-describedby` 关联；Esc / 点遮罩 / 头部与底部「关闭」都能关闭；打开时焦点进窗口，
+ * `aria-describedby` 关联；Esc / 点遮罩 / 头部「关闭」都能关闭（窗口不设底部操作条）；打开时焦点进窗口，
  * 关闭时归还给打开前的焦点；左列按钮带 `aria-pressed` 与含数量/已改状态的 aria-label。
  * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
@@ -46,7 +47,6 @@ import {
   type SwitchHandle,
 } from 'miko_ui';
 import {
-  MAP_LABEL_DEFAULT_FONT_SIZE_PT,
   MAP_LABEL_STYLE,
   TEXT_HALO,
   TEXT_STYLE_CATEGORY_GROUPS,
@@ -59,15 +59,17 @@ import {
 import type { Geo, Halo, PageLayout, TextItem } from '../core/page';
 import {
   defaultTextFontSizePt,
+  defaultTextStyleFields,
   itemsOfTextCategory,
   mapCategoryDefaultFontSizePt,
   mapScaleOf,
   readTextCategoryStyle,
   type ResolvedTextStyle,
   type TextStylePatch,
+  type TextStyleResetField,
 } from '../core/text-style';
 
-/** 窗口需要宿主注入的全部能力（布局/地图的最新值 + 补丁出口） */
+/** 窗口需要宿主注入的全部能力（布局/地图的最新值 + 补丁/恢复出口） */
 export interface StyleSettingsWindowDeps {
   /** 宿主（挂 overlay；app 传 document.body） */
   readonly host: HTMLElement;
@@ -77,6 +79,8 @@ export interface StyleSettingsWindowDeps {
   readonly onApply: (category: TextStyleCategoryId, patch: TextStylePatch) => void;
   /** 恢复该分类默认样式 */
   readonly onReset: (category: TextStyleCategoryId) => void;
+  /** 只恢复某个字段的默认值（数值字段旁的 reset 按钮） */
+  readonly onResetField: (category: TextStyleCategoryId, field: TextStyleResetField) => void;
 }
 
 /** 分类列表里的一项：按钮本身 + 刷新时要改的色块/数量徽标/已改标记 */
@@ -139,9 +143,18 @@ function previewNumber(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
 
-/** 默认字号说明里的数值：最多两位小数（保留 1 位的地图字号显示为 12.4，不显示 12.40） */
-function hintNumber(value: number): string {
-  return String(Math.round(value * 100) / 100);
+/**
+ * 数值字段旁的 reset 登记项：按钮、对应数字框、当前值/默认值读取器。
+ * 禁用口径由 refreshResets 统一算：值已等于默认值，或该字段结构上不可改（光晕关闭时的宽度）。
+ */
+interface ResetBinding {
+  readonly field: TextStyleResetField;
+  readonly label: string;
+  readonly button: ButtonHandle;
+  readonly input: NumberFieldHandle;
+  readonly readCurrent: () => number;
+  readonly readDefault: () => number;
+  readonly isStructurallyDisabled?: () => boolean;
 }
 
 export class StyleSettingsWindow {
@@ -167,8 +180,8 @@ export class StyleSettingsWindow {
   private fieldDisposers: (() => void)[] = [];
   /** 字段值绑定（与 fieldDisposers 同生命周期） */
   private bindings: FieldBinding[] = [];
-  /** 字号区的默认值说明节点（重建字段时换掉，refresh 时更新文案） */
-  private sizeHintEl: HTMLElement | null = null;
+  /** 每个数值字段的 reset 登记项（重建字段时换掉，refresh 时更新可用态与提示） */
+  private resets: ResetBinding[] = [];
   /** 光晕关闭时需要禁用的两个控件与其行 */
   private haloColorInput: HTMLInputElement | null = null;
   private haloWidthField: NumberFieldHandle | null = null;
@@ -224,16 +237,11 @@ export class StyleSettingsWindow {
     this.fieldsEl.append(this.head.element, this.fieldsBodyEl);
     body.append(this.listEl, this.fieldsEl);
 
-    const footer = create_element({ tag: 'footer' }, { class: 'page-style-footer' });
-    const footerClose = createButton({ text: '关闭', title: '关闭样式设置' });
-    footerClose.onClick(() => this.close());
-    footer.append(footerClose.element);
-
-    this.panel.append(header, intro, body, footer);
+    // 关闭入口只保留头部按钮（另有 Esc 与点遮罩），窗口不设底部操作条
+    this.panel.append(header, intro, body);
     this.overlay.append(this.panel);
     this.disposers.push(
       () => headerClose.dispose(),
-      () => footerClose.dispose(),
       () => this.head.reset.dispose(),
     );
 
@@ -420,7 +428,6 @@ export class StyleSettingsWindow {
   /** 重建右侧字段：先释放上一批控件，再按分类 kind 声明四组字段 */
   private rebuildFields(): void {
     this.disposeFields();
-    this.sizeHintEl = null;
     this.haloColorInput = null;
     this.haloWidthField = null;
     this.haloRows = [];
@@ -436,7 +443,7 @@ export class StyleSettingsWindow {
   }
 
   /**
-   * 「字号」组：数字行 + 默认值来源说明（节点在 refreshSizeHint 里更新文案）。
+   * 「字号」组：数字行 + reset。
    * 地图分类的默认值是「该分类地名原始字号中位数 × 地图缩放」，不是某条地名的字号；
    * 页面分类的默认值是固定代码常量，不随纸张尺寸缩放。
    */
@@ -447,10 +454,13 @@ export class StyleSettingsWindow {
       '字号（pt）',
       () => this.readStyle().font_size_pt,
       (value) => this.apply({ font_size_pt: value }),
-      { min: 1, max: 500, step: 0.5 },
+      {
+        min: 1,
+        max: 500,
+        step: 0.5,
+        reset: { field: 'font_size_pt', readDefault: () => this.defaultFontSizePt() },
+      },
     );
-    this.sizeHintEl = create_element({ tag: 'p' }, { class: 'page-style-default-hint' });
-    grid.append(this.sizeHintEl);
     return createControlGroup('字号', grid);
   }
 
@@ -501,14 +511,30 @@ export class StyleSettingsWindow {
       '行高（倍数）',
       () => this.readStyle().line_height,
       (value) => this.apply({ line_height: value }),
-      { min: 0.5, max: 5, step: 0.05 },
+      {
+        min: 0.5,
+        max: 5,
+        step: 0.05,
+        reset: {
+          field: 'line_height',
+          readDefault: () => defaultTextStyleFields(this.selected).line_height,
+        },
+      },
     );
     this.addNumberRow(
       grid,
       '字距（em）',
       () => this.readStyle().letter_spacing_em,
       (value) => this.apply({ letter_spacing_em: value }),
-      { min: -1, max: 2, step: 0.01 },
+      {
+        min: -1,
+        max: 2,
+        step: 0.01,
+        reset: {
+          field: 'letter_spacing_em',
+          readDefault: () => defaultTextStyleFields(this.selected).letter_spacing_em,
+        },
+      },
     );
     return createControlGroup('行距与字距', grid);
   }
@@ -546,7 +572,16 @@ export class StyleSettingsWindow {
         if (halo === null) return;
         this.apply({ halo: { color: halo.color, width_pt: value } });
       },
-      { min: 0, max: 20, step: 0.5 },
+      {
+        min: 0,
+        max: 20,
+        step: 0.5,
+        reset: {
+          field: 'halo_width_pt',
+          readDefault: () => this.defaultHalo().width_pt,
+          isStructurallyDisabled: () => this.readStyle().halo === null,
+        },
+      },
     );
     this.haloColorInput = color.input;
     this.haloWidthField = width.field;
@@ -556,13 +591,26 @@ export class StyleSettingsWindow {
 
   /* =========================== 字段工厂 =========================== */
 
-  /** 数字行：input 阶段即时写补丁；提交时解析失败就把显示回退到 layout 里的最新值 */
+  /**
+   * 数字行：input 阶段即时写补丁；提交时解析失败就把显示回退到 layout 里的最新值。
+   * 给了 `reset` 就在数字框右侧挂一个 miko_ui 口径的 reset 按钮（与 Slider 的重置按钮同一件），
+   * 点它只恢复该字段的代码默认值；按钮可用态在 refreshResets 里统一刷新。
+   */
   private addNumberRow(
     parent: HTMLElement,
     label: string,
     read: () => number,
     write: (value: number) => void,
-    options: { readonly min?: number; readonly max?: number; readonly step?: number } = {},
+    options: {
+      readonly min?: number;
+      readonly max?: number;
+      readonly step?: number;
+      readonly reset?: {
+        readonly field: TextStyleResetField;
+        readonly readDefault: () => number;
+        readonly isStructurallyDisabled?: () => boolean;
+      };
+    } = {},
   ): { readonly row: HTMLDivElement; readonly field: NumberFieldHandle } {
     const field = createNumberField({
       value: read(),
@@ -578,10 +626,45 @@ export class StyleSettingsWindow {
       if (value === null) field.write(read());
     });
     const { row } = createNumberRow(label, field);
+    if (options.reset !== undefined) {
+      const reset = options.reset;
+      const button = createButton({
+        text: 'reset',
+        class: 'slider-field-reset',
+        title: `重置「${label}」为默认值`,
+        ariaLabel: `重置「${label}」为默认值`,
+      });
+      button.onClick(() => this.resetField(button));
+      row.append(button.element);
+      this.resets.push({
+        field: reset.field,
+        label,
+        button,
+        input: field,
+        readCurrent: read,
+        readDefault: reset.readDefault,
+        isStructurallyDisabled: reset.isStructurallyDisabled,
+      });
+      this.fieldDisposers.push(() => button.dispose());
+    }
     parent.append(row);
     this.bindings.push({ kind: 'number', field, read });
     this.fieldDisposers.push(() => field.dispose());
     return { row, field };
+  }
+
+  /**
+   * 点 reset：让宿主删掉该字段覆盖并重算该分类文字，然后刷新窗口。
+   * 刷新后按钮通常变成禁用（值回到默认），浏览器会把焦点丢回 body；这里把焦点接回数字框，
+   * 键盘用户不会丢失操作位置。
+   */
+  private resetField(button: ButtonHandle): void {
+    const hadFocus = this.overlay.ownerDocument.activeElement === button.element;
+    const binding = this.resets.find((item) => item.button === button);
+    if (binding === undefined) return;
+    this.deps.onResetField(this.selected, binding.field);
+    this.refresh();
+    if (hadFocus) binding.input.input.focus();
   }
 
   /** 颜色行：原生 `<input type="color">`（与侧栏颜色字段同一件），即时写补丁 */
@@ -618,13 +701,13 @@ export class StyleSettingsWindow {
 
   /* =========================== 刷新 =========================== */
 
-  /** 一次刷新：左列徽标/选中态、分类头、字段值、字段可用性、字号说明、实时预览 */
+  /** 一次刷新：左列徽标/选中态、分类头、字段值、字段可用性、reset 可用态、实时预览 */
   private refresh(): void {
     this.refreshList();
     this.refreshHead();
     this.refreshValues();
     this.refreshStructure();
-    this.refreshSizeHint();
+    this.refreshResets();
     this.refreshPreview();
   }
 
@@ -747,36 +830,39 @@ export class StyleSettingsWindow {
   }
 
   /**
-   * 字号默认值说明：把「默认值从哪来、当前改没改、会影响多少元素」写成一句中文。
-   * 地图分类重点解释字号来源（中位数 × 地图缩放），没有该分类地名时说明兜底值。
+   * reset 可用态：值回到默认（或结构上不可改，如光晕关闭时的宽度）就禁用；
+   * 标题写明会回到多少，点之前就能看到目标值。数值比较用 5e-4 容差：地图字号保留 1 位小数、
+   * 行高/字距按 step 输入，浮点噪声不该让按钮在默认值附近乱闪。
    */
-  private refreshSizeHint(): void {
-    const hint = this.sizeHintEl;
-    if (hint === null) return;
+  private refreshResets(): void {
+    for (const reset of this.resets) {
+      const current = reset.readCurrent();
+      const target = reset.readDefault();
+      const atDefault = Math.abs(current - target) <= 5e-4;
+      const disabled = atDefault || (reset.isStructurallyDisabled?.() ?? false);
+      const targetText = previewNumber(target);
+      reset.button.setDisabled(disabled);
+      const text = disabled
+        ? `「${reset.label}」已是默认值`
+        : `重置「${reset.label}」为默认值 ${targetText}`;
+      reset.button.element.title = text;
+      reset.button.element.setAttribute('aria-label', text);
+    }
+  }
+
+  /** 当前分类的默认字号：页面分类固定常量；地图分类 = 该分类地名原始字号中位数 × 地图缩放 */
+  private defaultFontSizePt(): number {
     const meta = TEXT_STYLE_CATEGORY_META[this.selected];
     const layout = this.getLayout();
-    const geo = this.getGeo();
     if (meta.kind === 'map') {
-      const labelCount = this.geoLabelCount(this.selected);
-      if (labelCount === 0) {
-        hint.textContent = `该底图中没有此分类地名：默认 ${hintNumber(MAP_LABEL_DEFAULT_FONT_SIZE_PT)} pt 为兜底值。`;
-        return;
-      }
-      const mapScale = mapScaleOf(geo, layout);
-      const defaultPt = mapCategoryDefaultFontSizePt(this.selected as MapLabelRole, geo, mapScale);
-      hint.textContent = `默认 ${hintNumber(defaultPt)} pt = 该分类地名原始字号中位数 × 地图缩放（当前缩放 ${hintNumber(mapScale)}）；修改后同分类全部地名统一为窗口值。`;
-      return;
+      const geo = this.getGeo();
+      return mapCategoryDefaultFontSizePt(
+        this.selected as MapLabelRole,
+        geo,
+        mapScaleOf(geo, layout),
+      );
     }
-    const defaultPt = defaultTextFontSizePt(this.selected, layout);
-    const currentPt = this.readStyle().font_size_pt;
-    const hasSizeOverride = layout.text_style[this.selected]?.font_size_pt !== undefined;
-    // 旧排版/旧文件里的字号可能不等于固定默认值：这里必须说清「当前值来自排版、
-    // 恢复默认才回到固定默认」，否则用户会以为窗口数字错了。
-    if (!hasSizeOverride && Math.abs(currentPt - defaultPt) > 0.0005) {
-      hint.textContent = `当前 ${hintNumber(currentPt)} pt 来自旧排版或旧文件；代码默认是 ${hintNumber(defaultPt)} pt，点「恢复默认值」会改为默认值。`;
-      return;
-    }
-    hint.textContent = `默认 ${hintNumber(defaultPt)} pt（代码固定值，不随纸张尺寸缩放）。`;
+    return defaultTextFontSizePt(this.selected, layout);
   }
 
   /** 实时预览：用当前分类样式重画示例文字（halo 副本先画、填充副本后画，与渲染层同口径） */
@@ -927,6 +1013,7 @@ export class StyleSettingsWindow {
     for (const dispose of this.fieldDisposers) dispose();
     this.fieldDisposers = [];
     this.bindings = [];
+    this.resets = [];
   }
 
   /** Esc 关闭；capture 阶段拦截，避免同一次按键再触发画布快捷键（与确认框同做法） */

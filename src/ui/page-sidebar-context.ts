@@ -4,7 +4,7 @@
  * 是什么：`PageSidebar`（编排）与各面板模块（页面/地图/元素字段）之间的唯一契约。
  * 为什么单独一个文件：面板模块只 import 类型即可，不反向依赖 `page-sidebar.ts`，
  * 既不形成运行期环（`npm run arch` 只统计值依赖），也让「谁能改哪个状态」在类型里写清楚。
- * 状态归属：layout/geo 由 `app/page-editor.ts` 持有；页边距、图例隐藏条目、当前文字编辑框
+ * 状态归属：layout/geo 由 `app/page-editor.ts` 持有；隐藏图例条目、当前文字编辑框
  * 是侧栏本地状态，仍然只在 `page-sidebar.ts` 里存，这里只暴露读写方法。
  * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
@@ -21,9 +21,7 @@ export interface PageSidebarHandlers {
   onChange(mutate: (layout: PageLayout, geo: Geo) => void): void;
   onSelect(id: number | null): void;
   onDelete(id: number): void;
-  /** 用给定页边距重新生成默认版式（由编辑器确认后替换 layout） */
-  onRelayout(marginPt: number): void;
-  /** 轻提示（状态行）：纸张改变时提醒「重新排默认版式」 */
+  /** 轻提示（状态行）：纸张改变时说明元素不会被自动重排 */
   notify(message: string): void;
   /**
    * 拉起「样式设置」窗口（单条 item 不再有样式字段，统一按分类改）。
@@ -40,9 +38,6 @@ export interface SidebarContext {
   getLayout(): PageLayout;
   getGeo(): Geo;
   getSelectedId(): number | null;
-  /** 页边距（面板本地状态，不落 layout） */
-  getMarginPt(): number;
-  setMarginPt(value: number): void;
   /** 当前选中文字的编辑框（双击画布后聚焦它） */
   setTextEditor(input: HTMLTextAreaElement | null): void;
   /** 地图派生高度读数节点 */
