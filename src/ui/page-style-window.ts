@@ -1,29 +1,33 @@
 /**
  * 样式设置窗口：按「页面文字 / 地图标注」分类统一编辑文字样式。
  *
- * 是什么：独立模态窗口（遮罩 + 两列面板）。左列按 `config/text-style.ts` 的
- * `TEXT_STYLE_CATEGORY_GROUPS` 列出全部分类（当前颜色色块 + 显示名）；右列按分类 `kind`
- * 重建字段（字号/颜色/字重/斜体/行高/字距/光晕）。
+ * 是什么：独立模态窗口（遮罩 + 头部说明 + 两列正文）。左列按 `config/text-style.ts` 的
+ * `TEXT_STYLE_CATEGORY_GROUPS` 列出全部分类（语义小标题 + 名称 + 色块 + 元素数量徽标 +
+ * 已改标记；地图分类在底图里没有该 role 时置灰但仍可选中并解释原因）；右列顶部是固定的
+ * 分类头（名称 / 类型 / 影响数量 / 默认或已改 / 示例 / 恢复默认 / 实时预览），下面是按
+ * 四组重建的字段（字号 / 颜色与字形 / 行距与字距 / 描边光晕）。
  * 为什么样式只在窗口里按分类改：样式是分类级覆盖（`page.text_style`），改一次由 core
  * 批量写回该分类下所有 item（`.work/STYLE-SETTINGS-SPEC.md` §0/§3）。窗口只负责发
  * 「单字段补丁」与「恢复默认」，脏标记/重绘/侧栏同步全部由宿主的 onApply/onReset 完成；
- * 本模块不持有 layout，每次读都走 getLayout/getGeo 取最新值，因此窗口打开期间外部改动
- * 也会在 sync() 里反映出来。
- * 字号口径（2026-11-05 用户反馈后统一）：页面分类与地图分类都只有一个「字号（pt）」数字；
- * 地图分类的字号是必设项、同分类下全部地名永远统一（§12.1/§12.2），窗口不再有
- * 「统一字号」开关或「跟随底图数据」模式，直接显示 `readTextCategoryStyle` 算出的有效字号
- * （用户覆盖 ?? core 的分类默认统一字号）。
- * 刷新口径：选中分类切换 / 打开窗口 / 恢复默认时整体重建右侧字段；用户输入与外部 layout
- * 变化（sync）只就地刷新值，且跳过聚焦中的控件，避免打断正在输入的数字。光晕开关会改变
- * 光晕颜色/宽度的可用性，这类结构变化由 refreshStructure() 单独处理，不重建整块字段
- * （重建会丢焦点）。
- * 无障碍：模态 `role="dialog" aria-modal="true" aria-label="样式设置"`；Esc / 点遮罩 /
- * 头部与底部「关闭」都能关闭；打开时焦点进窗口，关闭时归还给打开前的焦点。
- * 元信息：作者 ui-dev，2026-11-05，新建（`.work/STYLE-SETTINGS-SPEC.md` §7.3）；
- *         作者 ui-dev，2026-11-05，按 §12.2 删除地图分类「统一字号」开关（字号恒统一）。
+ * 本模块不持有 layout，每次读都走 getLayout/getGeo 取最新值。
+ * 字号口径：窗口必须解释「默认值从哪来、改了会影响谁」：页面分类显示固定的代码默认字号；
+ * 地图分类显示「该分类地名原始字号中位数 × 地图缩放」，并说明同分类全部地名统一为窗口值。
+ * 左列数量徽标与右列「影响 N 个元素」都按 `itemsOfTextCategory` 的 item 数量算，
+ * 保证窗口说的数字与实际会被改到的元素一致。
+ * 刷新口径：选中分类切换 / 打开窗口 / 恢复默认时只重建右侧字段（分类头与预览是固定节点，
+ * 避免恢复默认按钮随重建丢焦点）；用户输入与外部 layout 变化（sync）只就地刷新值、分类头、
+ * 左列徽标与预览，且跳过聚焦中的控件，避免打断正在输入的数字。光晕开关会改变光晕颜色/宽度的
+ * 可用性，这类结构变化由 refreshStructure() 单独处理，不重建整块字段（重建会丢焦点）。
+ * 实时预览用 SVG 重画示例文字（与 `render/page-svg.ts` 同一套属性口径：halo 副本先画、
+ * 填充副本后画），背景取纸张色（地图分类用浅色地图底），让字号/颜色/光晕的改动立刻可见。
+ * 无障碍：模态 `role="dialog" aria-modal="true" aria-label="样式设置"`，头部总说明用
+ * `aria-describedby` 关联；Esc / 点遮罩 / 头部与底部「关闭」都能关闭；打开时焦点进窗口，
+ * 关闭时归还给打开前的焦点；左列按钮带 `aria-pressed` 与含数量/已改状态的 aria-label。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import {
+  createBadge,
   createButton,
   createControlGroup,
   create_element,
@@ -34,21 +38,30 @@ import {
   createSegmented,
   createSwitch,
   createSwitchRow,
+  create_svg_element,
   nextWidgetId,
+  type ButtonHandle,
   type NumberFieldHandle,
   type SegmentedHandle,
   type SwitchHandle,
 } from 'miko_ui';
 import {
+  MAP_LABEL_DEFAULT_FONT_SIZE_PT,
   MAP_LABEL_STYLE,
   TEXT_HALO,
   TEXT_STYLE_CATEGORY_GROUPS,
   TEXT_STYLE_CATEGORY_META,
+  type MapLabelRole,
   type TextStyleCategoryId,
   type TextStyleCategoryKind,
+  type TextStyleCategoryMeta,
 } from '../config/text-style';
-import type { Geo, Halo, PageLayout } from '../core/page';
+import type { Geo, Halo, PageLayout, TextItem } from '../core/page';
 import {
+  defaultTextFontSizePt,
+  itemsOfTextCategory,
+  mapCategoryDefaultFontSizePt,
+  mapScaleOf,
   readTextCategoryStyle,
   type ResolvedTextStyle,
   type TextStylePatch,
@@ -66,10 +79,26 @@ export interface StyleSettingsWindowDeps {
   readonly onReset: (category: TextStyleCategoryId) => void;
 }
 
-/** 分类列表里的一项：按钮 + 它的颜色色块（色块底色由 TS 写，见 refreshSelection） */
+/** 分类列表里的一项：按钮本身 + 刷新时要改的色块/数量徽标/已改标记 */
 interface CategoryEntry {
   readonly button: HTMLButtonElement;
   readonly swatch: HTMLElement;
+  readonly count: HTMLElement;
+  readonly changed: HTMLElement;
+}
+
+/** 右列固定分类头里需要随选中分类刷新的节点（重建设字段时不重建这些节点） */
+interface CategoryHead {
+  readonly element: HTMLElement;
+  readonly name: HTMLElement;
+  readonly kind: HTMLElement;
+  readonly state: HTMLElement;
+  readonly description: HTMLElement;
+  readonly impact: HTMLElement;
+  readonly example: HTMLElement;
+  readonly empty: HTMLElement;
+  readonly preview: HTMLElement;
+  readonly reset: ButtonHandle;
 }
 
 /**
@@ -95,9 +124,24 @@ const FONT_WEIGHT_OPTIONS = [
   { value: '700', label: '粗' },
 ] as const;
 
+/** 预览画布的用户坐标宽度（高度按内容动态撑开，缩放交给 preserveAspectRatio） */
+const PREVIEW_WIDTH = 320;
+/** 预览条最小高度（px）：单行小字号时不至于显得空 */
+const PREVIEW_MIN_HEIGHT = 72;
+
 /** 颜色值兜底：`<input type="color">` 只接受 #rrggbb（与 `page-sidebar-controls.ts` 同口径） */
 function safeColor(value: string): string {
   return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000';
+}
+
+/** 预览里的数值属性：最多两位小数，避免 6.699999 这类浮点噪声进 SVG 属性 */
+function previewNumber(value: number): string {
+  return String(Math.round(value * 100) / 100);
+}
+
+/** 默认字号说明里的数值：最多两位小数（保留 1 位的地图字号显示为 12.4，不显示 12.40） */
+function hintNumber(value: number): string {
+  return String(Math.round(value * 100) / 100);
 }
 
 export class StyleSettingsWindow {
@@ -106,6 +150,8 @@ export class StyleSettingsWindow {
   private readonly panel: HTMLElement;
   private readonly listEl: HTMLElement;
   private readonly fieldsEl: HTMLElement;
+  private readonly fieldsBodyEl: HTMLElement;
+  private readonly head: CategoryHead;
   private readonly categoryEntries = new Map<TextStyleCategoryId, CategoryEntry>();
 
   /** 当前选中分类：默认第一个页面文字分类；关闭后保留，下次打开仍在原分类 */
@@ -121,6 +167,8 @@ export class StyleSettingsWindow {
   private fieldDisposers: (() => void)[] = [];
   /** 字段值绑定（与 fieldDisposers 同生命周期） */
   private bindings: FieldBinding[] = [];
+  /** 字号区的默认值说明节点（重建字段时换掉，refresh 时更新文案） */
+  private sizeHintEl: HTMLElement | null = null;
   /** 光晕关闭时需要禁用的两个控件与其行 */
   private haloColorInput: HTMLInputElement | null = null;
   private haloWidthField: NumberFieldHandle | null = null;
@@ -129,7 +177,7 @@ export class StyleSettingsWindow {
   constructor(deps: StyleSettingsWindowDeps) {
     this.deps = deps;
 
-    // 遮罩 + 窗口骨架：类名是 styles-page.css 的消费契约（spec §7.3）
+    // 遮罩 + 窗口骨架：类名是 styles-page.css 的消费契约
     this.overlay = create_element({ tag: 'div' }, { class: 'page-style-overlay', hidden: '' });
     this.panel = create_element(
       { tag: 'div' },
@@ -151,28 +199,42 @@ export class StyleSettingsWindow {
     headerClose.onClick(() => this.close());
     header.append(title, headerClose.element);
 
+    // 头部总说明：解释两组分类的区别 + 改动生效范围（对话框用 aria-describedby 关联它）
+    const introId = nextWidgetId('page-style-intro');
+    const intro = create_element({ tag: 'div' }, { class: 'page-style-intro', id: introId });
+    intro.append(
+      create_element(
+        { tag: 'p' },
+        { class: 'page-style-intro-lead' },
+        '按分类统一设置文字样式；任何改动都会立即作用于该分类下的全部文字。',
+      ),
+      create_element(
+        { tag: 'p' },
+        { class: 'page-style-intro-detail' },
+        '页面文字不在地图上，按文字角色分类；地图标注来自 Cartopy geo.json，按地名 role 分类。地图分类的字号默认值不是某条地名的字号，而是「该分类地名原始字号中位数 × 地图缩放」。',
+      ),
+    );
+    this.panel.setAttribute('aria-describedby', introId);
+
     const body = create_element({ tag: 'div' }, { class: 'page-style-body' });
     this.listEl = create_element({ tag: 'div' }, { class: 'page-style-list' });
     this.fieldsEl = create_element({ tag: 'div' }, { class: 'page-style-fields' });
+    this.head = this.buildCategoryHead();
+    this.fieldsBodyEl = create_element({ tag: 'div' }, { class: 'page-style-fields-body' });
+    this.fieldsEl.append(this.head.element, this.fieldsBodyEl);
     body.append(this.listEl, this.fieldsEl);
 
     const footer = create_element({ tag: 'footer' }, { class: 'page-style-footer' });
-    const reset = createButton({
-      text: '恢复默认',
-      class: 'page-style-reset',
-      title: '把该分类的样式恢复为默认值',
-    });
-    reset.onClick(() => this.resetSelected());
     const footerClose = createButton({ text: '关闭', title: '关闭样式设置' });
     footerClose.onClick(() => this.close());
-    footer.append(reset.element, footerClose.element);
+    footer.append(footerClose.element);
 
-    this.panel.append(header, body, footer);
+    this.panel.append(header, intro, body, footer);
     this.overlay.append(this.panel);
     this.disposers.push(
       () => headerClose.dispose(),
-      () => reset.dispose(),
       () => footerClose.dispose(),
+      () => this.head.reset.dispose(),
     );
 
     this.buildCategoryList();
@@ -184,9 +246,16 @@ export class StyleSettingsWindow {
 
   /* =========================== 对外生命周期 =========================== */
 
-  /** 打开窗口：重建字段 → 挂载 → 焦点进面板 → 接管 Esc */
-  open(): void {
-    if (this.isOpen) return;
+  /**
+   * 打开窗口：可选直接定位到某个分类（侧栏「打开样式设置」带入当前 item 的分类）。
+   * 打开时总是重建字段，保证字段 kind 与选中分类一致；关闭期间选中项保留。
+   */
+  open(category?: TextStyleCategoryId): void {
+    if (this.isOpen) {
+      if (category !== undefined) this.select(category);
+      return;
+    }
+    if (category !== undefined) this.selected = category;
     this.isOpen = true;
     const active = this.overlay.ownerDocument.activeElement;
     this.previousFocus = active instanceof HTMLElement ? active : null;
@@ -226,9 +295,9 @@ export class StyleSettingsWindow {
     this.categoryEntries.clear();
   }
 
-  /* =========================== 列表与选中 =========================== */
+  /* =========================== 左列：分类列表 =========================== */
 
-  /** 按 config 的两组分类建左列（分类 id/显示名只来自 config，UI 不写死文案） */
+  /** 按 config 的两组分类建左列；组内按 meta.section 切成语义小标题（不改变分类顺序） */
   private buildCategoryList(): void {
     const groups: HTMLElement[] = [];
     for (const group of TEXT_STYLE_CATEGORY_GROUPS) {
@@ -238,82 +307,140 @@ export class StyleSettingsWindow {
       );
       groupEl.append(
         create_element({ tag: 'h3' }, { class: 'page-style-group-title' }, group.label),
+        create_element({ tag: 'p' }, { class: 'page-style-group-desc' }, group.description),
       );
+      let currentSection: string | null = null;
+      let sectionEl: HTMLElement | null = null;
       for (const meta of group.categories) {
-        const button = create_element(
-          { tag: 'button' },
-          {
-            type: 'button',
-            class: 'page-style-category',
-            'aria-pressed': 'false',
-            title: meta.label,
-          },
-        );
-        const swatch = create_element({ tag: 'span' }, { class: 'page-style-swatch' });
-        const name = create_element(
-          { tag: 'span' },
-          { class: 'page-style-category-name' },
-          meta.label,
-        );
-        button.append(swatch, name);
-        button.addEventListener('click', () => this.select(meta.id));
-        groupEl.append(button);
-        this.categoryEntries.set(meta.id, { button, swatch });
+        if (meta.section !== currentSection) {
+          currentSection = meta.section;
+          sectionEl = create_element({ tag: 'div' }, { class: 'page-style-section' });
+          sectionEl.append(
+            create_element({ tag: 'h4' }, { class: 'page-style-section-title' }, meta.section),
+          );
+          groupEl.append(sectionEl);
+        }
+        const entry = this.buildCategoryButton(meta);
+        sectionEl?.append(entry.button);
+        this.categoryEntries.set(meta.id, entry);
       }
       groups.push(groupEl);
     }
     this.listEl.replaceChildren(...groups);
   }
 
-  /** 切换分类：整体重建右侧字段（kind 可能从 page 变 map） */
+  /** 一个分类按钮：色块 + 名称 + 已改标记 + 数量徽标（色彩与数量在 refreshList 里写） */
+  private buildCategoryButton(meta: TextStyleCategoryMeta): CategoryEntry {
+    const button = create_element(
+      { tag: 'button' },
+      {
+        type: 'button',
+        class: 'page-style-category',
+        'aria-pressed': 'false',
+        title: `${meta.label}：${meta.description}`,
+      },
+    );
+    const swatch = create_element({ tag: 'span' }, { class: 'page-style-swatch' });
+    const name = create_element({ tag: 'span' }, { class: 'page-style-category-name' }, meta.label);
+    const changed = createBadge('已改', {
+      class: 'page-style-badge page-style-changed',
+    });
+    changed.hidden = true;
+    const count = createBadge('0', { class: 'page-style-badge page-style-count' });
+    button.append(swatch, name, changed, count);
+    button.addEventListener('click', () => this.select(meta.id));
+    return { button, swatch, count, changed };
+  }
+
+  /** 切换分类：只重建右侧字段（分类头/预览是固定节点，滚动位置也重置到字段顶部） */
   private select(category: TextStyleCategoryId): void {
     if (category === this.selected) return;
     this.selected = category;
     this.rebuildFields();
     this.refresh();
-    this.fieldsEl.scrollTop = 0;
+    this.fieldsBodyEl.scrollTop = 0;
   }
 
-  /** 「恢复默认」：先让宿主删掉该分类覆盖，再按最新 layout 重建字段 */
+  /**
+   * 「恢复默认」：先让宿主删掉该分类覆盖，再按最新 layout 重建字段。
+   * 恢复后该分类回到「默认」，分类头里的按钮会被禁用；浏览器在按钮变 disabled 的瞬间会把
+   * 焦点丢回 body，所以这里先把焦点接回左列当前分类按钮，键盘用户不会丢失操作位置。
+   */
   private resetSelected(): void {
+    // 不在这里按「有无覆盖」提前返回：页面分类没有覆盖、但字号与固定默认值不同
+    // （旧排版或旧文件）时按钮也是可用的，重置会回到固定默认字号；真正的不可用态由按钮 disabled 表达。
+    const hadFocus = this.overlay.ownerDocument.activeElement === this.head.reset.element;
     this.deps.onReset(this.selected);
     this.rebuildFields();
     this.refresh();
+    if (hadFocus) this.categoryEntries.get(this.selected)?.button.focus();
   }
 
-  /* =========================== 右侧字段 =========================== */
+  /* =========================== 右列：分类头与预览 =========================== */
 
-  /** 重建右侧字段：先释放上一批控件，再按分类 kind 声明字段与分区 */
+  /**
+   * 建右列顶部固定的分类头（只建一次）。
+   * 为什么固定不重建：恢复默认按钮在这里，它点击后要重建下面字段；若按钮本身也被重建，
+   * 焦点会落到 body 上，键盘用户会丢失操作位置。
+   */
+  private buildCategoryHead(): CategoryHead {
+    const element = create_element({ tag: 'header' }, { class: 'page-style-cat' });
+    const name = create_element({ tag: 'h3' }, { class: 'page-style-cat-name' });
+    const kind = createBadge('', { class: 'page-style-badge page-style-kind' });
+    const state = createBadge('', { class: 'page-style-badge page-style-state' });
+    const reset = createButton({
+      text: '恢复默认值',
+      class: 'page-style-reset',
+      title: '把该分类的样式恢复为代码默认值',
+    });
+    reset.onClick(() => this.resetSelected());
+    const titleRow = create_element({ tag: 'div' }, { class: 'page-style-cat-row' });
+    titleRow.append(name, kind, state, reset.element);
+
+    const description = create_element({ tag: 'p' }, { class: 'page-style-cat-desc' });
+    const impact = create_element({ tag: 'span' }, { class: 'page-style-impact' });
+    const example = create_element({ tag: 'span' }, { class: 'page-style-example' });
+    const metaRow = create_element({ tag: 'div' }, { class: 'page-style-cat-meta' });
+    metaRow.append(impact, example);
+    const empty = create_element({ tag: 'p' }, { class: 'page-style-cat-empty', hidden: '' });
+
+    const preview = create_element({ tag: 'div' }, { class: 'page-style-preview' });
+    const previewWrap = create_element({ tag: 'div' }, { class: 'page-style-preview-wrap' });
+    previewWrap.append(
+      create_element({ tag: 'span' }, { class: 'page-style-preview-caption' }, '实时预览'),
+      preview,
+    );
+
+    element.append(titleRow, description, metaRow, empty, previewWrap);
+    return { element, name, kind, state, description, impact, example, empty, preview, reset };
+  }
+
+  /* =========================== 右列：字段 =========================== */
+
+  /** 重建右侧字段：先释放上一批控件，再按分类 kind 声明四组字段 */
   private rebuildFields(): void {
     this.disposeFields();
+    this.sizeHintEl = null;
     this.haloColorInput = null;
     this.haloWidthField = null;
     this.haloRows = [];
 
     const meta = TEXT_STYLE_CATEGORY_META[this.selected];
-    const kindLabel = meta.kind === 'map' ? '地图标注' : '页面文字';
-    const heading = create_element(
-      { tag: 'h3' },
-      { class: 'page-style-fields-title' },
-      meta.label,
-      create_element({ tag: 'span' }, { class: 'page-style-fields-kind' }, kindLabel),
-    );
-
-    this.fieldsEl.replaceChildren(
-      heading,
-      this.buildSizeSection(meta.kind),
+    this.fieldsBodyEl.replaceChildren(
+      this.buildSizeSection(),
       this.buildTypeSection(),
-      this.buildHaloSection(),
+      this.buildSpacingSection(),
+      this.buildHaloSection(meta.kind),
     );
     this.refreshStructure();
   }
 
   /**
-   * 字号区：页面分类与地图分类都是同一个数字行（min 1 / step 0.5）。
-   * 地图分类字号是必设项（§12.1）：同分类下全部地名永远统一使用这个字号，所以不再有
-   * 开关，只在数字行下面放一句静态说明（不是控件，也不随状态显隐）。
+   * 「字号」组：数字行 + 默认值来源说明（节点在 refreshSizeHint 里更新文案）。
+   * 地图分类的默认值是「该分类地名原始字号中位数 × 地图缩放」，不是某条地名的字号；
+   * 页面分类的默认值是固定代码常量，不随纸张尺寸缩放。
    */
-  private buildSizeSection(kind: TextStyleCategoryKind): HTMLElement {
+  private buildSizeSection(): HTMLElement {
     const grid = create_element({ tag: 'div' }, { class: 'page-field-grid' });
     this.addNumberRow(
       grid,
@@ -322,15 +449,12 @@ export class StyleSettingsWindow {
       (value) => this.apply({ font_size_pt: value }),
       { min: 1, max: 500, step: 0.5 },
     );
-    if (kind === 'map') {
-      grid.append(
-        create_element({ tag: 'p' }, { class: 'page-style-hint' }, '该分类全部地名统一使用此字号'),
-      );
-    }
+    this.sizeHintEl = create_element({ tag: 'p' }, { class: 'page-style-default-hint' });
+    grid.append(this.sizeHintEl);
     return createControlGroup('字号', grid);
   }
 
-  /** 通用文字字段：颜色 / 字重 / 斜体 / 行高 / 字距（页面与地图分类共用） */
+  /** 「颜色与字形」组：文字颜色 / 字重 / 斜体 */
   private buildTypeSection(): HTMLElement {
     const grid = create_element({ tag: 'div' }, { class: 'page-field-grid' });
     this.addColorRow(
@@ -366,6 +490,12 @@ export class StyleSettingsWindow {
       () => this.readStyle().italic,
       (value) => this.apply({ italic: value }),
     );
+    return createControlGroup('颜色与字形', grid);
+  }
+
+  /** 「行距与字距」组：行高倍数 / 字距 em */
+  private buildSpacingSection(): HTMLElement {
+    const grid = create_element({ tag: 'div' }, { class: 'page-field-grid' });
     this.addNumberRow(
       grid,
       '行高（倍数）',
@@ -380,12 +510,17 @@ export class StyleSettingsWindow {
       (value) => this.apply({ letter_spacing_em: value }),
       { min: -1, max: 2, step: 0.01 },
     );
-    return createControlGroup('文字', grid);
+    return createControlGroup('行距与字距', grid);
   }
 
-  /** 光晕：开关 + 颜色 + 宽度；关闭时颜色/宽度禁用（避免在「无光晕」上写孤立值） */
-  private buildHaloSection(): HTMLElement {
+  /** 「描边（光晕）」组：开关 + 颜色 + 宽度；关闭时颜色/宽度禁用（避免在「无光晕」上写孤立值） */
+  private buildHaloSection(kind: TextStyleCategoryKind): HTMLElement {
     const grid = create_element({ tag: 'div' }, { class: 'page-field-grid' });
+    const hint =
+      kind === 'map'
+        ? '地图底图复杂，光晕（白色描边）用于让文字保持可读。'
+        : '光晕（描边）用于让文字在复杂的底图或页面上保持可读。';
+    grid.append(create_element({ tag: 'p' }, { class: 'page-style-hint' }, hint));
     this.addSwitchRow(
       grid,
       '光晕',
@@ -416,7 +551,7 @@ export class StyleSettingsWindow {
     this.haloColorInput = color.input;
     this.haloWidthField = width.field;
     this.haloRows.push(color.row, width.row);
-    return createControlGroup('光晕', grid);
+    return createControlGroup('描边（光晕）', grid);
   }
 
   /* =========================== 字段工厂 =========================== */
@@ -483,23 +618,93 @@ export class StyleSettingsWindow {
 
   /* =========================== 刷新 =========================== */
 
-  /** 一次刷新：左列激活态/色块、字段值、字段可用性 */
+  /** 一次刷新：左列徽标/选中态、分类头、字段值、字段可用性、字号说明、实时预览 */
   private refresh(): void {
-    this.refreshSelection();
+    this.refreshList();
+    this.refreshHead();
     this.refreshValues();
     this.refreshStructure();
+    this.refreshSizeHint();
+    this.refreshPreview();
   }
 
-  /** 左列：激活项用 accent 底/描边（与侧栏元素列表同一视觉词汇），色块取该分类当前颜色 */
-  private refreshSelection(): void {
+  /**
+   * 左列：激活态 / 色块 / 数量徽标 / 已改标记 / 地图分类 0 项置灰。
+   * 地图分类在底图里没有该 role 时置灰（但不禁用：仍可选中并在右列看到原因）；
+   * 页面分类 0 项保持可用（之后还能新增该角色文字）。
+   */
+  private refreshList(): void {
+    const layout = this.getLayout();
+    const geo = this.getGeo();
     for (const [category, entry] of this.categoryEntries) {
+      const meta = TEXT_STYLE_CATEGORY_META[category];
       const active = category === this.selected;
+      const style = readTextCategoryStyle(layout, geo, category);
+      const itemCount = itemsOfTextCategory(layout, geo, category).length;
+      const overridden = layout.text_style[category] !== undefined;
+      const empty = meta.kind === 'map' && this.geoLabelCount(category) === 0;
+
       entry.button.classList.toggle('is-active', active);
+      entry.button.classList.toggle('is-empty', empty);
       entry.button.setAttribute('aria-pressed', String(active));
-      entry.swatch.style.background = safeColor(
-        readTextCategoryStyle(this.getLayout(), this.getGeo(), category).color,
-      );
+      entry.swatch.style.background = safeColor(style.color);
+      entry.count.textContent = String(itemCount);
+      entry.changed.hidden = !overridden;
+      entry.button.title = empty
+        ? `${meta.label}：${meta.description}（该底图没有此分类，修改对当前图无效果）`
+        : `${meta.label}：${meta.description}`;
+      const spoken = [meta.label, `${itemCount} 个元素`];
+      if (overridden) spoken.push('已改');
+      if (empty) spoken.push('该底图没有此分类');
+      entry.button.setAttribute('aria-label', spoken.join('，'));
     }
+  }
+
+  /** 右列分类头：类型徽标、影响数量、默认/已改、示例、空分类原因、恢复默认可用性 */
+  private refreshHead(): void {
+    const meta = TEXT_STYLE_CATEGORY_META[this.selected];
+    const layout = this.getLayout();
+    const items = itemsOfTextCategory(layout, this.getGeo(), this.selected);
+    const overridden = layout.text_style[this.selected] !== undefined;
+    const paperSizeDiffers = !overridden && this.pageSizeDiffersFromDefault();
+
+    this.head.name.textContent = meta.label;
+    this.head.kind.textContent = meta.kind === 'map' ? '地图标注' : '页面文字';
+    // 第三种状态「排版值」：用户没写覆盖，但当前字号与固定默认值不同（旧排版或旧文件）。
+    // 它不是「已改」，也不同于「默认」，明确标出来才解释得清恢复按钮为什么可用。
+    this.head.state.textContent = overridden ? '已改' : paperSizeDiffers ? '排版值' : '默认';
+    this.head.state.classList.toggle('is-changed', overridden);
+    this.head.description.textContent = meta.description;
+    this.head.impact.textContent = `影响 ${items.length} 个元素`;
+    this.head.example.textContent = `示例：${this.exampleTextOf(meta, items)}`;
+
+    const emptyReason = this.emptyReasonOf(meta, items.length);
+    this.head.empty.hidden = emptyReason === null;
+    this.head.empty.textContent = emptyReason ?? '';
+
+    const canReset = overridden || paperSizeDiffers;
+    this.head.reset.setDisabled(!canReset);
+    this.head.reset.setText(`恢复「${meta.label}」默认值`);
+    this.head.reset.element.title = canReset
+      ? paperSizeDiffers
+        ? `当前字号来自旧排版（与固定默认字号不同）；恢复默认会回到代码固定值`
+        : `把「${meta.label}」恢复为代码默认样式`
+      : `「${meta.label}」当前就是默认样式，无需恢复`;
+  }
+
+  /**
+   * 页面分类当前字号是否偏离固定默认字号。
+   * 只用于恢复默认按钮是否可用：旧排版/旧文件里的 item 字号可能与当前固定默认值不同，
+   * 此时没有覆盖，也应该允许用户一键回到默认字号。
+   */
+  private pageSizeDiffersFromDefault(): boolean {
+    const meta = TEXT_STYLE_CATEGORY_META[this.selected];
+    if (meta.kind !== 'page') return false;
+    return (
+      Math.abs(
+        this.readStyle().font_size_pt - defaultTextFontSizePt(this.selected, this.getLayout()),
+      ) > 0.0005
+    );
   }
 
   /** 字段值：就地写回未聚焦的控件（聚焦中的输入框保持用户文本，避免打断输入） */
@@ -533,12 +738,106 @@ export class StyleSettingsWindow {
     }
   }
 
-  /** 结构可用性：光晕关闭时禁用光晕颜色/宽度（字号行地图/页面同构，无显隐差异） */
+  /** 结构可用性：光晕关闭时禁用光晕颜色/宽度 */
   private refreshStructure(): void {
     const haloDisabled = this.readStyle().halo === null;
     for (const row of this.haloRows) row.classList.toggle('is-disabled', haloDisabled);
     if (this.haloColorInput !== null) this.haloColorInput.disabled = haloDisabled;
     if (this.haloWidthField !== null) this.haloWidthField.input.disabled = haloDisabled;
+  }
+
+  /**
+   * 字号默认值说明：把「默认值从哪来、当前改没改、会影响多少元素」写成一句中文。
+   * 地图分类重点解释字号来源（中位数 × 地图缩放），没有该分类地名时说明兜底值。
+   */
+  private refreshSizeHint(): void {
+    const hint = this.sizeHintEl;
+    if (hint === null) return;
+    const meta = TEXT_STYLE_CATEGORY_META[this.selected];
+    const layout = this.getLayout();
+    const geo = this.getGeo();
+    if (meta.kind === 'map') {
+      const labelCount = this.geoLabelCount(this.selected);
+      if (labelCount === 0) {
+        hint.textContent = `该底图中没有此分类地名：默认 ${hintNumber(MAP_LABEL_DEFAULT_FONT_SIZE_PT)} pt 为兜底值。`;
+        return;
+      }
+      const mapScale = mapScaleOf(geo, layout);
+      const defaultPt = mapCategoryDefaultFontSizePt(this.selected as MapLabelRole, geo, mapScale);
+      hint.textContent = `默认 ${hintNumber(defaultPt)} pt = 该分类地名原始字号中位数 × 地图缩放（当前缩放 ${hintNumber(mapScale)}）；修改后同分类全部地名统一为窗口值。`;
+      return;
+    }
+    const defaultPt = defaultTextFontSizePt(this.selected, layout);
+    const currentPt = this.readStyle().font_size_pt;
+    const hasSizeOverride = layout.text_style[this.selected]?.font_size_pt !== undefined;
+    // 旧排版/旧文件里的字号可能不等于固定默认值：这里必须说清「当前值来自排版、
+    // 恢复默认才回到固定默认」，否则用户会以为窗口数字错了。
+    if (!hasSizeOverride && Math.abs(currentPt - defaultPt) > 0.0005) {
+      hint.textContent = `当前 ${hintNumber(currentPt)} pt 来自旧排版或旧文件；代码默认是 ${hintNumber(defaultPt)} pt，点「恢复默认值」会改为默认值。`;
+      return;
+    }
+    hint.textContent = `默认 ${hintNumber(defaultPt)} pt（代码固定值，不随纸张尺寸缩放）。`;
+  }
+
+  /** 实时预览：用当前分类样式重画示例文字（halo 副本先画、填充副本后画，与渲染层同口径） */
+  private refreshPreview(): void {
+    const meta = TEXT_STYLE_CATEGORY_META[this.selected];
+    const layout = this.getLayout();
+    const style = this.readStyle();
+    const items = itemsOfTextCategory(layout, this.getGeo(), this.selected);
+    const lines = this.previewLinesOf(meta, items);
+    const fontSize = style.font_size_pt;
+    const step = fontSize * Math.max(0.5, style.line_height);
+    const blockHeight = step * (lines.length - 1) + fontSize;
+    const viewHeight = Math.max(PREVIEW_MIN_HEIGHT, Math.ceil(blockHeight + 28));
+    const firstBaseline = (viewHeight - blockHeight) / 2 + fontSize * 0.8;
+    const halo = style.halo;
+
+    const drawLine = (line: string, index: number, haloPass: boolean): SVGTextElement => {
+      const attributes: Record<string, string> = {
+        x: previewNumber(PREVIEW_WIDTH / 2),
+        y: previewNumber(firstBaseline + index * step),
+        'text-anchor': 'middle',
+        'font-family': layout.style.font_family,
+        'font-size': previewNumber(fontSize),
+      };
+      if (style.italic) attributes['font-style'] = 'italic';
+      if (style.font_weight !== 400) attributes['font-weight'] = String(style.font_weight);
+      if (style.letter_spacing_em !== 0) {
+        attributes['letter-spacing'] = `${previewNumber(style.letter_spacing_em)}em`;
+      }
+      if (haloPass && halo !== null) {
+        attributes.fill = halo.color;
+        attributes.stroke = halo.color;
+        attributes['stroke-width'] = previewNumber(halo.width_pt);
+        attributes['paint-order'] = 'stroke';
+      } else {
+        attributes.fill = style.color;
+      }
+      return create_svg_element({ tag: 'text' }, attributes, line);
+    };
+
+    const nodes: SVGTextElement[] = [];
+    if (halo !== null) {
+      for (const [index, line] of lines.entries()) nodes.push(drawLine(line, index, true));
+    }
+    for (const [index, line] of lines.entries()) nodes.push(drawLine(line, index, false));
+
+    const svg = create_svg_element(
+      { tag: 'svg' },
+      {
+        class: 'page-style-preview-svg',
+        viewBox: `0 0 ${PREVIEW_WIDTH} ${viewHeight}`,
+        preserveAspectRatio: 'xMidYMid meet',
+        'aria-hidden': 'true',
+        focusable: 'false',
+      },
+    );
+    svg.append(...nodes);
+    this.head.preview.classList.toggle('is-map', meta.kind === 'map');
+    // 页面文字用纸张色作预览底；地图分类的浅色地图底由 CSS 的 .is-map 给（与成品观感一致）
+    this.head.preview.style.background = meta.kind === 'map' ? '' : layout.style.paper_color;
+    this.head.preview.replaceChildren(svg);
   }
 
   /* =========================== 补丁出口与小工具 =========================== */
@@ -559,6 +858,61 @@ export class StyleSettingsWindow {
 
   private readStyle(): ResolvedTextStyle {
     return readTextCategoryStyle(this.getLayout(), this.getGeo(), this.selected);
+  }
+
+  /** 底图里该地图分类的地名条数（0 = 该底图没有这个分类，左列置灰的原因） */
+  private geoLabelCount(category: TextStyleCategoryId): number {
+    if (TEXT_STYLE_CATEGORY_META[category].kind !== 'map') return 0;
+    return this.getGeo().labels.filter((label) => label.role === category).length;
+  }
+
+  /**
+   * 右列「示例」文字：页面分类取第一条 item 的整段文字（多行用 / 分隔）；地图分类取前 1~2 条
+   * 地名的首行（用 · 分隔）。没有 item 时退回 config 里的静态示例，避免示例行空着。
+   */
+  private exampleTextOf(meta: TextStyleCategoryMeta, items: readonly TextItem[]): string {
+    if (items.length === 0) return meta.example;
+    if (meta.kind === 'map') {
+      const parts = items
+        .slice(0, 2)
+        .map((item) => item.lines[0] ?? '')
+        .filter((line) => line.length > 0);
+      return parts.length > 0 ? parts.join(' · ') : meta.example;
+    }
+    const first = items[0];
+    if (first === undefined) return meta.example;
+    const text = first.lines.join(' / ');
+    return text.length > 0 ? text : meta.example;
+  }
+
+  /** 预览行：页面分类看第一条 item 的前两行；地图分类取前两条地名首行；都为空时用静态示例 */
+  private previewLinesOf(meta: TextStyleCategoryMeta, items: readonly TextItem[]): string[] {
+    const lines =
+      meta.kind === 'map'
+        ? items
+            .slice(0, 2)
+            .map((item) => item.lines[0] ?? '')
+            .filter((line) => line.length > 0)
+        : (items[0]?.lines.slice(0, 2) ?? []).filter((line) => line.length > 0);
+    return lines.length > 0 ? lines : [meta.example];
+  }
+
+  /** 空分类原因（右列分类头里的一行说明）；页面分类 0 项只提示、不置灰 */
+  private emptyReasonOf(meta: TextStyleCategoryMeta, itemCount: number): string | null {
+    if (meta.kind === 'map') {
+      const labelCount = this.geoLabelCount(this.selected);
+      if (labelCount === 0) {
+        return `该底图没有「${meta.label}」地名，修改对当前图没有效果。`;
+      }
+      if (itemCount === 0) {
+        return `当前排版里没有「${meta.label}」文字（可能已被删除），修改不会影响已有元素。`;
+      }
+      return null;
+    }
+    if (itemCount === 0) {
+      return `当前排版里还没有「${meta.label}」文字，修改会在新增该分类文字时生效。`;
+    }
+    return null;
   }
 
   /** 光晕打开时的默认值：地图分类跟 `MAP_LABEL_STYLE`，页面分类跟 `TEXT_HALO` */

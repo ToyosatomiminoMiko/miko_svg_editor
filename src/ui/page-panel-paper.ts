@@ -1,11 +1,12 @@
 /**
- * 出版排版编辑器侧栏的「页面」面板（纸张预设/方向/宽高/页边距/重新排默认版式）。
+ * 出版排版编辑器侧栏的「页面」面板（纸张预设/方向/宽高/初始排版页边距/重新排默认版式）。
  *
  * 是什么：构建「页面」面板的控件并接上写回回调；面板自身不持有状态——layout 经
- * `SidebarContext` 读最新值，页边距是侧栏本地状态（同样经 ctx 读写）。
+ * `SidebarContext` 读最新值，初始排版页边距是侧栏本地状态（同样经 ctx 读写）。
+ * 页边距只作为「重新排默认版式」的初始输入，不约束已放置元素（位置只看各元素 x/y）。
  * 为什么单独成模块：原 `page-sidebar.ts` 把四块面板与三类元素字段塞在同一个 1466 行文件里；
  * 拆开后页面尺寸相关的常量与规则只出现在本文件，改纸张行为不会牵动其它面板。
- * 元信息：作者 lead，2026-10-31，从 `ui/page-sidebar.ts` 原样搬出（行为不变）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { createButton, createControlGroup, create_element, createSegmented } from 'miko_ui';
@@ -18,7 +19,7 @@ import {
 } from '../config/page';
 import type { SidebarContext } from './page-sidebar-context';
 
-/** 构建「页面」面板：预设/方向/宽高/页边距 + 「重新排默认版式」按钮 */
+/** 构建「页面」面板：预设/方向/宽高 + 「初始排版」组（页边距 + 重新排默认版式） */
 export function buildPaperPanel(body: HTMLElement, ctx: SidebarContext): void {
   const presetRow = create_element({ tag: 'div' }, { class: 'page-segmented-row' });
   const presetSegmented = createSegmented<PaperPresetId>({
@@ -75,26 +76,34 @@ export function buildPaperPanel(body: HTMLElement, ctx: SidebarContext): void {
   );
   body.append(sizeRow);
 
-  const marginRow = create_element({ tag: 'div' }, { class: 'page-field-grid' });
+  // 「初始排版」：页边距只是重新生成默认版式时的输入，不约束已放置元素——已放置元素的位置
+  // 只看各自的 x/y；因此输入框与「重新排默认版式」按钮放在同一组，并紧跟一行说明。
+  const initialGrid = create_element({ tag: 'div' }, { class: 'page-field-grid' });
   ctx.controls.addNumberRow(
-    marginRow,
+    initialGrid,
     'page.margin',
-    '页边距（pt）',
+    '初始排版页边距（pt）',
     () => ctx.getMarginPt(),
     (value) => {
       ctx.setMarginPt(Math.max(0, value));
     },
     { min: 0, max: 400, step: 1 },
   );
-  body.append(marginRow);
-
   const relayout = createButton({
     text: '重新排默认版式',
-    title: '用当前页边距重新生成初始排版（会覆盖当前排版）',
+    title: '用当前「初始排版页边距」重新生成初始排版（会覆盖当前排版）',
     class: 'page-wide-button',
   });
   relayout.onClick(() => ctx.handlers.onRelayout(ctx.getMarginPt()));
-  body.append(relayout.element);
+  initialGrid.append(
+    relayout.element,
+    create_element(
+      { tag: 'p' },
+      { class: 'page-hint' },
+      '只影响重新生成的默认版式；已放置元素可直接拖拽或改 x/y，不受页边距约束。',
+    ),
+  );
+  body.append(createControlGroup('初始排版', initialGrid));
   body.append(
     create_element(
       { tag: 'p' },

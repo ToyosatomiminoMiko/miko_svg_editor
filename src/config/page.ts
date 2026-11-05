@@ -8,10 +8,7 @@
  * 默认值；把它们放在 config 层，core/render/ui/app 只读不写，避免「预览与成品标定不一致」。
  * 数字口径：全部是 pt（1 用户单位 = 1pt），写进 SVG 时最多 3 位小数、去尾零（见
  * `render/page-format.ts` 与 `docs/PAGE-EDITOR.md` §5）。
- * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地；
- *         2026-10-29 增加成品 SVG 内嵌源/ marker 版本常量；
- *         2026-10-29 geo 升 v2（labels 的样式归 `config/text-style.ts` 的 role 表，本文件不再有
- *         行高/字重/描边等文字样式常量）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 /* ---------------- 文档标识 ---------------- */
@@ -168,8 +165,9 @@ export const PAGE_COLORBAR_HEIGHT_PT = 180;
 export const PAGE_COLORBAR_GAP_PT = 18;
 
 /**
- * 排版自适应比例 k 的上下限（相对 A4 横向）：小纸张（A5）把标题/注记/图例/色标整体缩小，
- * 大纸张（A3）整体放大；0.62/1.6 之外不再继续缩/放，避免字号不可读或版面失衡。
+ * 排版自适应比例 k 的上下限（相对 A4 横向）：小纸张（A5）把图例/色标与版式间距整体缩小，
+ * 大纸张（A3）整体放大；0.62/1.6 之外不再继续缩/放，避免图例不可读或版面失衡。
+ * 页面文字（标题/副标题/注记/来源）字号是固定值，不受 k 影响。
  */
 export const PAGE_LAYOUT_SCALE_MIN = 0.62;
 export const PAGE_LAYOUT_SCALE_MAX = 1.6;
@@ -178,12 +176,13 @@ export const PAGE_LAYOUT_SCALE_MAX = 1.6;
  * 纸张自适应比例 k（相对 A4 纸面）：A4/A3/Letter/A5 共用同一套版式公式。
  *
  * 用「长边 / 短边」分别对照 A4 的长边/短边，而不是直接拿 width/height 对 A4 横向：
- * 这样 A4 横向与 A4 纵向都得到 k=1（同一张纸换个方向，字号不该变），A5 两个方向都是
- * ≈0.705，A3 两个方向都是 ≈1.414。夹在 0.62..1.6，避免字号不可读或版面失衡。
- * 为什么需要：A5 只有 A4 的 70% 线性尺寸，字号/行高/间距不缩会把右栏（或纵向的下方一排）
+ * 这样 A4 横向与 A4 纵向都得到 k=1（同一张纸换个方向，图例/间距不该变），A5 两个方向都是
+ * ≈0.705，A3 两个方向都是 ≈1.414。夹在 0.62..1.6，避免图例不可读或版面失衡。
+ * 为什么需要：A5 只有 A4 的 70% 线性尺寸，图例/色标/间距不缩会把右栏（或纵向的下方一排）
  * 挤出纸面并互相重叠。
- * 为什么放在 config 而不是 core/page-layout：默认排版（core/page-layout）与分类样式默认字号
- * （core/text-style）都要用同一口径，放在 config 才不会形成 core 内部的运行期环。
+ * 为什么放在 config 而不是 core/page-layout：默认排版（core/page-layout）与图例/色标公式
+ * 都要用同一口径，放在 config 才不会形成 core 内部的运行期环。
+ * 页面文字字号不乘 k（固定默认值，见 config/text-style.ts）。
  */
 export function layoutScaleForPaper(widthPt: number, heightPt: number): number {
   const paperLong = Math.max(widthPt, heightPt);

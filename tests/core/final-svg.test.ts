@@ -4,7 +4,7 @@
  * 为什么在 node 里测：成品是 `composeFinalSvg` 的纯函数输出，内嵌源读取/还原同样是纯字符串
  * 逻辑；这里验证三件事——导出时写入的源能原样解出、`mapdoc-map` 原样定位、无内嵌源的旧版
  * 成品也能还原出可渲染的底图外壳（exact=false）。
- * 元信息：作者 lead，2026-10-29，服务于「成品 SVG 可直接再编辑」数据流。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -48,9 +48,8 @@ describe('readFinalSvg：本编辑器导出的成品', () => {
     expect(info.source?.documentText).toContain('"page"');
     expect(info.source?.basePrefix).toBe(document.base.prefix);
     expect(info.source?.baseSuffix).toBe(document.base.suffix);
-    // 还原后的底图摘要与来源标志（exact=false 时用于跳过 geo sha 校验）
+    // 还原后的底图摘要（用于与 geo.base.sha256 对照）
     expect(info.source?.baseSha256).toBe(BASE_SHA256);
-    expect(info.source?.exact).toBe(true);
     // mapdoc-map 组内容 = 底图 inner（逐字节）
     expect(info.base_inner).toBe(BASE_INFO.inner);
     // marker 摘要与输入一致
@@ -61,14 +60,12 @@ describe('readFinalSvg：本编辑器导出的成品', () => {
   });
 
   it('前后缀 + 内联 inner 逐字节还原底图（sha256 因此仍成立）', () => {
-    const { document, svg } = composeFixture();
+    const { svg } = composeFixture();
     const info = readFinalSvg(svg);
-    const reconstructed = reconstructFinalBase(info, document.geo.base);
-    expect(reconstructed).not.toBeNull();
-    expect(reconstructed?.exact).toBe(true);
-    expect(reconstructed?.text).toBe(BASE_SVG_TEXT);
+    const reconstructed = reconstructFinalBase(info);
+    expect(reconstructed).toBe(BASE_SVG_TEXT);
     // 自己再解析一遍：契约仍通过，inner 与原底图一致（说明切片没有多/少一个换行）
-    const base = readBaseSvg(reconstructed?.text ?? '');
+    const base = readBaseSvg(reconstructed ?? '');
     expect(base.errors).toEqual([]);
     expect(base.inner).toBe(BASE_INFO.inner);
     expect(base.view_box).toEqual([0, 0, 200, 100]);
@@ -84,9 +81,9 @@ describe('readFinalSvg：本编辑器导出的成品', () => {
   });
 });
 
-describe('readFinalSvg：旧版成品（没有内嵌源）', () => {
-  it('仍能定位 inner，并用 geo.base 合成可渲染的底图外壳', () => {
-    const { document, svg } = composeFixture();
+describe('readFinalSvg：旧版成品（没有内嵌源）不再支持', () => {
+  it('仍能定位 inner，但还原底图返回 null（只接受内嵌源齐全的成品）', () => {
+    const { svg } = composeFixture();
     const legacy = stripSourceMetadata(svg);
     expect(legacy).not.toContain('mapdoc-source');
     const info = readFinalSvg(legacy);
@@ -94,15 +91,7 @@ describe('readFinalSvg：旧版成品（没有内嵌源）', () => {
     expect(info.source).toBeNull();
     expect(info.marker).not.toBeNull();
     expect(info.base_inner).toBe(BASE_INFO.inner);
-
-    const reconstructed = reconstructFinalBase(info, document.geo.base);
-    expect(reconstructed?.exact).toBe(false);
-    const base = readBaseSvg(reconstructed?.text ?? '');
-    expect(base.errors).toEqual([]);
-    expect(base.inner).toBe(BASE_INFO.inner);
-    expect(base.view_box).toEqual([0, 0, 200, 100]);
-    expect(base.width_pt).toBe(200);
-    expect(base.height_pt).toBe(100);
+    expect(reconstructFinalBase(info)).toBeNull();
   });
 });
 

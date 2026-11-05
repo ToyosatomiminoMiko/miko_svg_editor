@@ -9,8 +9,7 @@
  * 用户正在编辑的输入框。元素列表与属性面板按选中 id 重建，避免控件状态漂移。
  * 已知限制：契约 §4.1 的图例条目没有 visible 字段，因此「隐藏条目」= 从 layout 中移除，
  * 仅在本会话的侧栏里记住，重新显示时按原位置插回（不会写进 layout）。
- * 元信息：作者 frontend，2026-10-27；2026-10-31 作者 lead 拆分为
- *         编排层 + 面板模块 + 控件登记表（行为不变）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { create_element, createButton, createPanel } from 'miko_ui';
@@ -61,7 +60,7 @@ export class PageSidebar {
   private mapHeightEl: HTMLElement | null = null;
   /** 元素计数读数 */
   private elementCountEl: HTMLElement | null = null;
-  /** 上次「重新排默认版式」用的页边距（面板本地状态，不落 layout） */
+  /** 初始排版页边距：只作为「重新排默认版式」的输入（面板本地状态，不落 layout、不约束已放置元素） */
   private marginPt = PAGE_DEFAULT_MARGIN_PT;
   /** 会话内隐藏的图例条目：legend id → 被移除的条目与原位置 */
   private readonly hiddenLegendEntries = new Map<number, { entry: LegendEntry; index: number }[]>();

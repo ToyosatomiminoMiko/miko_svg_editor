@@ -15,7 +15,7 @@
  *   - MIKO_UI_LOCAL=0 让 auto 跳过（例如要验证 npm 版）；auto 的「跳过」不算失败。
  *   - 真正的失败（本地目录不合法、软链创建失败等）返回非零退出码，方便 npm script / CI 感知。
  *
- * 元信息：作者 deps-plumber（2026-10-22 创建），配合本地 / 线上两条取用链路。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 import fs from 'node:fs';
 import path from 'node:path';

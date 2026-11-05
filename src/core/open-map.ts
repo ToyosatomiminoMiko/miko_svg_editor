@@ -2,23 +2,21 @@
  * 「打开地图」的纯逻辑：上传文件 → `OpenedMap`（文档 + 初始排版 + 脏标记 + 告警）
  * （纯逻辑，不碰 DOM）。
  *
- * 是什么：支持三条打开路径，最终都固化成同一份 `PageDocument`：
- * 1. `base.svg + geo.json`：Cartopy 直出的两份文件（原有路径）；
+ * 是什么：只支持两条打开路径，最终都固化成同一份 `PageDocument`：
+ * 1. `base.svg + geo.json`：Cartopy 直出的两份文件（page 块缺省 → 默认排版）；
  * 2. 只上传一份**本编辑器导出的成品 SVG**：内嵌了整份 geo.json 与底图前后缀，单文件即可
- *    恢复排版并继续编辑（见 `core/final-svg.ts`）；
- * 3. 成品 SVG + 配套 `geo.json`：旧版本导出的成品没有内嵌源，用成品内联的底图图层 +
- *    所选 geo.json 重新拼出可编辑文档（底图字节无法逐字节还原，会明确告警）。
+ *    恢复排版并继续编辑（见 `core/final-svg.ts`）。
+ * 旧版本导出的成品（没有内嵌可编辑源）不再支持：底图字节无法还原成可编辑文档，一律拒绝并
+ * 提示用 `base.svg + geo.json` 重新打开、重新导出，避免半还原的「假文档」继续流传。
  * 为什么放在 core 而不是组合根：分栏、UTF-8 解码、格式校验、layout 恢复、sha/marker 对照
- * 全是纯逻辑，放在这里可以在 node 里单测三条路径；`app/page-main.ts` 只负责把 `File` 读成
- * 字节、装配编辑器与展示中文错误。
+ * 全是纯逻辑，放在这里可以在 node 里单测；`app/page-main.ts` 只负责把 `File` 读成字节、
+ * 装配编辑器与展示中文错误。
  * 打开口径（详见 `docs/PAGE-EDITOR.md` §8）：core 严格解码 UTF-8（保留 BOM，保证重编码后
  * sha/逐字节还原仍成立；JSON 在 parse 前单独去掉 BOM）；geo 校验 format/字段；底图 C1–C4；
- * sha256 / viewBox / 尺寸一致（成品合成的底图外壳例外，见上）；
- * `page` 块缺省 → 默认排版（标脏），存在且合法 → 恢复排版，不合法只告警并回退默认排版。
- * 元信息：作者 lead，2026-10-29，从 `app/page-main.ts` 抽出并新增成品 SVG 两条打开路径；
- *         作者 core-dev，2026-11-05，恢复 page 后补 `reconcileGeoLabelIds`（只补 geo_label_id，
- *         不改样式、不标脏，见 `.work/STYLE-SETTINGS-SPEC.md` §5.3）；成品 marker 的 page 摘要
- *         兼容改造前口径（`legacyPageDigest`），「改造前导出的成品 + 当时的 geo.json」仍可打开。
+ * sha256 / viewBox / 尺寸一致；`page` 块缺省 → 默认排版（标脏），存在且合法 → 恢复排版并把
+ * 每条文字样式按分类重建一遍（不一致则标脏 + 告警），并把 `center_h` 居中项按纸张宽度
+ * 重新贴合，不合法只告警并回退默认排版。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { PAGE_GEO_FORMAT } from '../config/page';
@@ -26,8 +24,8 @@ import { readBaseSvg } from './base-svg';
 import { classifyUploadFile, createPageDocument, type PageDocument } from './document';
 import { readFinalSvg, reconstructFinalBase, type FinalSvgInfo } from './final-svg';
 import {
+  enforceHorizontalCenter,
   geoDigest,
-  legacyPageDigest,
   MAP_DOC_PAGE_KEY,
   normalizeGeo,
   normalizePage,
@@ -38,7 +36,7 @@ import {
   type PageLayout,
 } from './page';
 import { defaultPageLayout } from './page-layout';
-import { reconcileGeoLabelIds } from './text-style';
+import { resyncTextStyles } from './text-style';
 import type { MeasureText } from './types';
 
 /** 一个上传文件的原始字节与文件名（core 不认识 `File`/DOM，UTF-8 解码也在 core 内做） */
@@ -72,8 +70,8 @@ export interface OpenMapOptions {
   readonly measureText?: MeasureText;
 }
 
-/** 打开来源：底图 + geo / 成品 SVG 单文件 / 成品 SVG + geo.json */
-export type OpenedMapSource = 'base' | 'final' | 'final-with-geo';
+/** 打开来源：底图 + geo.json / 成品 SVG 单文件（旧版成品已不再支持） */
+export type OpenedMapSource = 'base' | 'final';
 
 /** 一次成功打开得到的全部状态 */
 export interface OpenedMap {
@@ -163,16 +161,34 @@ function buildPageLayout(
       layout = makeDefault();
       dirty = true;
     } else {
-      layout = normalizePage(result.layout);
+      // 先保留原始形状，等 resync/居中约束统计完「改动了什么」再统一 normalize，
+      // 否则 normalizePage 内部就会把 x 纠回中心，打开告警里说不清是哪一步改的。
+      layout = result.layout;
       warnings.push(...result.warnings);
       dirty = false;
     }
   }
 
-  // 改造前导出的 page 块没有 geo_label_id：打开时按 text/x/anchor 尽量还原（规格 §5.3）。
-  // 只补 id、不改样式，也不标脏——这是数据迁移，不是用户修改；两条恢复路径（page 块、
-  // 成品内嵌源）都会经过这里，所以只需调一次。
-  reconcileGeoLabelIds(layout, geo);
+  // page 块里的文字样式必须由分类重算：item 上的字段只是分类样式的物化结果，旧版本导出
+  // 或手改过的文件可能残留逐条不同的样式，不重建就会绕过「分类统一」设置。
+  // 两条恢复路径（page 块、成品内嵌源）都会经过这里，所以只需调一次。
+  const resynced = resyncTextStyles(layout, geo);
+  if (resynced > 0) {
+    warnings.push(`旧排版中的逐条文字样式已按分类设置统一（${resynced} 条），导出后会写成新口径`);
+    dirty = true;
+  }
+
+  // 左右居中约束是派生值：手改过的 page 块里 x 可能偏离纸张中心，打开时按当前纸张宽度
+  // 重新贴合（与样式重建分开告警，用户能分清「样式被统一」和「位置被约束纠正」）。
+  const recentered = enforceHorizontalCenter(layout);
+  if (recentered > 0) {
+    warnings.push(
+      `排版中的左右居中约束已按纸张宽度重新贴合（${recentered} 条），导出后会写成新口径`,
+    );
+    dirty = true;
+  }
+  // 最后统一数值口径（3 位小数 + 居中约束再兜底一次），与导出/签名完全一致。
+  layout = normalizePage(layout);
 
   // geo 没有 relief（Cartopy 不画色标）时，排版里的 colorbar 无法合成：
   // 预览会静默跳过、导出 SVG 会抛「色标需要 geo.relief」。与其让用户到导出时才看到失败，
@@ -258,14 +274,12 @@ function openFromBaseAndGeo(
 }
 
 /**
- * marker.page 是否与当前排版一致：先按当前口径比较，再回退「改造前口径」的摘要
- * （`legacyPageDigest`：剥掉 2026-11-05 新增的 text_style / geo_label_id）。
- * 为什么要回退：旧成品 marker 是旧版 `pageDigest` 算的，新字段归一化后必然存在，
- * 不兼容的话「改造前导出的成品 + 当时的 geo.json」会被误判成不配套而拒绝打开（§5.3 的
- * 旧文件迁移路径就断了）。回退只接受「剥掉新字段后逐字节相等」的排版，真正的错配仍会被拒绝。
+ * marker.page 是否与当前排版一致。
+ * 只按当前 `pageDigest` 比较：旧口径摘要的成品属于已删除的迁移链路，不再放宽校验
+ * （否则会打开「样式与当前分类口径不一致」的旧文件，回到统一设置之前的状态）。
  */
 function markerPageMatches(markerPage: string, layout: PageLayout): boolean {
-  return markerPage === pageDigest(layout) || markerPage === legacyPageDigest(layout);
+  return markerPage === pageDigest(layout);
 }
 
 /**
@@ -289,21 +303,6 @@ function markerWarnings(final: FinalSvgInfo, geo: Geo, layout: PageLayout): stri
   return warnings;
 }
 
-/**
- * marker 与**所选 geo.json** 对照（成品 + geo 路径）：这里不一致必须拒绝——
- * 用户明确给了另一份 JSON，若摘要对不上，极可能是拿错了配套文件，继续打开会得到
- * 「底图/排版互相错位」的假文档，比报错更难恢复。
- */
-function assertMarkerPairing(final: FinalSvgInfo, geo: Geo, layout: PageLayout): void {
-  const marker = final.marker;
-  if (marker === null) return;
-  if (marker.geo !== geoDigest(geo) || !markerPageMatches(marker.page, layout)) {
-    throw new Error(
-      '所选的 geo.json 与这份成品 SVG 不配套（marker 摘要不一致）：请选择导出该 SVG 时同时导出的 geo.json',
-    );
-  }
-}
-
 /** 只上传一份本编辑器导出的成品 SVG（内嵌源 + 底图前后缀） */
 function openFromFinalOnly(
   svgFileName: string,
@@ -322,71 +321,34 @@ function openFromFinalOnly(
   const source = final.source;
   if (source === null) {
     throw new Error(
-      '这份成品 SVG 不含内嵌排版数据（旧版本导出或被其它工具改写）：请把当时导出的 geo.json 一起上传（成品 SVG + geo.json），或改用 base.svg + geo.json 打开',
+      '这份成品 SVG 不含内嵌可编辑源（旧版本导出或被其它工具改写），不再支持打开：请用对应的 base.svg + geo.json 重新打开并重新导出',
     );
   }
   const parsed = parseGeoDocument(source.documentText, `${svgFileName} 的内嵌 geo.json`);
   const geo = checkedGeo(parsed);
   const built = buildPageLayout(geo, pageValueOf(parsed), measureText);
-  const reconstruct = reconstructFinalBase(final, geo.base);
+  const reconstruct = reconstructFinalBase(final);
   if (reconstruct === null) {
     throw new Error('无法从成品 SVG 定位底图图层（mapdoc-map）：文件可能被改写');
   }
-  // exact=true：前后缀来自原始底图，还原字节必须与 geo.base.sha256 一致；
-  // exact=false：旧版迁移时合成外壳，字节必然不同，只能对照内嵌 base.sha256。
-  const document = createPageDocument(svgFileName, reconstruct.text, geo, {
-    verifyBaseSha256: reconstruct.exact,
-  });
+  // 内嵌前后缀就是原始底图字节，sha256 必须成立（失败即文件被改过或配错 geo）。
+  const document = createPageDocument(svgFileName, reconstruct, geo);
+  // 内嵌源声明的底图摘要也必须与还原结果一致：两者任一不符都说明文件被改过。
+  if (document.baseSha256 !== source.baseSha256) {
+    throw new Error('成品 SVG 的内嵌底图摘要与还原结果不一致：文件可能被修改');
+  }
   const warnings = [
     ...document.base.warnings,
     ...built.warnings,
     ...final.warnings,
     ...markerWarnings(final, geo, built.layout),
   ];
-  if (!reconstruct.exact) {
-    if (document.baseSha256 !== source.baseSha256) {
-      throw new Error('成品 SVG 的内嵌底图摘要与还原结果不一致：文件可能被修改');
-    }
-    warnings.push(
-      '成品内嵌底图是旧版迁移时合成的外壳（与原 base.svg 字节不同），不影响继续编辑与导出',
-    );
-  }
   return {
     document,
     layout: built.layout,
     dirty: built.dirty,
     source: 'final',
     warnings,
-  };
-}
-
-/** 成品 SVG + 配套 geo.json（仅旧版成品：没有内嵌源） */
-function openFromFinalWithGeo(
-  svgFileName: string,
-  final: FinalSvgInfo,
-  parsed: ParsedGeo,
-  measureText: MeasureText | undefined,
-): OpenedMap {
-  const geo = checkedGeo(parsed);
-  const built = buildPageLayout(geo, pageValueOf(parsed), measureText);
-  const warnings = [...final.warnings];
-  assertMarkerPairing(final, geo, built.layout);
-  const reconstruct = reconstructFinalBase(final, geo.base);
-  if (reconstruct === null) {
-    throw new Error('无法从成品 SVG 定位底图图层（mapdoc-map）：文件可能被改写');
-  }
-  const document = createPageDocument(svgFileName, reconstruct.text, geo, {
-    verifyBaseSha256: false,
-  });
-  warnings.push(
-    '成品 SVG 没有内嵌排版数据（旧版导出）：底图按 geo.base 合成外壳，字节与原 base.svg 不同；再导出会补上内嵌源',
-  );
-  return {
-    document,
-    layout: built.layout,
-    dirty: built.dirty,
-    source: 'final-with-geo',
-    warnings: [...document.base.warnings, ...built.warnings, ...warnings],
   };
 }
 
@@ -465,9 +427,11 @@ export function openMapFromUploads(
   if (!final.is_final) {
     throw new Error(`底图不符合契约：${base.errors.slice(0, 3).join('；')}`);
   }
-  // 自带内嵌源时优先用内嵌排版（所选 JSON 只交叉校验）；没有内嵌源才走旧版迁移路径。
-  if (final.source !== null) {
-    return openFromFinalWithProvidedGeo(batches.svg.name, svgText, final, parsed, measureText);
+  // 内嵌源齐全时优先用内嵌排版（所选 JSON 只交叉校验）；没有内嵌源即旧版成品，一律拒绝。
+  if (final.source === null) {
+    throw new Error(
+      '这份成品 SVG 是旧版本导出的（没有内嵌可编辑源），不再支持打开：请用对应的 base.svg + geo.json 重新打开并重新导出',
+    );
   }
-  return openFromFinalWithGeo(batches.svg.name, final, parsed, measureText);
+  return openFromFinalWithProvidedGeo(batches.svg.name, svgText, final, parsed, measureText);
 }

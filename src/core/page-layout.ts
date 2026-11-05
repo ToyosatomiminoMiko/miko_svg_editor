@@ -9,10 +9,7 @@
  * 已知口径：字符宽度估算按「CJK/全角 = 1em，其余 = 0.55em」；只服务没有测量器时的
  * 折行兜底，最终排版以注入的真实测量为准。文字样式（颜色/字重/字距/行高/描边）不在本文件，
  * 全部来自 `config/text-style.ts`；这里只做几何与换算。
- * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地；
- *         2026-10-29 geo v2：地名 y 改为「文字块垂直中心」，makeLabelItem 按固定比例换算回基线。
- *         作者 core-dev，2026-11-05，默认排版按 `page.text_style` 分类覆盖解析页面文字与地名
- *         样式/字号（`.work/STYLE-SETTINGS-SPEC.md` §5.1/§5.2）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import {
@@ -54,7 +51,7 @@ import {
 import { MAP_LABEL_STYLE, PAGE_TEXT_STYLES } from '../config/text-style';
 import { mapCategoryDefaultFontSizePt, resolveTextStyleFields } from './text-style';
 import type { ResolvedTextStyleFields } from './text-style';
-import { cloneTextStyleOverrides } from './page';
+import { cloneTextStyleOverrides, roundToPageDecimals } from './page';
 import type { MeasureText, TextMeasure } from './types';
 import type {
   ColorbarItem,
@@ -606,7 +603,9 @@ export interface ItemBounds {
  * §5.7：item 的声明几何框（纸张坐标，未旋转）。
  *
  * - text：水平 = 锚点 + 各行前进宽度（measureText，字体来自 CSS font 简写）；
- *   垂直 = 首行基线 − ascent .. 末行基线 + descent（ascent/descent 是 CSS font 的行盒度量）；
+ *   垂直 = 行盒口径：首行基线上方 = ascent + 半行距，末行基线下方 = descent + 半行距；
+ *   半行距 = max(0, (字号 × line_height − (ascent + descent)) / 2)，所以单行文字的
+ *   选中框也会随「行高」变高；行高小于字体行盒时不裁字（半行距取 0）；
  *   旋转 = §5.3 规定的 `rotate(rotation_deg px py)`；
  * - legend：`rect(x, y, width_pt*s, legendLayout().height)`（§5.4 的声明框）；
  * - colorbar：`rect(x, y, width_pt*s, height_pt*s)`（§5.5 的声明框）。
@@ -630,9 +629,14 @@ export function itemBoundsPt(
         item.font_weight,
       );
       const width = textBlockWidth(item, measure.width, layout.style.font_family);
+      const ascent = measure.ascent(font);
+      const descent = measure.descent(font);
       const step = item.font_size_pt * item.line_height;
-      const top = text.py - measure.ascent(font);
-      const bottom = text.py + (item.lines.length - 1) * step + measure.descent(font);
+      // 半行距把 line_height 的额外空间均分到首行上方与末行下方：多行行距由 step 展开，
+      // 单行也能从选中框高度看出行高变化。负半行距（行高 < 字体行盒）不裁字。
+      const halfLeading = Math.max(0, (step - (ascent + descent)) / 2);
+      const top = text.py - ascent - halfLeading;
+      const bottom = text.py + (item.lines.length - 1) * step + descent + halfLeading;
       const left =
         item.anchor === 'start'
           ? text.px
@@ -789,6 +793,7 @@ function makeTextItem(
       TextItem,
       | 'anchor'
       | 'space'
+      | 'center_h'
       | 'color'
       | 'halo'
       | 'italic'
@@ -820,6 +825,8 @@ function makeTextItem(
     halo: overrides.halo === undefined ? haloOf(style.halo) : haloOf(overrides.halo),
     // 页面文字不是任何 geo.labels 的来源
     geo_label_id: null,
+    // 左右居中约束：默认关闭，标题/副标题/来源由 defaultPageLayout 显式打开
+    center_h: overrides.center_h ?? false,
   };
 }
 
@@ -884,6 +891,8 @@ function makeLabelItem(
     halo: style.halo,
     // 让分类统一样式/回算底图原始字号时能找到来源 label
     geo_label_id: label.id,
+    // 地图地名位置属于底图数据，不受纸张宽度约束
+    center_h: false,
   };
 }
 
@@ -894,8 +903,9 @@ function makeLabelItem(
  * - 横向（默认）：左地图 + 右栏（图例→注记→色标）；
  * - 纵向（`paper.height > paper.width * 1.05`）：整宽地图 + 下方一排（图例 / 注记 / 色标），
  *   避免竖版纸上地图只占半宽、下方大片空白。
- * 两套都按纸张自适应比例 k（`config/page.ts` 的 `layoutScaleForPaper`，唯一真源）缩放纸面
- * 字号与间距；地名只按地图缩放 s（见 makeLabelItem）。
+ * 两套都按纸张自适应比例 k（`config/page.ts` 的 `layoutScaleForPaper`，唯一真源）缩放图例/
+ * 色标尺寸与版式间距；页面文字字号固定（`config/text-style.ts` 的默认值），地名只按地图缩放
+ * s（见 makeLabelItem）。
  * 分类覆盖（§5.2）：`options.text_style` 里的覆盖逐字段取代默认值；注记/来源的折行测量与
  * 块高用解析后的字号/字重/行高（否则覆盖后文字会溢出或压到下一块）。
  */
@@ -925,7 +935,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   const hasColorbar = relief !== null;
   const hasRightColumn = hasLegend || hasNotes || hasColorbar;
 
-  // 纸张自适应比例 k：所有「纸面元素」的字号/间距按它缩放（地名另有地图缩放 s）
+  // 纸张自适应比例 k：图例/色标尺寸与版式间距按它缩放（页面文字字号固定，地名另有地图缩放 s）
   const k = layoutScaleForPaper(paper.width_pt, paper.height_pt);
   const columnGap = PAGE_DEFAULT_COLUMN_GAP_PT * k;
   const sourceReserved = PAGE_SOURCE_RESERVED_PT * k;
@@ -939,8 +949,8 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
 
   /*
    * 分类样式解析：页面文字与地图地名都按 `page.text_style` 的覆盖逐字段取代默认值
-   * （解析口径见 core/text-style.ts，与样式设置窗口完全同源）。默认排版里字号还要乘纸张
-   * 比例 k；地图地名另乘地图缩放 s（在 makeLabelItem 里）。
+   * （解析口径见 core/text-style.ts，与样式设置窗口完全同源）。页面文字字号固定，
+   * 不乘纸张比例；地图地名乘地图缩放 s（在 makeLabelItem 里）。
    */
   const pageStyleOf = (role: TextRole): ResolvedTextStyleFields =>
     resolveTextStyleFields(role, textStyle[role]);
@@ -959,11 +969,11 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   // 注记/来源的解析值同时参与折行测量与块高：覆盖字号/行高后必须按新值重算，
   // 否则右栏会溢出、纵向一排会互相压字（规格 §5.2）。
   const noteStyle = pageStyleOf('note');
-  const noteSize = pageFontSizeOf('note', PAGE_NOTE_SIZE_PT * k);
+  const noteSize = pageFontSizeOf('note', PAGE_NOTE_SIZE_PT);
   const noteLineHeight = noteStyle.line_height;
   const noteColor = textStyle.note?.color ?? style.color;
   const sourceStyle = pageStyleOf('source');
-  const sourceSize = pageFontSizeOf('source', PAGE_SOURCE_SIZE_PT * k);
+  const sourceSize = pageFontSizeOf('source', PAGE_SOURCE_SIZE_PT);
   const sourceLineHeight = sourceStyle.line_height;
   const sourceColor = textStyle.source?.color ?? style.color;
 
@@ -1045,6 +1055,9 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
 
   let nextId = 1;
   const items: PageItem[] = [];
+  // 居中约束的派生 x：直接按 page 精度（3 位小数）写，保证默认排版与
+  // enforceHorizontalCenter/normalizePage 完全自洽（否则 1e-4 的差会被判成「改动」）。
+  const pageCenterX = roundToPageDecimals(paper.width_pt / 2);
 
   // 1) 标题
   const titleY = margin + PAGE_TITLE_BASELINE_OFFSET_PT * k;
@@ -1053,11 +1066,12 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
       makeTextItem(
         nextId++,
         'title',
-        paper.width_pt / 2,
+        pageCenterX,
         titleY,
         [geo.suggestions.title],
-        pageFontSizeOf('title', PAGE_TITLE_SIZE_PT * k),
-        textOverridesOf(pageStyleOf('title')),
+        pageFontSizeOf('title', PAGE_TITLE_SIZE_PT),
+        // 标题默认开启左右居中约束：改纸张宽度时自动贴合中心（§B）
+        { ...textOverridesOf(pageStyleOf('title')), center_h: true },
       ),
     );
   }
@@ -1069,26 +1083,25 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
       makeTextItem(
         nextId++,
         'subtitle',
-        paper.width_pt / 2,
+        pageCenterX,
         subtitleY,
         [geo.suggestions.subtitle],
-        pageFontSizeOf('subtitle', PAGE_SUBTITLE_SIZE_PT * k),
-        textOverridesOf(pageStyleOf('subtitle')),
+        pageFontSizeOf('subtitle', PAGE_SUBTITLE_SIZE_PT),
+        { ...textOverridesOf(pageStyleOf('subtitle')), center_h: true },
       ),
     );
   }
 
   if (portrait) {
     // 3P) 纵向：地图下方一排 = [图例 |] 注记 | [色标]（缺省块不占位、不留空框）
-    // 地图底边不是内容底边：经度刻度标签占 mapBottom + tick_length + tick_gap + tick_font_size
-    // （刻度字号是纸面字号、不随 k 缩），纵向一排必须让开这段高度。
-    // 注意 notes 的首行基线 = rowY，但文字 group 的包围盒上沿还要再高约 0.9em：
-    // 所以让位量按「刻度标签基线 + max(16k, 注记上沿+4)」算，保证注记上沿不压 "35°E…"。
+    // 地图底边不是内容底边：经度刻度标签占 mapBottom + tick_length + tick_gap + tick_font_size，
+    // 标签自身还有约 0.2em 下伸（刻度字号是纸面字号、不随 k 缩），纵向一排必须让开这段高度。
+    // 注记首行基线 = rowY，但文字块上沿还要再高 ascent（回退口径 0.8em），所以让位量 =
+    // 刻度标签底部 + 4pt 间隙 + 注记上沿；A4 纵向同时保留原有的 16pt 最小间距。
+    const tickLabelBottom =
+      frame.tick_length_pt + frame.tick_gap_pt + frame.tick_font_size_pt * 1.2;
     const tickLabelExtent = frame.ticks
-      ? frame.tick_length_pt +
-        frame.tick_gap_pt +
-        frame.tick_font_size_pt +
-        Math.max(16 * k, noteSize * 0.9 + 4)
+      ? tickLabelBottom + Math.max(16 * k, noteSize * 0.8 + 4)
       : 0;
     const rowY = mapTop + mapHeight + Math.max(notesGap, tickLabelExtent);
     // 图例不存在时不占列：注记从左边距开始，只有色标时仍贴右；间距按实际存在的列计。
@@ -1222,8 +1235,10 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     // 块高用解析后的行高，保证多行来源的最后一行仍贴住页边距
     const firstY = paper.height_pt - margin - (baselines - 1) * sourceSize * sourceLineHeight;
     items.push(
-      makeTextItem(nextId++, 'source', paper.width_pt / 2, firstY, sourceLines, sourceSize, {
+      makeTextItem(nextId++, 'source', pageCenterX, firstY, sourceLines, sourceSize, {
         anchor: 'middle',
+        // 来源默认开启左右居中约束：与标题/副标题同一口径（§B）
+        center_h: true,
         ...textOverridesOf(sourceStyle, sourceColor),
       }),
     );

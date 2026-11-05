@@ -4,7 +4,7 @@
  * 为什么在 node 里测：readBaseSvg 是纯字符串扫描，不碰 DOM；这里验证四类错误文案、
  * viewBox/尺寸解析、根标签内原文切片的边界，以及「根 width/height 与 viewBox 不一致」
  * 的告警。底图 fixture 是 200×100 的纯几何 SVG（无 `<text>`，含 defs/clipPath/style）。
- * 元信息：作者 compose，2026-10-28，无后端数据流（上传 base.svg 前先过契约检查）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { describe, expect, it } from 'vitest';

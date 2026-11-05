@@ -6,10 +6,11 @@
  * 既不形成运行期环（`npm run arch` 只统计值依赖），也让「谁能改哪个状态」在类型里写清楚。
  * 状态归属：layout/geo 由 `app/page-editor.ts` 持有；页边距、图例隐藏条目、当前文字编辑框
  * 是侧栏本地状态，仍然只在 `page-sidebar.ts` 里存，这里只暴露读写方法。
- * 元信息：作者 lead，2026-10-31，从 `ui/page-sidebar.ts` 拆出。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import type { Geo, LegendEntry, PageLayout } from '../core/page';
+import type { TextStyleCategoryId } from '../config/text-style';
 import type { SidebarControlRegistry } from './page-sidebar-controls';
 
 /** 侧栏回调：编辑器负责把 mutator 应用到自己的 layout 并重绘/记脏 */
@@ -24,8 +25,11 @@ export interface PageSidebarHandlers {
   onRelayout(marginPt: number): void;
   /** 轻提示（状态行）：纸张改变时提醒「重新排默认版式」 */
   notify(message: string): void;
-  /** 拉起「样式设置」窗口（单条 item 不再有样式字段，统一按分类改） */
-  openStyleSettings(): void;
+  /**
+   * 拉起「样式设置」窗口（单条 item 不再有样式字段，统一按分类改）。
+   * 带分类时窗口直接定位到该分类（侧栏选中文字时传它的 role 分类）；不带则沿用上次分类。
+   */
+  openStyleSettings(category?: TextStyleCategoryId): void;
 }
 
 /** 面板构建上下文：只暴露「读最新状态 + 写回入口」，面板模块不持有任何状态 */

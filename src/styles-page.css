@@ -127,6 +127,16 @@
   color: var(--color-text-meta);
 }
 
+/* 「左右居中」打开时对齐分段被约束覆盖：禁用逻辑在 TS，这里只给禁用态视觉 */
+.page-sidebar .segmented.is-disabled {
+  opacity: 0.5;
+}
+
+/* 「左右居中」打开时 x 数字框被冻结：整行变淡（控件本身也已 disabled，这里只是视觉提示） */
+.page-sidebar .control-row.is-disabled {
+  opacity: 0.5;
+}
+
 .page-fatal {
   position: absolute;
   inset: 0;
@@ -502,12 +512,12 @@
   display: none;
 }
 
-/* 窗口 = 面板外观（与 .ui-panel 同一套 token），列排布：头部 / 两列正文 / 底部 */
+/* 窗口 = 面板外观（与 .ui-panel 同一套 token）：头部 / 总说明 / 两列正文 / 底部 */
 .page-style-window {
   display: flex;
   flex-direction: column;
-  width: min(760px, calc(100vw - 32px));
-  height: min(560px, 90vh);
+  width: min(900px, calc(100vw - 32px));
+  height: min(640px, 92vh);
   overflow: hidden;
   color: var(--color-text);
   background: var(--color-bg-panel);
@@ -548,18 +558,40 @@
   flex: none;
 }
 
-/* 两列：260px 分类列表 + 剩余宽度的字段区；两列各自滚动 */
+/* 头部总说明：解释两组分类的区别与「改动会作用于整个分类」 */
+.page-style-intro {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  background: var(--color-bg-sunken);
+  border-bottom: 1px solid var(--color-border-panel);
+}
+
+.page-style-intro-lead {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-strong);
+}
+
+.page-style-intro-detail {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-text-meta);
+}
+
+/* 两列：280px 分类列表 + 剩余宽度的字段区；两列各自滚动 */
 .page-style-body {
   display: grid;
   flex: 1 1 auto;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
   min-height: 0;
 }
 
 .page-style-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   min-height: 0;
   padding: 10px;
   overflow-y: auto;
@@ -574,10 +606,32 @@
 }
 
 .page-style-group-title {
-  margin: 0 0 2px;
+  margin: 0;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
+  color: var(--color-text-active);
+}
+
+.page-style-group-desc {
+  margin: 0 0 2px;
+  font-size: 10px;
+  line-height: 1.45;
   color: var(--color-text-meta);
+}
+
+/* 分组内的语义小标题（城市 / 行政区与强调区 / 国名与自然地物…）：只做视觉分节，不参与分类契约 */
+.page-style-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.page-style-section-title {
+  margin: 2px 0 0;
+  padding-left: 2px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--color-text-faint);
 }
 
 /* 分类按钮：与侧栏元素列表同一套「行」视觉（描边 + 悬停 accent + 激活 accent 底） */
@@ -606,6 +660,15 @@
   border-color: var(--color-accent-border);
 }
 
+/* 底图没有该分类：置灰提示「改了对当前图无效果」，但仍可选中查看原因（不 disabled） */
+.page-style-category.is-empty {
+  opacity: 0.55;
+}
+
+.page-style-category.is-empty:hover {
+  opacity: 0.8;
+}
+
 /* 色块底色由 TS 写（该分类当前颜色）；描边用专门的 swatch token，保证深色底上可见 */
 .page-style-swatch {
   flex: none;
@@ -623,29 +686,171 @@
   text-overflow: ellipsis;
 }
 
+/* 徽章：miko_ui 的 .ui-badge 只给基线（min-width 40px 对这里太宽），此处按语义收窄 */
+.page-style-badge {
+  min-width: 0;
+  padding: 1px 6px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.page-style-count {
+  color: var(--color-text-muted);
+  background: var(--color-fill-inset);
+}
+
+/* 「已改」= 该分类存在用户覆盖（page.text_style 里有这条）；默认态不显示 */
+.page-style-changed {
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+}
+
+.page-style-kind {
+  color: var(--color-text-meta);
+  background: var(--color-fill-inset);
+}
+
+.page-style-state {
+  color: var(--color-text-meta);
+  background: var(--color-fill-inset);
+}
+
+.page-style-state.is-changed {
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+}
+
+/* 右列：固定的分类头 + 可滚动的字段区 */
 .page-style-fields {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  min-height: 0;
+}
+
+.page-style-cat {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px 12px;
+  border-bottom: 1px solid var(--color-border-panel);
+  background: var(--color-bg-panel);
+}
+
+.page-style-cat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-style-cat-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-strong);
+}
+
+/* 「恢复默认」放在分类头最右：只有存在覆盖时才可用（禁用态由 TS 写） */
+.page-style-reset {
+  margin-left: auto;
+  flex: none;
+}
+
+.page-style-cat-desc {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-text-meta);
+}
+
+.page-style-cat-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.page-style-impact {
+  flex: none;
+  color: var(--color-text);
+}
+
+.page-style-example {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 空分类原因（地图分类 0 项 / 页面分类还没有文字）：一行警告色说明，不阻塞操作 */
+.page-style-cat-empty {
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+  border-radius: var(--radius-sm);
+}
+
+.page-style-cat-empty[hidden] {
+  display: none;
+}
+
+/* 实时预览条：背景由 TS 写纸张色；地图分类用浅色地图底（成品底图是浅色，避免深色主题下观感相反） */
+.page-style-preview-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.page-style-preview-caption {
+  font-size: 10px;
+  color: var(--color-text-faint);
+}
+
+.page-style-preview {
+  height: 72px;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid var(--color-border-faint);
+  border-radius: var(--radius-sm);
+}
+
+.page-style-preview.is-map {
+  background: #f3f6fa;
+}
+
+.page-style-preview-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 字段区：四组（字号 / 颜色与字形 / 行距与字距 / 描边光晕）一起滚动 */
+.page-style-fields-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
   min-height: 0;
   padding: 12px;
   overflow-y: auto;
 }
 
-.page-style-fields-title {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
+/* 字号下方的默认值来源说明：比 .page-style-hint 略突出，用户看不懂窗口主要卡在这里 */
+.page-style-default-hint {
   margin: 0;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--color-text-strong);
-}
-
-.page-style-fields-kind {
+  padding: 5px 8px;
   font-size: 11px;
-  font-weight: 400;
-  color: var(--color-text-meta);
+  line-height: 1.55;
+  color: var(--color-text-muted);
+  background: var(--color-fill-inset);
+  border-left: 2px solid var(--color-accent-line);
+  border-radius: var(--radius-sm);
 }
 
 .page-style-hint {
@@ -671,27 +876,32 @@
   color: var(--color-text-muted);
 }
 
+/* footer 只剩「关闭」：贴右，不抢视线 */
 .page-style-footer {
   display: flex;
   flex: 0 0 auto;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
   padding: 8px 12px;
   background: var(--color-bg-header);
   border-top: 1px solid var(--color-border-panel);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .page-style-overlay {
     padding: 8px;
   }
 
   .page-style-window {
-    height: min(560px, calc(100vh - 16px));
+    height: min(640px, calc(100vh - 16px));
   }
 
   .page-style-body {
-    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+
+  .page-style-preview {
+    height: 56px;
   }
 }
 

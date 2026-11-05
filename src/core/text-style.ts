@@ -1,26 +1,25 @@
 /**
- * 分类文字样式的解析、批量应用与旧文件还原（纯逻辑，不碰 DOM）。
+ * 分类文字样式的解析、批量应用与整表重建（纯逻辑，不碰 DOM）。
  *
  * 是什么：把「样式设置」窗口的 20 个分类（6 个页面文字角色 + 14 个地图地名角色）与排版块
  * 的 `page.text_style` 覆盖表、`TextItem` 的显式样式字段互相换算——读分类当前有效样式、
- * 写入覆盖并把该分类全部 item 同步一遍、恢复默认、给单条 item 套分类样式，以及打开旧文件
- * 时还原 `geo_label_id`。
- * 为什么放在 core：窗口（app/ui）、默认排版（core/page-layout）与打开迁移（core/open-map）
+ * 写入覆盖并把该分类全部 item 同步一遍、恢复默认、给单条 item 套分类样式，以及打开文件后
+ * 按分类把整份排版的文字样式重建一遍（`resyncTextStyles`，保证分类样式是唯一真源）。
+ * 为什么放在 core：窗口（app/ui）、默认排版（core/page-layout）与打开流程（core/open-map）
  * 必须共用同一套「默认值 + 覆盖」解析口径；各写一份会让「窗口显示的值」和「实际写进 item
  * 的值」漂移。默认值全部来自 `config/text-style.ts`，覆盖只落 `page.text_style`。
  * 为什么本文件不 import core/page-layout：默认排版要 import 本文件的解析函数，反向 import
- * 会形成 core 内部运行期环（架构检查会失败）；纸张比例 k 从 config/page 的
- * `layoutScaleForPaper` 取（唯一真源）。
+ * 会形成 core 内部运行期环（架构检查会失败）；默认字号只从 config/text-style.ts 取，
+ * 不依赖纸张尺寸。
  * 渲染层不感知覆盖表：每次应用都逐条把解析值写回 item 的显式字段（render/* 口径不变）。
  * 为什么地图分类的字号是「分类默认统一字号」而不是逐条地名字号：地图标注必须统一字号
  * （用户反馈），同一分类下的全部地名永远用同一个字号；窗口删掉了「跟随底图」开关后，默认值
  * 取该分类地名原始字号的中位数 × 地图缩放（见 `mapCategoryDefaultFontSizePt`）。
- * 元信息：作者 core-dev，2026-11-05，随「按分类统一设置文字样式」落地
- * （`.work/STYLE-SETTINGS-SPEC.md` §3；同日按 §12 修订：删除「跟随底图数据」模式，
- * 地图分类字号恒统一）。
+ * 为什么没有「旧文件迁移」：item 上的样式字段只是分类样式的物化结果，打开时必须能由分类
+ * 重算出来（`resyncTextStyles`），所以旧 page 块不走逐条兼容——不合法就回退默认排版。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
-import { layoutScaleForPaper } from '../config/page';
 import {
   MAP_LABEL_DEFAULT_FONT_SIZE_PT,
   MAP_LABEL_ROLE_STYLES,
@@ -31,17 +30,18 @@ import {
   isTextStyleCategoryId,
 } from '../config/text-style';
 import type { MapLabelRole, PageTextRole, TextStyleCategoryId } from '../config/text-style';
+import { roundToPageDecimals } from './page';
 import type { Geo, GeoLabel, Halo, PageLayout, TextItem, TextStyleOverride } from './page';
 
 /* =========================== 对外类型 =========================== */
 
 /**
- * 写窗口用的一次补丁。
- * 为什么 `font_size_pt` 允许 null（与 `TextStyleOverride` 不同）：这是旧 UI/旧数据的兼容
- * 写法，语义等价于「删掉该覆盖键、回分类默认统一字号」，与「没传该字段（保持原覆盖）」不同。
+ * 写窗口用的一次补丁：只带用户真的改了的字段。
+ * 为什么用「字段缺席 = 保持原覆盖」而不是 null 哨兵：恢复默认有独立的 `resetTextStyle`
+ * （整条覆盖删掉），补丁里不需要再表达「删掉字号」这一层含义。
  */
 export interface TextStylePatch extends Omit<TextStyleOverride, 'font_size_pt'> {
-  font_size_pt?: number | null;
+  font_size_pt?: number;
 }
 
 /** 覆盖解析后的样式字段（不含字号：地图分类的字号要按每条 item 回算底图数据） */
@@ -137,22 +137,19 @@ export function hasFontSizeOverride(layout: PageLayout, category: TextStyleCateg
 
 /**
  * 分类默认字号（没有 item 时窗口显示用）。
- * 页面分类 = `PAGE_TEXT_DEFAULT_FONT_SIZE_PT[role]`：标题/副标题/注记/来源是默认排版里
- * 按纸张比例 k 缩放的纸面字号；标注/地名（手动文字）是固定字号、不乘 k（与新建文字一致）。
- * 地图分类 = `MAP_LABEL_DEFAULT_FONT_SIZE_PT`（分类默认统一字号按该分类地名中位数算，
- * 见 `mapCategoryDefaultFontSizePt`；这里只用于完全没有地名时的兜底显示）。
+ * 页面分类 = `PAGE_TEXT_DEFAULT_FONT_SIZE_PT[role]`：全部页面文字使用固定字号，
+ * 不随纸张尺寸缩放；地图分类 = `MAP_LABEL_DEFAULT_FONT_SIZE_PT`（分类默认统一字号按
+ * 该分类地名中位数算，见 `mapCategoryDefaultFontSizePt`；这里只用于完全没有地名时的兜底显示）。
+ *
+ * `layout` 参数保留在签名里：窗口与其它解析函数共用同一调用形状，且今后若默认值需要
+ * 依赖版式（例如按阅读距离），调用方不用改。
  */
-export function defaultTextFontSizePt(category: TextStyleCategoryId, layout: PageLayout): number {
+export function defaultTextFontSizePt(category: TextStyleCategoryId, _layout: PageLayout): number {
   if (TEXT_STYLE_CATEGORY_META[category].kind === 'map') {
     return MAP_LABEL_DEFAULT_FONT_SIZE_PT;
   }
   const role = category as PageTextRole;
-  const baseSize = PAGE_TEXT_DEFAULT_FONT_SIZE_PT[role];
-  // 与默认排版（core/page-layout.ts）同一口径：只有这四类随纸张自适应比例缩放。
-  if (role === 'title' || role === 'subtitle' || role === 'note' || role === 'source') {
-    return baseSize * layoutScaleForPaper(layout.paper.width_pt, layout.paper.height_pt);
-  }
-  return baseSize;
+  return PAGE_TEXT_DEFAULT_FONT_SIZE_PT[role];
 }
 
 /**
@@ -249,10 +246,14 @@ export function itemsOfTextCategory(
 }
 
 /**
- * 页面分类的有效字号：覆盖 → 该分类第一条 item 的实际字号 → 默认字号。
- * 「第一条 item 实际字号」是旧文件兼容：页面文字迁移前可以逐条有不同字号，窗口先展示
- * 第一条的值，用户一旦写覆盖就统一到覆盖值。
- * @param exclude 单条应用时排除自己（否则切换角色后读到的是切换前的字号）
+ * 页面分类的有效字号：覆盖 ?? 该分类其它 item 的实际字号 ?? 分类默认字号。
+ *
+ * 为什么回退「第一条 item 的实际字号」而不是直接回分类默认值：页面分类默认字号会乘纸张
+ * 比例 k（`layoutScaleForPaper`），而纸张可以被用户改宽/改向而不重排；此时 item 里存的字号
+ * 仍是旧纸面的值，若这里只看默认值，`resyncTextStyles` 会在重新打开时把字号改小并误标脏
+ * （导出 → 打开不再字节稳定）。把「现存的分类字号」作为覆盖与默认值之间的真值，能保证
+ * 纸张变化不触碰文字样式；用户改字号时写覆盖、恢复默认时回默认，口径仍然单一。
+ * @param exclude 单条切分类时排除自己（否则读到的会是切换前的字号）
  */
 function pageFontSizePt(
   layout: PageLayout,
@@ -274,8 +275,7 @@ export function readTextCategoryStyle(
 ): ResolvedTextStyle {
   const fields = resolveTextStyleFields(category, layout.text_style[category]);
   if (TEXT_STYLE_CATEGORY_META[category].kind === 'map') {
-    // 地图分类固定「覆盖 ?? 分类默认统一字号」：旧 page 块里 item 字号可能逐条不同，
-    // 窗口不能读第一条的实际字号，否则显示值会与「改任意字段后写回的统一值」不一致。
+    // 地图分类固定「覆盖 ?? 分类默认统一字号」：窗口显示值必须与批量应用写回的统一值一致。
     return {
       ...fields,
       font_size_pt: mapCategoryFontSizePt(
@@ -316,9 +316,12 @@ function labelBlockOffset(lineCount: number, fontSizePt: number, lineHeight: num
 function writeItemStyle(
   item: TextItem,
   fields: ResolvedTextStyleFields,
-  fontSizePt: number,
+  sizePt: number,
   mapScale: number,
 ): boolean {
+  // 字号按导出精度取整后再比较：page 数字一律 3 位小数（normalizePage），不取整会让
+  // 「重算值」与「文件里已归一化的值」差 1e-6，把每次打开都误判成样式改动。
+  const fontSizePt = roundToPageDecimals(sizePt);
   const oldSize = item.font_size_pt;
   const oldLineHeight = item.line_height;
   const nextHalo = cloneHalo(fields.halo);
@@ -351,9 +354,8 @@ function writeItemStyle(
 
 /**
  * 合并一次补丁：
- * - `undefined` = 删除该覆盖键（回默认值）；
- * - `font_size_pt: null` = 旧数据兼容（等价删除该覆盖键，回分类默认字号）；
- * - `halo: null` = 显式关光晕（保留键，与删除不同）；
+ * - 字段缺席（`undefined`）= 保持原覆盖；
+ * - `halo: null` = 显式关光晕（保留键，与缺席不同）；
  * - 其余值直接写覆盖。结果为空对象时由调用方删除该分类条目（覆盖表不留空壳）。
  */
 function mergeTextStyleOverride(
@@ -363,7 +365,7 @@ function mergeTextStyleOverride(
   const base = current ?? {};
   const next: TextStyleOverride = {};
   const size = 'font_size_pt' in patch ? patch.font_size_pt : base.font_size_pt;
-  if (size !== undefined && size !== null) next.font_size_pt = size;
+  if (size !== undefined) next.font_size_pt = size;
   const color = 'color' in patch ? patch.color : base.color;
   if (color !== undefined) next.color = color;
   const italic = 'italic' in patch ? patch.italic : base.italic;
@@ -386,8 +388,8 @@ function mergeTextStyleOverride(
  * 返回被改到的 item 数。
  *
  * 地图分类的字号恒为「覆盖 ?? 分类默认统一字号」：即使本次补丁只改颜色，也会把该分类全部
- * item 的字号统一过去（§12.1：地图标注必须统一字号，旧文件逐条不同的字号在这里被收敛）。
- * 页面分类的字号：覆盖 → 该分类第一条 item 的实际字号 → 默认（与窗口显示口径一致）。
+ * item 的字号统一过去（§12.1：地图标注必须统一字号）。
+ * 页面分类的字号：覆盖 ?? 分类默认字号（与窗口显示口径一致）。
  */
 export function applyTextStyle(
   layout: PageLayout,
@@ -406,6 +408,8 @@ export function applyTextStyle(
   let changed = 0;
 
   if (TEXT_STYLE_CATEGORY_META[category].kind === 'page') {
+    // 页面字号取该分类现有 item 的字号（窗口显示的同一口径）：改颜色/行高时不会顺手把
+    // 纸张缩放变化后的字号改掉；要改字号必须显式写 font_size_pt 覆盖。
     const fontSize = pageFontSizePt(layout, geo, category);
     for (const item of items) {
       if (writeItemStyle(item, fields, fontSize, mapScale)) changed += 1;
@@ -451,63 +455,54 @@ export function resetTextStyle(
   return changed;
 }
 
-/**
- * 单条 text item 的样式套用：用户把一条页面文字切换到新角色后，立刻套上新分类的有效样式。
- * 字号口径与批量应用不同——要排除 item 自己（role 已经改成新分类，若把它算作「第一条
- * item」，读到的会是切换前的字号）：覆盖 → 该分类其它 item 的实际字号 → 默认字号。
- * 地图 item 走自己的地图分类：字号恒为「覆盖 ?? 分类默认统一字号」（§12.1），保证切换后与
- * 该分类其它地名同字号。
- */
-export function applyCategoryStyleToItem(layout: PageLayout, geo: Geo, item: TextItem): void {
-  const mapScale = mapScaleOf(geo, layout);
-  if (item.space === 'map') {
-    const category = textCategoryOfItem(item, geo);
-    if (category === null) return;
-    const fields = resolveTextStyleFields(category, layout.text_style[category]);
-    const fontSize = mapCategoryFontSizePt(layout, geo, category as MapLabelRole, mapScale);
-    writeItemStyle(item, fields, fontSize, mapScale);
-    return;
-  }
-  const category = textCategoryOfItem(item, geo);
-  if (category === null) return;
-  const fields = resolveTextStyleFields(category, layout.text_style[category]);
-  writeItemStyle(item, fields, pageFontSizePt(layout, geo, category, item), mapScale);
+/** 单条套用分类样式的选项 */
+export interface ApplyCategoryStyleOptions {
+  /**
+   * 页面文字切分类时排除自己：角色已经改成新分类，若把自己算作「该分类现有 item」，
+   * 读到的会是切换前的字号。重建整份排版（resyncTextStyles）不能排除自己——那条 item
+   * 就是文件里的当前值，排除后会退回纸张默认字号，导致纸张改宽后重开误标脏。
+   */
+  readonly excludeSelf?: boolean;
 }
 
-/* =========================== 旧文件迁移 =========================== */
+/**
+ * 单条 text item 的样式套用：用户把一条页面文字切换到新角色、或打开文件后按分类重建时用。
+ * 页面字号口径与批量应用一致（覆盖 ?? 该分类现有 item 字号 ?? 默认）；`excludeSelf` 只服务
+ * 「切换角色」这一种调用，保证套用的是新分类的字号而不是旧分类的。地图 item 的字号恒为
+ * 「覆盖 ?? 分类默认统一字号」（§12.1），与同类地名同字号。
+ *
+ * @returns 是否真的改动了这条 item（重建整份排版时用来统计/决定是否标脏）
+ */
+export function applyCategoryStyleToItem(
+  layout: PageLayout,
+  geo: Geo,
+  item: TextItem,
+  options: ApplyCategoryStyleOptions = {},
+): boolean {
+  const category = textCategoryOfItem(item, geo);
+  if (category === null) return false;
+  const fields = resolveTextStyleFields(category, layout.text_style[category]);
+  const mapScale = mapScaleOf(geo, layout);
+  const fontSize =
+    TEXT_STYLE_CATEGORY_META[category].kind === 'map'
+      ? mapCategoryFontSizePt(layout, geo, category as MapLabelRole, mapScale)
+      : pageFontSizePt(layout, geo, category, options.excludeSelf === true ? item : undefined);
+  return writeItemStyle(item, fields, fontSize, mapScale);
+}
 
 /**
- * 打开旧 page 块时还原 `geo_label_id`（规格 §5.3）：
- * 对 space=map、role=label、geo_label_id=null 的 item，按
- * `lines.join('\n') === label.text`、`|x − label.x| < 1e-6`、anchor 相同匹配 `geo.labels`；
- * 多个候选取 `|item.y − label.y|` 最小者。只补 id，不改样式（调用方也不标脏）。
+ * 按分类把整份排版的文字样式重建一遍，返回被改动的 item 数。
  *
- * 为什么容差是 1e-6 而 y 用「最近」：x 是生成时原样落盘的锚点，应当精确相等（容差只吸收
- * JSON 往返误差）；y 在 v2 语义里是「文字块垂直中心」，而 item.y 已按旧口径换算成基线，
- * 不同 label 的 y 可能靠得很近，取最近中心比要求相等更稳。
+ * 用途：打开带 page 块的文件后调用一次，把 item 上物化的样式字段与 `page.text_style` 对齐。
+ * 为什么必须重建：item 上的字号/颜色等只是分类样式的物化结果，不是独立真值；文件里若残留
+ * 逐条不同的样式（旧版本导出的 page 块、手改过的 JSON），不重建就会绕过「分类统一」设置。
+ * 重建后与文件内容不一致由调用方标脏并告警，导出即写成新口径。
  */
-export function reconcileGeoLabelIds(layout: PageLayout, geo: Geo): number {
-  let filled = 0;
+export function resyncTextStyles(layout: PageLayout, geo: Geo): number {
+  let changed = 0;
   for (const item of layout.items) {
-    if (item.kind !== 'text' || item.space !== 'map' || item.role !== 'label') continue;
-    if (item.geo_label_id !== null && item.geo_label_id !== undefined) continue;
-    const text = item.lines.join('\n');
-    let matched: GeoLabel | null = null;
-    let bestDistance = Number.POSITIVE_INFINITY;
-    for (const label of geo.labels) {
-      if (label.text !== text) continue;
-      if (Math.abs(label.x - item.x) >= 1e-6) continue;
-      if (label.anchor !== item.anchor) continue;
-      const distance = Math.abs(label.y - item.y);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        matched = label;
-      }
-    }
-    if (matched !== null) {
-      item.geo_label_id = matched.id;
-      filled += 1;
-    }
+    if (item.kind !== 'text') continue;
+    if (applyCategoryStyleToItem(layout, geo, item)) changed += 1;
   }
-  return filled;
+  return changed;
 }

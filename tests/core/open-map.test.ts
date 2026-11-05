@@ -1,16 +1,16 @@
 /**
- * `core/open-map.ts`（打开地图的三条路径）的单测。
+ * `core/open-map.ts`（打开地图的两条路径）的单测。
  *
- * 为什么在 node 里测：打开流程是纯逻辑（输入是文件字节），三条路径共用
+ * 为什么在 node 里测：打开流程是纯逻辑（输入是文件字节），两条路径共用
  * `createPageDocument` 的一致性校验；这里验证：
- * - `base.svg + geo.json` 仍按原口径打开，且「导出 → 重新打开 → 再导出」字节幂等；
+ * - `base.svg + geo.json` 按原口径打开，且「导出 → 重新打开 → 再导出」字节幂等；
  * - 只上传本编辑器导出的成品 SVG 就能恢复排版，再导出与第一次逐字节相同；
- * - 旧版成品（没有内嵌源）+ 配套 geo.json 能迁移打开、再导出后仍可单文件重开；
+ * - 打开合法 page 块后，item 上残留的逐条文字样式会被按分类重建（分类是唯一真源）；
+ * - 旧格式一律不再迁移：旧 page 块（缺 text_style / geo_label_id）判不合法 → 默认排版；
+ *   旧版成品（无内嵌可编辑源）直接拒绝；marker.page 只按当前口径比对；
  * - 带 BOM 的底图/JSON 不会因重编码而误报 sha 不配套；
- * - 拿错文件 / 缺文件时给中文原因；
- * - 改造前导出的 page 块（无 text_style / geo_label_id）打开时补 geo_label_id、不标脏。
- * 元信息：作者 lead，2026-10-29，服务于「成品 SVG 可直接再编辑」数据流；
- *         作者 core-dev，2026-11-05，补旧 page 块 `reconcileGeoLabelIds`（§5.3）。
+ * - 拿错文件 / 缺文件时给中文原因。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -18,15 +18,14 @@ import { openMapFromUploads, type MapUploadFile } from '../../src/core/open-map'
 import { decodeBase64Utf8, encodeBase64Utf8 } from '../../src/core/base64';
 import {
   canonicalJson,
-  legacyPageDigest,
   pageDigest,
+  roundToPageDecimals,
   serializeMapDocFile,
   sha256OfBytes,
   type PageLayout,
   type TextItem,
 } from '../../src/core/page';
 import { defaultPageLayout } from '../../src/core/page-layout';
-import { applyTextStyle } from '../../src/core/text-style';
 import { composeFinalSvg } from '../../src/render/compose-svg';
 import { BASE_SVG_TEXT, makeDocument, makeGeo } from '../fixtures/page-fixtures';
 
@@ -97,33 +96,12 @@ describe('openMapFromUploads：只上传成品 SVG（单文件再编辑）', () 
   });
 });
 
-describe('openMapFromUploads：旧版成品 + 配套 geo.json（迁移路径）', () => {
-  it('能打开、给出告警，且再导出的渲染内容与原成品一致', () => {
+describe('openMapFromUploads：旧版成品（无内嵌源）一律拒绝', () => {
+  it('即使给了配套 geo.json 也不再迁移', () => {
     const { geoText, composed } = fixture();
-    const legacy = stripSourceMetadata(composed);
-    const opened = openMapFromUploads([svgUpload(legacy), geoUpload(geoText)]);
-    expect(opened.source).toBe('final-with-geo');
-    expect(opened.dirty).toBe(false);
-    expect(opened.warnings.some((warning) => warning.includes('旧版导出'))).toBe(true);
-    // 重新导出会补上内嵌源；去掉 metadata 后渲染部分必须与原成品逐字节一致
-    const reexported = composeFinalSvg(opened.document, opened.layout).svg;
-    expect(stripSourceMetadata(reexported)).toBe(legacy);
-  });
-
-  it('迁移后再导出的成品必须能单文件重新打开（exact=false 的外壳摘要）', () => {
-    const { geoText, composed } = fixture();
-    const legacy = stripSourceMetadata(composed);
-    const migrated = openMapFromUploads([svgUpload(legacy), geoUpload(geoText)]);
-    const reexported = composeFinalSvg(migrated.document, migrated.layout).svg;
-    // 单文件重开：不能拿 geo.base.sha256（原底图）校验合成外壳
-    const reopened = openMapFromUploads([svgUpload(reexported)]);
-    expect(reopened.source).toBe('final');
-    expect(reopened.warnings.some((warning) => warning.includes('迁移'))).toBe(true);
-    // 连续往返仍字节稳定
-    expect(composeFinalSvg(reopened.document, reopened.layout).svg).toBe(reexported);
-    // 再叠一份配套 geo.json 也仍以内嵌源为准打开
-    const withGeo = openMapFromUploads([svgUpload(reexported), geoUpload(geoText)]);
-    expect(withGeo.source).toBe('final');
+    expect(() =>
+      openMapFromUploads([svgUpload(stripSourceMetadata(composed)), geoUpload(geoText)]),
+    ).toThrow(/旧版本导出/);
   });
 });
 
@@ -165,7 +143,7 @@ describe('openMapFromUploads：错误路径给中文原因', () => {
   it('旧版成品没有内嵌源、又没有 geo.json', () => {
     const { composed } = fixture();
     expect(() => openMapFromUploads([svgUpload(stripSourceMetadata(composed))])).toThrow(
-      /不含内嵌排版数据/,
+      /不含内嵌可编辑源/,
     );
   });
 
@@ -206,10 +184,10 @@ describe('openMapFromUploads：错误路径给中文原因', () => {
 });
 
 /* ======================================================================
- * 2026-11-05 旧 page 块迁移：恢复后补 geo_label_id（§5.3）
+ * 旧格式不再迁移：只保留「分类样式 → item 样式」这一条生成链路
  * ====================================================================== */
 
-/** 默认排版去掉本改造新增字段，模拟改造前导出的 page 块（无 text_style / geo_label_id） */
+/** 去掉本改造新增的两个字段，模拟旧版本导出的 page 块（无 text_style / geo_label_id） */
 function legacyLayoutOf(geo: ReturnType<typeof makeGeo>): PageLayout {
   const stripped = structuredClone(defaultPageLayout(geo)) as unknown as Record<string, unknown>;
   delete stripped['text_style'];
@@ -219,7 +197,7 @@ function legacyLayoutOf(geo: ReturnType<typeof makeGeo>): PageLayout {
   return stripped as unknown as PageLayout;
 }
 
-/** 用「改造前字段」的 page 块序列化 geo.json（模拟旧版导出文件） */
+/** 用旧字段序列化 geo.json（page 块缺 text_style / geo_label_id） */
 function legacyGeoText(geo: ReturnType<typeof makeGeo>, layout: PageLayout): string {
   const doc = JSON.parse(serializeMapDocFile(geo, layout)) as Record<string, unknown>;
   const page = doc['page'] as Record<string, unknown>;
@@ -230,7 +208,7 @@ function legacyGeoText(geo: ReturnType<typeof makeGeo>, layout: PageLayout): str
   return `${JSON.stringify(doc, null, 2)}\n`;
 }
 
-/** 把成品 SVG 的 marker.page 换成给定摘要（模拟改造前导出：marker 用旧口径 pageDigest） */
+/** 把成品 SVG 的 marker.page 换成给定摘要（模拟摘要口径不一致的旧成品） */
 function replaceMarkerPage(svg: string, page: string): string {
   const pattern = /<!--\s*mapdoc-final:([A-Za-z0-9+/=\s]+?)\s*-->/;
   const match = pattern.exec(svg);
@@ -240,133 +218,152 @@ function replaceMarkerPage(svg: string, page: string): string {
   return svg.replace(match[0], `<!-- mapdoc-final:${encodeBase64Utf8(canonicalJson(payload))} -->`);
 }
 
-/** layout 里的地图地名文字 item（保持 items 顺序，与 geo.labels 的 order 一致） */
+/** layout 里的地图地名文字 item（保持 items 顺序） */
 function mapTextItems(layout: PageLayout): TextItem[] {
   return layout.items.filter(
     (item): item is TextItem => item.kind === 'text' && item.space === 'map',
   );
 }
 
-describe('openMapFromUploads：旧 page 块补 geo_label_id（§5.3）', () => {
-  it('base + geo：恢复后按 text/x/anchor 还原，只补 id、不标脏', () => {
+describe('打开旧 page 块：不迁移，按不合法处理并回退默认排版', () => {
+  it('缺 text_style / geo_label_id 的 page 块 → 默认排版 + 告警 + 标脏', () => {
     const geo = makeDocument(makeGeo()).geo;
-    const oldLayout = legacyLayoutOf(geo);
     const opened = openMapFromUploads([
       svgUpload(BASE_SVG_TEXT),
-      geoUpload(legacyGeoText(geo, oldLayout)),
+      geoUpload(legacyGeoText(geo, legacyLayoutOf(geo))),
     ]);
     expect(opened.source).toBe('base');
-    expect(opened.dirty).toBe(false);
-    // 旧 page 块没有 text_style：归一化补 {}（不改变「已导出态」判断）
+    expect(opened.dirty).toBe(true);
+    expect(opened.warnings.some((warning) => warning.includes('page 排版块不合法'))).toBe(true);
     expect(opened.layout.text_style).toEqual({});
-
-    const labels = [...geo.labels].sort((a, b) => a.order - b.order);
-    const openedItems = mapTextItems(opened.layout);
-    const oldItems = mapTextItems(oldLayout);
-    expect(openedItems).toHaveLength(labels.length);
-    openedItems.forEach((item, index) => {
-      // 只剩 id 被补：文字/字体/颜色/位置与旧 layout 一致（page 数字经 3 位小数归一化）
-      expect(item.geo_label_id).toBe(labels[index]!.id);
-      expect(item.lines).toEqual(oldItems[index]!.lines);
-      expect(item.font_size_pt).toBeCloseTo(oldItems[index]!.font_size_pt, 3);
-      expect(item.color).toBe(oldItems[index]!.color);
-      expect(item.y).toBeCloseTo(oldItems[index]!.y, 3);
-    });
-
-    // 再导出会带上新字段；重新打开再导出字节稳定（迁移后即幂等）
-    const exported = serializeMapDocFile(opened.document.geo, opened.layout);
-    const reopened = openMapFromUploads([svgUpload(BASE_SVG_TEXT), geoUpload(exported)]);
-    expect(reopened.dirty).toBe(false);
-    expect(serializeMapDocFile(reopened.document.geo, reopened.layout)).toBe(exported);
-  });
-
-  it('成品内嵌源：恢复后同样补齐（不标脏，marker 摘要不一致只告警）', () => {
-    const document = makeDocument(makeGeo());
-    const oldLayout = legacyLayoutOf(document.geo);
-    // 用旧字段 layout 合成成品：内嵌源里的 page 块也就没有 text_style / geo_label_id
-    const composed = composeFinalSvg(document, oldLayout).svg;
-    const opened = openMapFromUploads([svgUpload(composed)]);
-    expect(opened.source).toBe('final');
-    expect(opened.dirty).toBe(false);
-
-    const labels = [...document.geo.labels].sort((a, b) => a.order - b.order);
+    // 回退的是默认排版：每个地图地名 item 都有分类来源 id
     const items = mapTextItems(opened.layout);
-    expect(items).toHaveLength(labels.length);
-    items.forEach((item, index) => expect(item.geo_label_id).toBe(labels[index]!.id));
-
-    // marker 的 page 摘要按「补 id 前」的排版算，补齐后必然不一致：只告警、不阻止打开
-    expect(opened.warnings.some((warning) => warning.includes('排版摘要不一致'))).toBe(true);
-  });
-
-  it('样式覆盖随 geo.json 往返：重开后覆盖表与 item 显式字段都还在、再导出字节稳定', () => {
-    const { document, layout } = fixture();
-    const country = mapTextItems(layout)[0]!;
-    applyTextStyle(layout, document.geo, 'title', { color: '#ff0000', font_size_pt: 24 });
-    applyTextStyle(layout, document.geo, 'country', { color: '#00ff00', font_size_pt: 9 });
-    const geoText = serializeMapDocFile(document.geo, layout);
-
-    const opened = openMapFromUploads([svgUpload(BASE_SVG_TEXT), geoUpload(geoText)]);
-    expect(opened.source).toBe('base');
-    expect(opened.dirty).toBe(false);
-    expect(opened.layout.text_style).toEqual({
-      title: { color: '#ff0000', font_size_pt: 24 },
-      country: { color: '#00ff00', font_size_pt: 9 },
-    });
-    const reopenedTitle = opened.layout.items.find(
-      (item): item is TextItem => item.kind === 'text' && item.role === 'title',
-    )!;
-    expect(reopenedTitle.color).toBe('#ff0000');
-    expect(reopenedTitle.font_size_pt).toBe(24);
-    const reopenedCountry = mapTextItems(opened.layout).find(
-      (item) => item.geo_label_id === country.geo_label_id,
-    )!;
-    expect(reopenedCountry.color).toBe('#00ff00');
-    expect(reopenedCountry.font_size_pt).toBe(9);
-    // 覆盖表 + 已同步的 item 一起往返：字节稳定
-    expect(serializeMapDocFile(opened.document.geo, opened.layout)).toBe(geoText);
+    expect(items).toHaveLength(geo.labels.length);
+    for (const item of items) expect(item.geo_label_id).not.toBeNull();
   });
 });
 
-describe('openMapFromUploads：改造前导出的成品 marker 兼容（§5.3）', () => {
-  it('旧口径 marker.page 不被误判：单文件打开无告警、不标脏', () => {
-    const { layout, composed } = fixture();
-    const legacyMarkerSvg = replaceMarkerPage(composed, legacyPageDigest(layout));
-    expect(legacyPageDigest(layout)).not.toBe(pageDigest(layout));
-    const opened = openMapFromUploads([svgUpload(legacyMarkerSvg)]);
-    expect(opened.source).toBe('final');
-    expect(opened.dirty).toBe(false);
-    expect(opened.warnings).toEqual([]);
+describe('打开合法 page 块：逐条残留样式按分类重建（唯一真源）', () => {
+  it('item 上被改过的样式被分类样式覆盖，标脏并告警，再导出字节稳定', () => {
+    const { document, layout } = fixture();
+    const tampered = structuredClone(layout);
+    for (const item of tampered.items) {
+      if (item.kind !== 'text') continue;
+      item.font_size_pt = 40;
+      item.color = '#ff00ff';
+    }
+    const geoText = serializeMapDocFile(document.geo, tampered);
+
+    const opened = openMapFromUploads([svgUpload(BASE_SVG_TEXT), geoUpload(geoText)]);
+    expect(opened.source).toBe('base');
+    expect(opened.dirty).toBe(true);
+    expect(
+      opened.warnings.some((warning) => warning.includes('逐条文字样式已按分类设置统一')),
+    ).toBe(true);
+
+    // 重建结果：地图分类的逐条样式（含字号）回到分类样式；页面分类颜色/行高回默认，
+    // 但字号保留文件里的值——页面默认字号随纸张 k 缩放，重开不能把旧纸面的字号改掉。
+    const fresh = defaultPageLayout(document.geo);
+    const freshTexts = fresh.items.filter((item) => item.kind === 'text');
+    const openedTexts = opened.layout.items.filter((item) => item.kind === 'text');
+    expect(openedTexts).toHaveLength(freshTexts.length);
+    openedTexts.forEach((item, index) => {
+      const expected = freshTexts[index]!;
+      expect(item.kind).toBe('text');
+      if (item.kind !== 'text' || expected.kind !== 'text') return;
+      if (item.space === 'map') {
+        expect(item.font_size_pt).toBeCloseTo(expected.font_size_pt, 3);
+      } else {
+        expect(item.font_size_pt).toBe(40);
+      }
+      expect(item.color).toBe(expected.color);
+      expect(item.line_height).toBe(expected.line_height);
+    });
+
+    // 重建后即新口径：重新打开再导出字节稳定、不标脏
+    const exported = serializeMapDocFile(opened.document.geo, opened.layout);
+    const reopened = openMapFromUploads([svgUpload(BASE_SVG_TEXT), geoUpload(exported)]);
+    expect(reopened.dirty).toBe(false);
+    expect(reopened.warnings).toEqual([]);
+    expect(serializeMapDocFile(reopened.document.geo, reopened.layout)).toBe(exported);
+  });
+});
+
+describe('成品 marker.page 只按当前口径比对（不做旧摘要兼容）', () => {
+  it('配套 geo.json 的排版与 marker.page 不一致 → 拒绝', () => {
+    const { layout, geoText, composed } = fixture();
+    const other = structuredClone(layout);
+    const first = other.items[0]!;
+    // 第一条是标题（带左右居中约束，x 的差异会被 normalizePage 拉回中心），改 y 才能
+    // 稳定制造「排版摘要不同」；这样测的仍是 marker 口径，而不是居中约束。
+    first.y += 1;
+    const mismatched = replaceMarkerPage(composed, pageDigest(other));
+    expect(mismatched).not.toBe(composed);
+    expect(() => openMapFromUploads([svgUpload(mismatched), geoUpload(geoText)])).toThrow(/不配套/);
   });
 
-  it('旧成品 + 当时的 geo.json 仍能打开（迁移路径与内嵌源路径都不误拒）', () => {
-    const document = makeDocument(makeGeo());
-    const layout = defaultPageLayout(document.geo);
-    const legacyMarkerSvg = replaceMarkerPage(
-      composeFinalSvg(document, layout).svg,
-      legacyPageDigest(layout),
-    );
-    const geoText = legacyGeoText(document.geo, legacyLayoutOf(document.geo));
-
-    // 旧版成品（无内嵌源）+ 配套 geo.json → 迁移路径
-    const migrated = openMapFromUploads([
-      svgUpload(stripSourceMetadata(legacyMarkerSvg)),
-      geoUpload(geoText),
-    ]);
-    expect(migrated.source).toBe('final-with-geo');
-    expect(migrated.dirty).toBe(false);
-    expect(mapTextItems(migrated.layout).every((item) => item.geo_label_id !== null)).toBe(true);
-
-    // 内嵌源 + 配套 geo.json → 内嵌排版优先路径
-    const withGeo = openMapFromUploads([svgUpload(legacyMarkerSvg), geoUpload(geoText)]);
-    expect(withGeo.source).toBe('final');
-    expect(withGeo.dirty).toBe(false);
-  });
-
-  it('真正不配套的 marker.page（既非当前也非旧口径）仍然拒绝', () => {
+  it('完全对不上的摘要仍然拒绝', () => {
     const { composed, geoText } = fixture();
     const bogus = replaceMarkerPage(composed, 'f'.repeat(64));
-    expect(() =>
-      openMapFromUploads([svgUpload(stripSourceMetadata(bogus)), geoUpload(geoText)]),
-    ).toThrow(/不配套/);
+    expect(() => openMapFromUploads([svgUpload(bogus), geoUpload(geoText)])).toThrow(/不配套/);
+  });
+});
+
+describe('openMapFromUploads：左右居中约束在打开时贴合纸张中心', () => {
+  it('手改居中标题的 x/anchor → 纠回纸张中心、标脏并告警；再导出后打开干净', () => {
+    const { geoText } = fixture();
+    const parsed = JSON.parse(geoText) as {
+      page: { items: Record<string, unknown>[] };
+    };
+    const titleRaw = parsed.page.items.find(
+      (item) => item['kind'] === 'text' && item['role'] === 'title',
+    );
+    if (titleRaw === undefined) throw new Error('fixture 缺少标题');
+    // 绕过 serializeMapDocFile 的 normalizePage，模拟手改过的 page 块
+    titleRaw['x'] = 5;
+    titleRaw['anchor'] = 'start';
+    const tamperedText = `${JSON.stringify(parsed, null, 2)}\n`;
+
+    const opened = openMapFromUploads([svgUpload(BASE_SVG_TEXT), geoUpload(tamperedText)]);
+    expect(opened.dirty).toBe(true);
+    expect(opened.warnings.some((warning) => warning.includes('左右居中约束'))).toBe(true);
+    const openedTitle = opened.layout.items.find(
+      (item): item is TextItem =>
+        item.kind === 'text' && item.space === 'page' && item.role === 'title',
+    );
+    if (openedTitle === undefined) throw new Error('打开结果缺少标题');
+    expect(openedTitle.x).toBe(roundToPageDecimals(opened.layout.paper.width_pt / 2));
+    expect(openedTitle.anchor).toBe('middle');
+
+    // 纠偏后导出的文件再打开必须干净（幂等：约束已经落成纸张中心）
+    const exported = serializeMapDocFile(opened.document.geo, opened.layout);
+    const reopened = openMapFromUploads([svgUpload(BASE_SVG_TEXT), geoUpload(exported)]);
+    expect(reopened.dirty).toBe(false);
+    expect(reopened.warnings).toEqual([]);
+  });
+});
+
+describe('打开时页面文字字号保持（纸张改宽不重排的导出→打开幂等）', () => {
+  it('只改 paper.width_pt 不重排：重开不因 resync 按新纸面默认字号改写而标脏', () => {
+    const { document, layout } = fixture();
+    const resized = structuredClone(layout);
+    const titleBefore = resized.items.find(
+      (item): item is TextItem => item.kind === 'text' && item.role === 'title',
+    );
+    if (titleBefore === undefined) throw new Error('fixture 缺少标题');
+    const titleSize = titleBefore.font_size_pt;
+    resized.paper.width_pt = 700; // 模拟侧栏改宽但不点「重新排默认版式」
+    const geoText = serializeMapDocFile(document.geo, resized);
+
+    const opened = openMapFromUploads([svgUpload(BASE_SVG_TEXT), geoUpload(geoText)]);
+    expect(opened.dirty).toBe(false);
+    expect(opened.warnings).toEqual([]);
+    const title = opened.layout.items.find(
+      (item): item is TextItem => item.kind === 'text' && item.role === 'title',
+    );
+    if (title === undefined) throw new Error('打开结果缺少标题');
+    // 页面字号沿用文件里的旧纸面值；位置按新纸张宽度由居中约束贴合
+    expect(title.font_size_pt).toBe(titleSize);
+    expect(title.x).toBe(roundToPageDecimals(700 / 2));
   });
 });

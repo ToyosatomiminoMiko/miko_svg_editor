@@ -9,7 +9,7 @@
  * 底图 `<image>` 的惰性加载（重绘时复用同一个 image 节点，不闪烁）。
  * 预览与成品的差异只在「交互辅助」：命中盒、选中框只在预览出现，不参与成品；两者的几何
  * 都来自 `core/page-layout.ts` 的 §5.7 item 几何框（不是 DOM getBBox，也不是外扩装饰）。
- * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { PAGE_HIT_TOLERANCE_PT } from '../config/page';

@@ -10,9 +10,7 @@
  * 写回底图坐标；预览与成品共用 `core/page-layout.ts` 的同一套 §5 公式。
  * 缩放/平移通过根 `<svg>` 的 `viewBox` 实现；指针坐标转换统一走 `getScreenCTM().inverse()`，
  * 这样 letterbox（preserveAspectRatio）与设备像素比都不需要自己算。
- * 元信息：作者 frontend，2026-10-27；2026-10-28 改为无后端（上传文档 + 双导出）；
- *         作者 lead，2026-11-05，增加分类文字样式补丁入口（applyTextStyleChange /
- *         resetTextStyleChange），新建文字与「重新排默认版式」沿用 page.text_style。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import {
@@ -32,6 +30,7 @@ import { geoFileNameOf, finalFileNameOf, type PageDocument } from '../core/docum
 import {
   allocateItemId,
   countItems,
+  enforceHorizontalCenter,
   itemById,
   normalizePage,
   removeItem,
@@ -212,9 +211,14 @@ export class PageEditor {
 
   /* =========================== 修改入口 =========================== */
 
-  /** 应用一次 layout 修改：mutator 直接改 layout，然后重绘/同步侧栏/记脏 */
+  /**
+   * 应用一次 layout 修改：mutator 直接改 layout，然后重绘/同步侧栏/记脏。
+   * `center_h` 是派生约束，每次修改后统一贴合（纸张宽度/方向改变、角色切换等都走这里），
+   * 这样「左右居中」是持续约束，而不是只在打开窗口时算一次。
+   */
   applyPageChange(mutate: (layout: PageLayout, geo: Geo) => void): void {
     mutate(this.layout, this.geo);
+    enforceHorizontalCenter(this.layout);
     this.dirty = true;
     this.renderAll();
   }
@@ -572,6 +576,8 @@ export class PageEditor {
       if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
       else dx = 0;
     }
+    // 左右居中约束：水平位置由纸张宽度决定，拖拽只改 y（要水平移动先关开关）
+    if (item.kind === 'text' && item.space === 'page' && item.center_h) dx = 0;
     if (gesture.space === 'map') {
       const transform = mapTransform(this.geo, this.layout.map);
       dx /= transform.s;
@@ -694,12 +700,13 @@ export class PageEditor {
     event.preventDefault();
   };
 
-  /** 方向键微移：page 空间按 pt，map 空间换算回底图坐标 */
+  /** 方向键微移：page 空间按 pt，map 空间换算回底图坐标；左右居中项忽略水平位移 */
   private moveSelectedBy(dxPage: number, dyPage: number): void {
     const id = this.selectedId;
     if (id === null) return;
     const item = itemById(this.layout, id);
     if (!item) return;
+    if (item.kind === 'text' && item.space === 'page' && item.center_h) dxPage = 0;
     const scale = item.space === 'map' ? mapTransform(this.geo, this.layout.map).s : 1;
     if (scale <= 0) return;
     item.x = roundToPageDecimals(item.x + dxPage / scale);
@@ -712,7 +719,7 @@ export class PageEditor {
 
   /**
    * 文字模板：按 role 给默认位置/文案/对齐，样式（含字号）取该分类的有效样式。
-   * 为什么样式不在这里写死：2026-11-05 起所有文字样式统一在「样式设置」窗口按分类配置，
+   * 为什么样式不在这里写死：所有文字样式统一在「样式设置」窗口按分类配置，
    * 覆盖值落 `page.text_style`；新建文字必须与分类当前样式一致，否则刚加出来就和同类不同步。
    */
   private newTextItem(layout: PageLayout, id: number, role: TextRole): TextItem {
@@ -737,6 +744,8 @@ export class PageEditor {
       letter_spacing_em: style.letter_spacing_em,
       halo: style.halo ? { ...style.halo } : null,
       geo_label_id: null,
+      // 与默认排版同口径：标题/副标题/来源默认左右居中；其余手动文字自由摆放
+      center_h: role === 'title' || role === 'subtitle' || role === 'source',
     };
     const placed = this.placeNewText(item, layout, role);
     applyCategoryStyleToItem(layout, this.geo, placed);

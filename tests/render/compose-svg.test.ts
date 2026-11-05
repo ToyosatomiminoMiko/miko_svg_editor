@@ -4,7 +4,7 @@
  * 为什么在 node 里测：composeFinalSvg 是纯函数（不读 DOM/时间/随机数），成品必须是
  * 字符串且同输入同字节；这里验证 §6 图层结构、marker 往返、map 空间缩放、halo/旋转/
  * 多行、图框刻度与越界 report，并确认与预览共用 page-layout/page-format 的口径。
- * 元信息：作者 compose，2026-10-28，无后端数据流（导出按钮直接调 composeFinalSvg）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -472,9 +472,12 @@ describe('composeFinalSvg：图框/刻度（§5.2）', () => {
 describe('composeFinalSvg：report 越界告警', () => {
   it('item 越界：out_of_paper 按 items 顺序、告警带中文说明', () => {
     const { document, layout } = setup();
+    // 标题默认带左右居中约束（x 会被 normalizePage 拉回纸张中心），所以用 y 越界；
+    // 水平越界用没有居中约束的注记来验证。
     const title = firstText(layout, 'title');
-    title.x = -100;
+    title.y = -100;
     const note = firstText(layout, 'note');
+    note.x = -100;
     note.y = 10000;
     const result = composeFinalSvg(document, layout);
     expect(result.report.out_of_paper).toEqual([title.id, note.id]);

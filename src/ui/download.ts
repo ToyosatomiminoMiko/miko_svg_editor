@@ -6,7 +6,7 @@
  * 为什么两者分成两个入口：草图页的文件名与 revoke 延迟来自 `config/export.ts`，
  * 排版页的两份导出各有 MIME 与命名规则（`core/document.ts`），把「下什么文件」留在
  * 调用方，这里只负责「把字符串变成一个下载」。
- * 元信息：作者 frontend，2026-10-27；2026-10-28 增加通用 downloadText。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { EXPORT_FILENAME, EXPORT_REVOKE_MS } from '../config/export';

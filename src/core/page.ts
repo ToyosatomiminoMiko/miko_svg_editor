@@ -11,12 +11,7 @@
  * 文件身份与底图身份各只有一份（顶层 format/version、geo.base），不再有重复声明。
  * 注意：摘要用纯 TS SHA-256 实现（不依赖 Web Crypto / node:crypto），只用于本地签名与
  * 成品 marker（`render/compose-svg.ts` 的 `makeMarker`）。
- * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地；
- *         2026-10-28 合并 scene.json 为 geo.json 的 page 块（去掉独立 scene 格式与重复 base）；
- *         2026-10-29 geo 升 v2：GeoLabel 只含 role/text/位置/锚点/字号（样式归 config/text-style.ts），
- *         TextItem 用 font_weight/letter_spacing_em 取代 bold，labels 逐条校验。
- *         作者 core-dev，2026-11-05，分类文字样式：`page.text_style` 覆盖表与 text item 的
- *         `geo_label_id`（`.work/STYLE-SETTINGS-SPEC.md` §1/§4）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import {
@@ -31,12 +26,7 @@ import {
   PAGE_PAPER_MIN_PT,
 } from '../config/page';
 import type { PaperOrientation, PaperPresetId } from '../config/page';
-import {
-  MAP_LABEL_ROLES,
-  PAGE_TEXT_STYLES,
-  TEXT_STYLE_CATEGORY_META,
-  isTextStyleCategoryId,
-} from '../config/text-style';
+import { MAP_LABEL_ROLES, PAGE_TEXT_STYLES, isTextStyleCategoryId } from '../config/text-style';
 import type { MapLabelRole, PageTextRole, TextStyleCategoryId } from '../config/text-style';
 
 /* =========================== 基础类型 =========================== */
@@ -90,12 +80,20 @@ export interface TextItem extends ItemBase {
   letter_spacing_em: number;
   halo: Halo | null;
   /**
-   * 来源 `geo.labels[].id` 的关联（地图地名 item 才有；页面文字恒为 null）。
+   * 来源 `geo.labels[].id` 的关联（地图地名 item 必填；页面文字恒为 null）。
    * 用途：判断 item 属于哪个地图地名分类（查 label.role）；分类统一样式时回算底图原始字号
-   * （回「分类默认统一字号」）。旧 page 块没有该字段，`normalizePage` 补 null，打开时由
-   * `core/text-style.ts` 的 `reconcileGeoLabelIds` 按文字/水平位置/锚点尽量还原。
+   * （回「分类默认统一字号」）。没有它就无法确定分类，所以不是可选的兼容字段：
+   * `validatePage` 要求 map 空间必须是非空 id 且在 `geo.labels` 里存在、page 空间必须为 null。
    */
   geo_label_id: string | null;
+  /**
+   * 「左右居中」约束开关（只对 `space === 'page'` 有意义）。
+   * true 时水平锚点恒为纸张中心 `paper.width_pt / 2`、`anchor` 恒为 `'middle'`：
+   * 纸张宽度/方向改变后不需要「重新排默认版式」也能保持标题/来源居中；拖拽只能改 y。
+   * 约束是派生值，`normalizePage` 每次都会把 x/anchor 拉回一致；map 空间必须为 false
+   * （地图地名的位置由底图数据决定，不能被纸张宽度覆盖）。
+   */
+  center_h: boolean;
 }
 
 /** 图例条目（契约 §3 legend.entries / §4.1 legend.entries） */
@@ -429,21 +427,52 @@ function normalizeGeoLabelId(value: unknown): string | null {
 }
 
 /**
+ * 执行「左右居中」约束：把 `center_h === true` 的页面文字 item 拉回纸张中心并强制
+ * `anchor = 'middle'`，返回被改动的条数。
+ *
+ * 为什么做成可重复调用的纯函数而不是只在打开时做一次：纸张宽度/方向被侧栏改动后，
+ * 约束必须立刻重新贴合（用户预期开关=持续约束，而不是「点一次居中」）；导出前
+ * `normalizePage` 也会再调一次，保证落盘的 x 与 paper 宽度永远一致。
+ * 为什么 map 空间 item 不参与：地图地名位置是底图数据（geo.labels），纸张变宽不应改变
+ * 地名在地图上的相对位置；`validatePage` 也禁止 map 空间开启该开关。
+ */
+export function enforceHorizontalCenter(layout: PageLayout): number {
+  const centerX = roundToPageDecimals(layout.paper.width_pt / 2);
+  let changed = 0;
+  for (const item of layout.items) {
+    if (item.kind !== 'text' || item.space !== 'page' || item.center_h !== true) continue;
+    if (item.x === centerX && item.anchor === 'middle') continue;
+    item.x = centerX;
+    item.anchor = 'middle';
+    changed += 1;
+  }
+  return changed;
+}
+
+/**
  * 规范化 layout（3 位小数、新对象）；保存前与摘要前都走它。
- * 除数字口径外还补两处 2026-11-05 新增字段的兜底：`text_style` 缺省/坏结构 → `{}`，
- * 旧 text item 没有 `geo_label_id` → `null`（下游一律按「字段一定存在」消费）。
+ * 除数字口径外还补三处兜底：`text_style` 缺省/坏结构 → `{}`，text item 的 `geo_label_id`
+ * 坏值 → `null`，text item 的 `center_h` 缺省/坏值 → `false`；随后执行一次居中约束，
+ * 保证 x/anchor 与 center_h 自洽（下游一律按「字段一定存在」消费）。
  */
 export function normalizePage(layout: PageLayout): PageLayout {
   const rounded = roundNumbersDeep(layout);
-  return {
+  const normalized: PageLayout = {
     ...rounded,
     text_style: cloneTextStyleOverrides(rounded.text_style),
     items: rounded.items.map((item) =>
       item.kind === 'text'
-        ? { ...item, geo_label_id: normalizeGeoLabelId(item.geo_label_id) }
+        ? {
+            ...item,
+            geo_label_id: normalizeGeoLabelId(item.geo_label_id),
+            // 居中只对纸张空间有意义；地图 item 上残留的 true 一律收敛成 false
+            center_h: item.space === 'page' && item.center_h === true,
+          }
         : item,
     ),
   };
+  enforceHorizontalCenter(normalized);
+  return normalized;
 }
 
 /** 把值变成键排序、无空白、数字 3 位小数的 JSON 结构（递归） */
@@ -508,24 +537,6 @@ export function serializeMapDocFile(geo: Geo, layout: PageLayout): string {
 /** layout 签名：摘要用 3 位小数规范化后的 canonical JSON */
 export function pageDigest(layout: PageLayout): string {
   return sha256Hex(serializePage(layout));
-}
-
-/**
- * 改造前口径的排版摘要：剥掉 2026-11-05 新增的 `text_style` 与 text item 的 `geo_label_id`
- * 后再算摘要（等价于改造前 `serializePage` 的输出）。
- *
- * 为什么单独一条：成品 SVG 的 `marker.page` 是「导出那一刻」的 `pageDigest`。分类样式给 page
- * 块新增了两个归一化后必然存在的字段后，改造前导出的成品 marker 与当前 `pageDigest` 必然
- * 不同——但 `marker.geo` 仍能证明文件配套，用户只是还没重新导出。打开流程用本摘要做兼容
- * 对照（只放宽「打开旧成品」的 marker 校验，不改变导出/签名口径；真正错配仍会被拒绝）。
- */
-export function legacyPageDigest(layout: PageLayout): string {
-  const stripped = roundNumbersDeep(layout) as unknown as Record<string, unknown>;
-  delete stripped['text_style'];
-  for (const item of stripped['items'] as Record<string, unknown>[]) {
-    if (item['kind'] === 'text') delete item['geo_label_id'];
-  }
-  return sha256Hex(canonicalJson(stripped));
 }
 
 /** geo 签名（写进 final marker 的 "geo" 字段）：规范化 geo 的 canonical JSON 的 sha256 */
@@ -738,27 +749,19 @@ function validateTextStyleHalo(value: unknown, path: string, errors: string[]): 
 }
 
 /**
- * 校验一个分类的样式覆盖（§1.1）：字段名只允许 7 个已知键，取值范围固定；
- * 页面分类的 `font_size_pt` 不允许 null（页面文字恒有字号）；地图分类允许 null 仅为旧数据
- * 兼容（等价缺省 = 分类默认统一字号）。
+ * 校验一个分类的样式覆盖（§1.1）：字段名只允许 7 个已知键，取值范围固定。
+ * `font_size_pt` 只接受 1..500 的数字（页面分类与地图分类同一口径）：字号恒为绝对值，
+ * 不再是「null = 跟随旧数据」的可选字段。
  */
-function validateTextStyleOverride(
-  category: TextStyleCategoryId,
-  value: unknown,
-  path: string,
-  errors: string[],
-): void {
+function validateTextStyleOverride(value: unknown, path: string, errors: string[]): void {
   if (!isObject(value)) {
     errors.push(`${path}: 必须是对象`);
     return;
   }
-  const mapCategory = TEXT_STYLE_CATEGORY_META[category].kind === 'map';
   for (const [field, raw] of Object.entries(value)) {
     switch (field) {
       case 'font_size_pt':
-        if (raw === null) {
-          if (!mapCategory) errors.push(`${path}.font_size_pt: 页面文字分类不能为 null`);
-        } else if (!isFiniteNumber(raw) || raw < 1 || raw > 500) {
+        if (!isFiniteNumber(raw) || raw < 1 || raw > 500) {
           errors.push(`${path}.font_size_pt: 必须是 1..500 的有限数字`);
         }
         break;
@@ -793,8 +796,8 @@ function validateTextStyleOverride(
   }
 }
 
-/** 校验 layout.items 里的一个元素；返回 false 表示该元素（或它的 id）已不可用 */
-function validateItem(value: unknown, index: number, errors: string[]): void {
+/** 校验 layout.items 里的一个元素；`geo` 用于核对地图地名的来源 id */
+function validateItem(value: unknown, index: number, errors: string[], geo?: Geo | null): void {
   const path = `items[${index}]`;
   if (!isObject(value)) {
     errors.push(`${path}: 必须是对象`);
@@ -803,13 +806,18 @@ function validateItem(value: unknown, index: number, errors: string[]): void {
   if (!isPositiveInteger(value.id)) errors.push(`${path}.id: 必须是正整数`);
   if (!isItemSpace(value.space)) errors.push(`${path}.space: 必须是 "page" 或 "map"`);
 
-  if (value.kind === 'text') validateTextItem(value, path, errors);
+  if (value.kind === 'text') validateTextItem(value, path, errors, geo);
   else if (value.kind === 'legend') validateLegendItem(value, path, errors);
   else if (value.kind === 'colorbar') validateColorbarItem(value, path, errors);
   else errors.push(`${path}.kind: 必须是 "text" / "legend" / "colorbar"`);
 }
 
-function validateTextItem(item: Record<string, unknown>, path: string, errors: string[]): void {
+function validateTextItem(
+  item: Record<string, unknown>,
+  path: string,
+  errors: string[],
+  geo?: Geo | null,
+): void {
   if (!isTextRole(item.role)) errors.push(`${path}.role: 必须是合法文字角色`);
   if (!isFiniteNumber(item.x)) errors.push(`${path}.x: 必须是有限数字`);
   if (!isFiniteNumber(item.y)) errors.push(`${path}.y: 必须是有限数字`);
@@ -839,6 +847,12 @@ function validateTextItem(item: Record<string, unknown>, path: string, errors: s
     errors.push(`${path}.line_height: 必须是正数`);
   }
   if (!isBoolean(item.italic)) errors.push(`${path}.italic: 必须是布尔值`);
+  // center_h：纸张空间可开关；地图地名位置属于底图数据，禁止用纸张宽度覆盖。
+  if (!isBoolean(item.center_h)) {
+    errors.push(`${path}.center_h: 必须是布尔值`);
+  } else if (item.space === 'map' && item.center_h) {
+    errors.push(`${path}.center_h: 地图标注不能启用左右居中`);
+  }
   if (
     !isFiniteNumber(item.font_weight) ||
     !Number.isInteger(item.font_weight) ||
@@ -855,11 +869,19 @@ function validateTextItem(item: Record<string, unknown>, path: string, errors: s
     errors.push(`${path}.letter_spacing_em: 必须是 -1..2 的有限数字`);
   }
   checkHalo(item.halo, `${path}.halo`, errors);
-  // 旧 page 块没有该字段（合法）；存在时必须是 null 或非空字符串（不要求与 geo.labels 对应，
-  // 打开时由 reconcileGeoLabelIds 还原/校正）
-  if (item.geo_label_id !== undefined && item.geo_label_id !== null) {
+  // geo_label_id 是分类真值，不是可选兼容字段：map 空间必须有 id（提供 geo 时还要能查到），
+  // page 空间必须为 null。缺字段的旧 page 块不走迁移，直接判不合法 → 回退默认排版。
+  if (item.space === 'map') {
     if (typeof item.geo_label_id !== 'string' || item.geo_label_id.length === 0) {
-      errors.push(`${path}.geo_label_id: 必须是非空字符串或 null`);
+      errors.push(`${path}.geo_label_id: 地图地名必须是非空来源 id`);
+    } else if (geo !== null && geo !== undefined) {
+      if (!geo.labels.some((label) => label.id === item.geo_label_id)) {
+        errors.push(`${path}.geo_label_id: 在 geo.labels 里找不到 id ${item.geo_label_id}`);
+      }
+    }
+  } else if (item.space === 'page') {
+    if (item.geo_label_id !== null) {
+      errors.push(`${path}.geo_label_id: 页面文字必须为 null`);
     }
   }
 }
@@ -1036,7 +1058,7 @@ export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
           errors.push(`text_style.${category}: 不是合法分类 id`);
           continue;
         }
-        validateTextStyleOverride(category, override, `text_style.${category}`, errors);
+        validateTextStyleOverride(override, `text_style.${category}`, errors);
       }
     }
   }
@@ -1051,7 +1073,7 @@ export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
     const seen = new Set<number>();
     let maxId = 0;
     items.forEach((item, index) => {
-      validateItem(item, index, errors);
+      validateItem(item, index, errors, geo);
       if (isObject(item) && isPositiveInteger(item.id)) {
         if (seen.has(item.id)) errors.push(`items[${index}].id: id ${item.id} 重复`);
         seen.add(item.id);

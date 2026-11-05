@@ -2,6 +2,9 @@
   "name": "svg-sketch-editor",
   "private": true,
   "version": "0.1.0",
+  "description": "约束求解驱动的 SVG 草图板与地图出版排版编辑器",
+  "author": "ToyosatomiminoMiko",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "predev": "node scripts/dev_ui_link.mjs auto",

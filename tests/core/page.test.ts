@@ -3,18 +3,16 @@
  *
  * 为什么是 node 环境：这两层必须不碰 DOM——文本测量以参数注入，默认回退是纯字符宽度估算；
  * 这里用固定 geo/base 检查默认排版、刻度/图例/色标位置与序列化确定性。
- * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地；
- *         作者 core-dev，2026-11-05，补 `page.text_style` / text item `geo_label_id` 的
- *         校验与 normalisePage 口径（`.work/STYLE-SETTINGS-SPEC.md` §1.1/§1.2/§4）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { describe, expect, it } from 'vitest';
 import {
   allocateItemId,
   countItems,
+  enforceHorizontalCenter,
   itemById,
   itemSummary,
-  legacyPageDigest,
   normalizePage,
   roundToPageDecimals,
   pageDigest,
@@ -467,10 +465,18 @@ describe('纸张自适应（defaultPageLayout 的 k）', () => {
     expect(colorbar.y + colorbar.height_pt).toBeLessThanOrEqual(a5.height_pt - 28 - 24 * k + 1e-6);
     expect(colorbar.height_pt).toBeGreaterThanOrEqual(40);
 
-    // 图例/注记/来源字号按 k 缩小；地名字号只跟地图缩放 s
+    // 图例与版式间距按 k 缩小；页面文字字号固定，地名字号只跟地图缩放 s
     const legend = layout.items.find((item) => item.kind === 'legend');
     if (legend?.kind === 'legend') expect(legend.font_size_pt).toBeCloseTo(9 * k, 9);
-    expect(note.font_size_pt).toBeCloseTo(7.5 * k, 9);
+    expect(note.font_size_pt).toBeCloseTo(7.5, 9);
+    const title = layout.items.find(
+      (item): item is TextItem => item.kind === 'text' && item.role === 'title',
+    );
+    const sourceText = layout.items.find(
+      (item): item is TextItem => item.kind === 'text' && item.role === 'source',
+    );
+    expect(title?.font_size_pt).toBeCloseTo(18, 9);
+    expect(sourceText?.font_size_pt).toBeCloseTo(7, 9);
     const label = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.space === 'map',
     );
@@ -550,27 +556,22 @@ describe('纸张自适应（defaultPageLayout 的 k）', () => {
       const mapBottom =
         layout.map.y + (layout.map.width_pt * geo.base.height_pt) / geo.base.width_pt;
       // 纵向一排要让开经度刻度标签（tick 字号不随 k 缩），并额外留出注记字形上沿：
-      // notes 首行基线 = rowY，group 上沿约再高 0.9em。
+      // notes 首行基线 = rowY，group 上沿约再高 0.8em。
       const noteSize = note.font_size_pt;
+      const tickLabelBottom =
+        layout.frame.tick_length_pt +
+        layout.frame.tick_gap_pt +
+        layout.frame.tick_font_size_pt * 1.2;
       const tickExtent = layout.frame.ticks
-        ? layout.frame.tick_length_pt +
-          layout.frame.tick_gap_pt +
-          layout.frame.tick_font_size_pt +
-          Math.max(16 * k, noteSize * 0.9 + 4)
+        ? tickLabelBottom + Math.max(16 * k, noteSize * 0.8 + 4)
         : 0;
       expect(legend.y).toBeCloseTo(mapBottom + Math.max(12 * k, tickExtent), 9);
       expect(legend.y).toBeGreaterThan(mapBottom);
 
       // 三块中最靠上的上沿（注记含 ascent）要高于刻度标签底部 + 4
-      const tickLabelBottom =
-        mapBottom +
-        layout.frame.tick_length_pt +
-        layout.frame.tick_gap_pt +
-        layout.frame.tick_font_size_pt +
-        layout.frame.tick_font_size_pt * 0.2;
       const noteTop = note.y - note.font_size_pt * 0.8;
       const topmost = Math.min(legend.y, colorbar.y, noteTop);
-      expect(topmost).toBeGreaterThanOrEqual(tickLabelBottom + 4 - 1e-6);
+      expect(topmost).toBeGreaterThanOrEqual(mapBottom + tickLabelBottom + 4 - 1e-6);
 
       // 三块同一排：图例在左、注记居中、色标贴右，互不相交
       expect(legend.x).toBe(28);
@@ -791,7 +792,7 @@ describe('文字折行', () => {
 });
 
 /* ======================================================================
- * 2026-11-05 分类文字样式：page.text_style 与 text item geo_label_id
+ * 分类文字样式：page.text_style 与 text item geo_label_id
  * ====================================================================== */
 
 /** 把 layout 克隆成可写任意坏数据的普通对象（validatePage 接收 unknown） */
@@ -803,15 +804,6 @@ function mutablePage(): Record<string, unknown> {
 function errorsOf(value: unknown): readonly string[] {
   const result = validatePage(value);
   return result.ok ? [] : result.errors;
-}
-
-/** 取 page 块里指定 index 的 text item 的可写引用 */
-function textItemAt(page: Record<string, unknown>, index: number): Record<string, unknown> {
-  const items = page['items'] as Record<string, unknown>[];
-  const item = items[index];
-  if (item === undefined || item['kind'] !== 'text')
-    throw new Error(`items[${index}] 不是文字元素`);
-  return item;
 }
 
 describe('page.text_style 校验（§1.1）', () => {
@@ -827,10 +819,8 @@ describe('page.text_style 校验（§1.1）', () => {
     }
   });
 
-  it('合法覆盖（7 个字段 + 地图分类 font_size_pt:null）通过校验', () => {
-    // 文件里的覆盖允许地图分类 font_size_pt:null（旧数据兼容，等价缺省 = 分类默认统一字号），
-    // 与 PageLayout 的
-    // 内存类型（归一化后 null 已被删掉）不同，所以按「未知 JSON」构造再校验。
+  it('合法覆盖（7 个字段）通过校验', () => {
+    // 覆盖只允许 7 个已知键；字号是绝对值（不存在 null = 跟随旧数据的写法）。
     const page = mutablePage();
     page['text_style'] = {
       title: {
@@ -842,7 +832,7 @@ describe('page.text_style 校验（§1.1）', () => {
         line_height: 1.35,
         halo: null,
       },
-      city: { color: '#222222', font_size_pt: null, halo: { color: '#ffffff', width_pt: 2 } },
+      city: { color: '#222222', font_size_pt: 9.5, halo: { color: '#ffffff', width_pt: 2 } },
       river: { font_size_pt: 8.5 },
     };
     expect(errorsOf(page)).toEqual([]);
@@ -866,7 +856,7 @@ describe('page.text_style 校验（§1.1）', () => {
     expect(errorsOf(badValue)).toContain('text_style.title: 必须是对象');
   });
 
-  it('逐字段取值范围（页面分类 font_size 不允许 null，地图分类允许）', () => {
+  it('逐字段取值范围（所有分类的 font_size_pt 都不允许 null）', () => {
     const cases: readonly [unknown, string][] = [
       [{ title: { font_size_pt: 0 } }, 'text_style.title.font_size_pt: 必须是 1..500 的有限数字'],
       [{ title: { font_size_pt: 501 } }, 'text_style.title.font_size_pt: 必须是 1..500 的有限数字'],
@@ -874,7 +864,11 @@ describe('page.text_style 校验（§1.1）', () => {
         { title: { font_size_pt: Number.NaN } },
         'text_style.title.font_size_pt: 必须是 1..500 的有限数字',
       ],
-      [{ title: { font_size_pt: null } }, 'text_style.title.font_size_pt: 页面文字分类不能为 null'],
+      [
+        { title: { font_size_pt: null } },
+        'text_style.title.font_size_pt: 必须是 1..500 的有限数字',
+      ],
+      [{ city: { font_size_pt: null } }, 'text_style.city.font_size_pt: 必须是 1..500 的有限数字'],
       [{ city: { font_size_pt: -1 } }, 'text_style.city.font_size_pt: 必须是 1..500 的有限数字'],
       [{ title: { color: 'red' } }, 'text_style.title.color: 必须是 #rrggbb'],
       [{ title: { italic: 'yes' } }, 'text_style.title.italic: 必须是布尔值'],
@@ -945,33 +939,50 @@ describe('page.text_style 校验（§1.1）', () => {
   });
 });
 
-describe('text item geo_label_id 校验（§1.2）', () => {
-  it('缺省（旧文件）与 null 都合法', () => {
-    const legacy = makeScene();
-    const text = legacy.items.find((item): item is TextItem => item.kind === 'text')!;
-    delete (text as { geo_label_id?: string | null }).geo_label_id;
-    expect(errorsOf(legacy)).toEqual([]);
+describe('text item geo_label_id 校验（§1.2）：分类来源必填，不是兼容字段', () => {
+  /** 取第一个指定空间/角色的 text item（validatePage 接收 unknown，按可写对象操作） */
+  function textItemOf(
+    page: Record<string, unknown>,
+    space: 'page' | 'map',
+  ): Record<string, unknown> {
+    const items = page['items'] as Record<string, unknown>[];
+    const index = items.findIndex((item) => item['kind'] === 'text' && item['space'] === space);
+    if (index < 0) throw new Error(`没有 ${space} 空间的文字元素`);
+    return items[index]!;
+  }
 
-    const nulled = makeScene();
-    const nullText = nulled.items.find((item): item is TextItem => item.kind === 'text')!;
-    nullText.geo_label_id = null;
-    expect(errorsOf(nulled)).toEqual([]);
+  it('地图地名缺省 / 空串 / 非字符串都报错', () => {
+    const missing = mutablePage();
+    delete textItemOf(missing, 'map')['geo_label_id'];
+    expect(errorsOf(missing).some((error) => error.includes('地图地名必须是非空来源 id'))).toBe(
+      true,
+    );
+
+    const empty = mutablePage();
+    textItemOf(empty, 'map')['geo_label_id'] = '';
+    expect(errorsOf(empty).some((error) => error.includes('地图地名必须是非空来源 id'))).toBe(true);
+
+    const wrongType = mutablePage();
+    textItemOf(wrongType, 'map')['geo_label_id'] = 42;
+    expect(errorsOf(wrongType).some((error) => error.includes('地图地名必须是非空来源 id'))).toBe(
+      true,
+    );
   });
 
-  it('空串或非字符串报错', () => {
-    const page = mutablePage();
-    const index = (page['items'] as Record<string, unknown>[]).findIndex(
-      (item) => item['kind'] === 'text',
-    );
-    textItemAt(page, index)['geo_label_id'] = '';
-    expect(errorsOf(page)).toContain(`items[${index}].geo_label_id: 必须是非空字符串或 null`);
+  it('页面文字必须为 null；给了 geo 时地图地名 id 必须能在 geo.labels 里查到', () => {
+    const pageText = mutablePage();
+    textItemOf(pageText, 'page')['geo_label_id'] = 'label-country-A';
+    expect(errorsOf(pageText).some((error) => error.includes('页面文字必须为 null'))).toBe(true);
 
-    const badType = mutablePage();
-    const badIndex = (badType['items'] as Record<string, unknown>[]).findIndex(
-      (item) => item['kind'] === 'text',
-    );
-    textItemAt(badType, badIndex)['geo_label_id'] = 42;
-    expect(errorsOf(badType)).toContain(`items[${badIndex}].geo_label_id: 必须是非空字符串或 null`);
+    const unknownId = mutablePage();
+    textItemOf(unknownId, 'map')['geo_label_id'] = 'label-does-not-exist';
+    const result = validatePage(unknownId, makeGeo());
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.some((error) => error.includes('在 geo.labels 里找不到 id'))).toBe(true);
+
+    // 默认排版本身必须完全合法（含每一条地图地名的来源 id）
+    expect(validatePage(makeScene(), makeGeo()).ok).toBe(true);
   });
 });
 
@@ -1021,18 +1032,99 @@ describe('normalizePage：text_style / geo_label_id 补默认（§1.1/§1.2）',
   });
 });
 
-describe('legacyPageDigest：改造前口径的排版摘要（成品 marker 兼容）', () => {
-  it('忽略 text_style 与 geo_label_id；当前 pageDigest 仍对它们敏感', () => {
+/* ======================================================================
+ * 左右居中约束：text item center_h
+ * ====================================================================== */
+
+/** 取默认排版里指定角色的页面文字 */
+function pageTextOf(layout: PageLayout, role: TextItem['role']): TextItem {
+  const item = layout.items.find(
+    (entry): entry is TextItem =>
+      entry.kind === 'text' && entry.space === 'page' && entry.role === role,
+  );
+  if (item === undefined) throw new Error(`默认排版里没有 ${role} 页面文字`);
+  return item;
+}
+
+describe('text item center_h：页面文字左右居中约束', () => {
+  it('默认排版：标题/副标题/来源开启且落在纸张中心，注记/手动地名/地图地名关闭', () => {
     const layout = makeScene();
-    const plainLegacy = legacyPageDigest(layout);
-    const styled = structuredClone(layout);
-    styled.text_style = { title: { color: '#ff0000' } };
-    for (const item of styled.items) {
-      if (item.kind === 'text' && item.space === 'map') item.geo_label_id = 'changed-by-user';
+    const paperCenter = roundToPageDecimals(layout.paper.width_pt / 2);
+    for (const role of ['title', 'subtitle', 'source'] as const) {
+      const item = pageTextOf(layout, role);
+      expect(item.center_h).toBe(true);
+      expect(item.x).toBe(paperCenter);
+      expect(item.anchor).toBe('middle');
     }
-    // 旧口径：剥掉本次新增字段后逐字节相等
-    expect(legacyPageDigest(styled)).toBe(plainLegacy);
-    // 当前口径：新字段参与摘要（导出/签名不会被绕过）
-    expect(pageDigest(styled)).not.toBe(pageDigest(layout));
+    // 注记是默认排版里唯一的自由摆放页面文字（手动地名/标注要用户新增）
+    expect(pageTextOf(layout, 'note').center_h).toBe(false);
+    const mapTexts = layout.items.filter(
+      (item): item is TextItem => item.kind === 'text' && item.space === 'map',
+    );
+    expect(mapTexts.length).toBeGreaterThan(0);
+    for (const item of mapTexts) expect(item.center_h).toBe(false);
+  });
+
+  it('enforceHorizontalCenter：只动 center_h 的页面文字并返回改动条数', () => {
+    const layout = makeScene();
+    const title = pageTextOf(layout, 'title');
+    title.x = 5;
+    title.anchor = 'start';
+    const note = pageTextOf(layout, 'note');
+    note.x = 5;
+    expect(enforceHorizontalCenter(layout)).toBe(1);
+    expect(title.x).toBe(roundToPageDecimals(layout.paper.width_pt / 2));
+    expect(title.anchor).toBe('middle');
+    expect(note.x).toBe(5);
+    expect(enforceHorizontalCenter(layout)).toBe(0);
+  });
+
+  it('normalizePage：缺省补 false；页面空间 true 收敛 x/anchor；地图空间残留 true 收敛 false', () => {
+    const raw = structuredClone(makeScene()) as unknown as Record<string, unknown>;
+    const rawItems = raw['items'] as Record<string, unknown>[];
+    for (const item of rawItems) {
+      if (item['kind'] === 'text') delete item['center_h'];
+    }
+    const titleRaw = rawItems.find((item) => item['kind'] === 'text' && item['role'] === 'title');
+    if (titleRaw === undefined) throw new Error('缺少标题');
+    titleRaw['center_h'] = true;
+    titleRaw['x'] = 3;
+    titleRaw['anchor'] = 'start';
+    const mapRaw = rawItems.find((item) => item['kind'] === 'text' && item['space'] === 'map');
+    if (mapRaw === undefined) throw new Error('缺少地图文字');
+    mapRaw['center_h'] = true;
+
+    const normalized = normalizePage(raw as unknown as PageLayout);
+    const paperCenter = roundToPageDecimals(normalized.paper.width_pt / 2);
+    for (const item of normalized.items) {
+      if (item.kind !== 'text') continue;
+      expect(item.center_h).toBe(item.id === (titleRaw['id'] as number));
+    }
+    const title = itemById(normalized, titleRaw['id'] as number);
+    if (title?.kind !== 'text') throw new Error('标题丢失');
+    expect(title.x).toBe(paperCenter);
+    expect(title.anchor).toBe('middle');
+    expect(normalized.items.length).toBe(rawItems.length);
+  });
+
+  it('validatePage：center_h 必须是布尔；地图空间 true 报错；默认排版合法', () => {
+    const missing = structuredClone(makeScene()) as unknown as Record<string, unknown>;
+    const missingItems = missing['items'] as Record<string, unknown>[];
+    const pageItem = missingItems.find(
+      (item) => item['kind'] === 'text' && item['space'] === 'page',
+    );
+    if (pageItem === undefined) throw new Error('缺少页面文字');
+    delete pageItem['center_h'];
+    expect(errorsOf(missing).some((error) => error.includes('center_h: 必须是布尔值'))).toBe(true);
+
+    const badMap = structuredClone(makeScene()) as unknown as Record<string, unknown>;
+    const mapItem = (badMap['items'] as Record<string, unknown>[]).find(
+      (item) => item['kind'] === 'text' && item['space'] === 'map',
+    );
+    if (mapItem === undefined) throw new Error('缺少地图文字');
+    mapItem['center_h'] = true;
+    expect(errorsOf(badMap).some((error) => error.includes('地图标注不能启用左右居中'))).toBe(true);
+
+    expect(errorsOf(makeScene())).toEqual([]);
   });
 });

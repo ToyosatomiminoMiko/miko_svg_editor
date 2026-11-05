@@ -8,7 +8,7 @@
  * 复制粘贴容易让三处数值漂移；这里只服务 node 单测，不进入产品构建。
  * 注意：geo.base.sha256 必须等于底图字节的 sha256（打开流程的一致性检查），所以运行时算，
  * 不写死常量。
- * 元信息：作者 compose，2026-10-28，无后端数据流（上传 base.svg + geo.json）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import baseSvgText from './base-200x100.svg?raw';

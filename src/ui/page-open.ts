@@ -10,16 +10,14 @@
  * 第二次选择会覆盖第一次的全部选中项，用户只能每次把两份一起重选；拆成两栏后各栏独立替换，
  * 另一栏原样保留。
  * 为什么只选 SVG 也能点「打开地图」：本编辑器导出的成品 SVG 内嵌了整份 geo.json 与底图，
- * 单文件就是可再编辑的工程；JSON 栏因此是可选的（旧版成品没有内嵌源时仍需配套 geo.json）。
+ * 单文件就是可再编辑的工程；JSON 栏因此是可选的（旧版没有内嵌源的成品已不再支持）。
  * 是否单文件、是否配套由 core 按内容判断，UI 不读文件内容。
  * 为什么只按扩展名分栏：UI 层不该读文件内容。分栏只是把文件送进哪个框，真正的分类与校验
  * （JSON 的 `format`、sha256、viewBox 一致性、内嵌源）在 `core/open-map.ts` 里做，
  * 内容 format 始终是唯一真值——扩展名分错也不会被误判，只是进错一栏后由 app 报错。
  * 为什么 geo 栏只收一个文件：排版（page 块）就在同一份 geo.json 里，两份 JSON 无法判断以谁为准。
  * 为什么面板覆盖整个画布：拖放目标越大越不容易拖错；面板隐藏后画布继续给编辑器用。
- * 元信息：作者 app，2026-10-28，无后端数据流（上传 base.svg + geo.json）；同日拆分为 SVG/JSON 两栏；
- *         2026-10-28 晚起 JSON 栏只收一份 geo.json（排版已并入其中，不再有可选 scene.json）；
- *         2026-10-29 JSON 栏改为可选：支持单独打开本编辑器导出的成品 SVG。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { create_element, createButton, createPanel, type ButtonHandle } from 'miko_ui';
@@ -87,7 +85,7 @@ export function createPageOpenPanel(
   const hint = create_element(
     { tag: 'p' },
     { class: 'page-open-hint' },
-    '底图由 Cartopy_file 生成（负责几何），geo.json 记录刻度、地名与配色；成品 SVG 自带底图与排版，选中它就能继续编辑（旧版成品没有内嵌排版，需再补一份配套导出的 geo.json）。也可以把文件拖到页面任意位置，会按扩展名自动放进对应一栏。',
+    '底图由 Cartopy_file 生成（负责几何），geo.json 记录刻度、地名与配色；成品 SVG 自带底图与排版，选中它就能继续编辑（旧版导出、不含内嵌排版数据的成品不再支持，需要 base.svg + geo.json 重新打开）。也可以把文件拖到页面任意位置，会按扩展名自动放进对应一栏。',
   );
 
   /** 建一栏：标签 + 文件名回显 + 「选择…」按钮 + 隐藏 input */

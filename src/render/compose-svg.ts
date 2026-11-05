@@ -12,8 +12,7 @@
  * page-layout 统一提供，所以不要求与旧输出逐字节一致；数值格式仍走 formatPageNumber。
  * 为什么 map group 必须 `clip-path`：底图根内自带覆盖整个 Figure 的图幅白底 path，预览用
  * `<image>` 天然只显示地图矩形，成品不裁剪会在非白纸色下把白底铺满整页（见 §6）。
- * 元信息：作者 compose，2026-10-28，无后端数据流（浏览器内导出成品）；
- *         2026-10-29 增加内嵌可编辑源 metadata（成品可再次编辑，见 core/final-svg.ts）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import {
@@ -590,23 +589,22 @@ function makeMarker(counts: ComposeCounts, geo: Geo, layout: PageLayout): string
  * 内嵌可编辑源：`<metadata id="mapdoc-source">BASE64(canonicalJson(payload))</metadata>`（§6.2）。
  *
  * payload = 整份 geo.json 原文（`serializeMapDocFile(geo, layout)` 的字节）+ 底图 `prefix`/`suffix`
- * + 还原后的底图摘要 `base.sha256` 与来源标志 `base.exact`。
+ * + 还原后的底图摘要 `base.sha256` 与来源标志 `base.exact`（恒为 true，见下）。
  * 为什么把 geo.json 原文整段放进 metadata：重新打开时排版与地理块都来自同一次导出的字节，
  * 「导出 → 重新打开 → 再导出」可以做到字节幂等，不需要从渲染结果反推排版。
  * 为什么底图只存前后缀：`inner` 已在 `mapdoc-map` 组内，前后缀只有几十字节；
  * 两者首尾相接就能逐字节还原底图，让 `geo.base.sha256` 继续成立。
- * 为什么还要 `exact`：旧版成品迁移时底图外壳是合成的（字节与原 base.svg 不同），
- * 重开时不能再拿 `geo.base.sha256` 校验，只能对照内嵌的 `base.sha256`。
+ * 为什么还要 `exact`：内嵌源格式保留该标志，但只允许 true——底图前后缀就是原始底图字节，
+ * 打开时用 `geo.base.sha256` 校验必须成立；旧版「合成外壳」的成品不再支持打开。
  */
 function makeSourceMetadata(document: PageDocument, layout: PageLayout): string {
   const baseSha256 = document.baseSha256.toLowerCase();
-  const exact = baseSha256 === document.geo.base.sha256.toLowerCase();
   const payload = {
     base: {
       prefix: document.base.prefix,
       suffix: document.base.suffix,
       sha256: baseSha256,
-      exact,
+      exact: true,
     },
     document: serializeMapDocFile(document.geo, layout),
     format: PAGE_FINAL_SOURCE_FORMAT,

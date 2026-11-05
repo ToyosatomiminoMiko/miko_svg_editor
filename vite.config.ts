@@ -19,8 +19,7 @@
  *   Node 20.16+ / 22.3+ 的 process.getBuiltinModule 在运行期返回同一批内置模块，语义等价，
  *   这里用最小接口标注类型，不引入 any。
  *
- * 元信息：作者 deps-plumber，2026-10-22 加入本地库联调支持；线上 / CI 仍走 npm 发布版。
- *         作者 cleanup，2026-10-28 移除地图模式的后端代理与子进程管理（map.html 改为纯静态前端）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 import { defineConfig, searchForWorkspaceRoot } from 'vite';
 

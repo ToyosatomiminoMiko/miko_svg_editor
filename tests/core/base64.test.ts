@@ -3,7 +3,7 @@
  *
  * 为什么单独测：内嵌源是「可再编辑的真值」，编解码必须能往返中文/emoji、能拒绝坏数据；
  * 这里同时锁定已知编码结果（标准字母表 + padding），避免以后换成非标准变体。
- * 元信息：作者 lead，2026-10-29，服务于「成品 SVG 可直接再编辑」数据流。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { describe, expect, it } from 'vitest';

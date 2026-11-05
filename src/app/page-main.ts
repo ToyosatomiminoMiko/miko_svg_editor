@@ -7,16 +7,13 @@
  * → 装配侧栏、编辑器与工具条并启动。
  * 为什么组合根只有这一份：`core`/`render`/`ui` 都不允许认识彼此的全部依赖，只有 app 层
  * 可以同时装配文件读取、SVG 预览、miko_ui 面板与交互状态机。页面是纯静态的，不认识任何 HTTP 接口。
- * 打开支持的三条路径（校验细节全在 core，见 `docs/PAGE-EDITOR.md` §8）：
+ * 打开支持（校验细节全在 core，见 `docs/PAGE-EDITOR.md` §8）：
  * 1. Cartopy 的 `base.svg + geo.json`；
- * 2. 只选一份本编辑器导出的成品 SVG（内嵌整份 geo.json 与底图前后缀，单文件即可再编辑）；
- * 3. 成品 SVG + 配套 `geo.json`（旧版成品没有内嵌源时的迁移路径）。
+ * 2. 只选一份本编辑器导出的成品 SVG（内嵌整份 geo.json 与底图前后缀，单文件即可再编辑）。
+ * 旧版成品不再支持，打开时由 core 给出中文错误提示重新导入导出。
  * 本文件只做两件 core 不该做的事：把 `File` 读成字节、把面板/侧栏/工具条装配起来。
  * 样式导入顺序是契约：先 miko_ui 的 token/控件，再应用的页面 token（styles.css），
  * 最后本页专属的 `.page-*`（styles-page.css）。
- * 元信息：作者 frontend，2026-10-27；2026-10-28 改为无后端（上传打开 + 浏览器内合成）；
- *         2026-10-29 打开逻辑移入 core/open-map.ts 并支持成品 SVG 再编辑；
- *         作者 lead，2026-11-05，装配样式设置窗口（与编辑器同生命周期，切换文档时销毁）。
  */
 
 import 'miko_ui/styles.css';
@@ -174,7 +171,7 @@ function boot(): void {
           void editorRef?.relayoutDefault(marginPt);
         },
         notify: (message) => notifier.info(message),
-        openStyleSettings: () => styleWindow?.open(),
+        openStyleSettings: (category) => styleWindow?.open(category),
       });
 
       const created = new PageEditor({
@@ -213,7 +210,7 @@ function boot(): void {
         addTitle: () => created.addTitle(),
         addLegend: () => created.addLegend(),
         addColorbar: () => created.addColorbar(),
-        openStyleSettings: () => styleWindow?.open(),
+        openStyleSettings: (category) => styleWindow?.open(category),
       });
       created.start();
       panel.hide();

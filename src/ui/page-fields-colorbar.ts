@@ -3,7 +3,7 @@
  *
  * 是什么：选中 colorbar 元素时构建的属性面板片段；配色与刻度来自 geo.relief，不落 layout。
  * 为什么单独成模块：色标字段是一组固定尺寸 + 两个显隐开关，独立后与图例/文字互不影响。
- * 元信息：作者 lead，2026-10-31，从 `ui/page-sidebar.ts` 原样搬出（行为不变）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { createControlGroup, create_element } from 'miko_ui';

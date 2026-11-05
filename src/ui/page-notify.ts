@@ -7,7 +7,7 @@
  * `styles-page.css`，需要 `.page-*` 自己的消息区与确认框类名，同时保持「不弹原生 alert」
  * 的同一条约定。确认框与错误条目清单的公共实现见 `ui/notify-core.ts`，本模块只保留
  * `.page-*` 宿主、状态行文案（info 覆盖/持久状态）与 PageNotifier 的对外 API。
- * 元信息：作者 frontend，2026-10-27。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { TOAST_DURATION_MS } from '../config/ui';

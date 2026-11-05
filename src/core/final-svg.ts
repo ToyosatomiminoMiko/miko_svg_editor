@@ -5,8 +5,7 @@
  * 是什么：`readFinalSvg(text)` 识别本编辑器合成的成品——`<g id="mapdoc-map">` 图层、
  * `<metadata id="mapdoc-source">` 内嵌源与尾部 `<!-- mapdoc-final:… -->` marker，
  * 解出「导出时的 geo.json 原文 + 底图前后缀」、内联底图原文与 marker 摘要；
- * `reconstructFinalBase(final, geo.base)` 把底图字节还原出来（内嵌前缀/后缀齐全时逐字节一致；
- * 旧版成品没有内嵌源时用 geo.base 合成一个外壳，`exact=false`）。
+ * `reconstructFinalBase(final)` 把底图原文还原出来（内嵌前缀/后缀齐全，逐字节一致）。
  * 为什么需要它：用户只想再编辑「已经编辑并导出过的成品 SVG」，不想每次都被要求找齐
  * `base.svg + geo.json` 两份源文件。成品里本来就内联了底图内容，导出时再把
  * 整份 geo.json 与底图前后缀写进 `<metadata>`，就能单文件往返、且排版/字节完全一致。
@@ -14,7 +13,7 @@
  * 内联的 `inner` 已在 `mapdoc-map` 组里，补上 XML 声明/根起始标签与收尾即可逐字节还原。
  * 为什么还要 marker 校验：内嵌源与渲染内容是同一次合成的两个产物，用 marker 里的
  * geo/page 摘要对照能发现文件被外部工具改过或配错 geo.json。
- * 元信息：作者 lead，2026-10-29，新增「成品 SVG 可直接再编辑」数据流（见 docs/PAGE-EDITOR.md §6.2/§8）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import {
@@ -24,7 +23,6 @@ import {
 } from '../config/page';
 import { decodeBase64Utf8 } from './base64';
 import { findTagEnd } from './base-svg';
-import type { GeoBase } from './page';
 
 /** 成品里内嵌源所在的 `<metadata>` id（与 compose 写出的一致） */
 export const FINAL_SOURCE_METADATA_ID = 'mapdoc-source';
@@ -63,12 +61,6 @@ export interface FinalSource {
   readonly baseSuffix: string;
   /** 导出时 `document.baseSha256`：prefix+inner+suffix 还原出的底图字节摘要 */
   readonly baseSha256: string;
-  /**
-   * prefix/suffix 是否来自原始底图（true），还是旧版成品迁移时用 `geo.base` 合成（false）。
-   * 为什么必须落盘：合成的外壳字节与原 `base.svg` 不同，`geo.base.sha256` 校验会不成立；
-   * 重开时只有知道这个标志才能改用「与内嵌 baseSha256 对照」而不是误报不配套。
-   */
-  readonly exact: boolean;
 }
 
 /** 一次成品 SVG 解析的完整结果（errors 只针对内嵌源；marker 问题进 warnings） */
@@ -215,11 +207,11 @@ function readSource(text: string, errors: string[]): FinalSource | null {
     errors.push('内嵌排版数据缺少合法的底图摘要（base.sha256）');
     return null;
   }
-  if (typeof exact !== 'boolean') {
-    errors.push('内嵌排版数据缺少底图来源标志（base.exact）');
+  if (exact !== true) {
+    errors.push('内嵌排版数据是旧版成品（base.exact=false，底图前后缀为合成外壳），不再支持打开');
     return null;
   }
-  return { documentText, basePrefix, baseSuffix, baseSha256, exact };
+  return { documentText, basePrefix, baseSuffix, baseSha256 };
 }
 
 /** 读取尾部 marker；缺失返回 null，损坏记 warning 并返回 null */
@@ -299,37 +291,13 @@ export function readFinalSvg(text: string): FinalSvgInfo {
   return { is_final: isFinal, source, marker, base_inner: baseInner, errors, warnings };
 }
 
-/** 还原出来的底图原文与它的可信度 */
-export interface FinalBaseText {
-  /** 完整底图 SVG 文本（可直接交给 `createPageDocument`） */
-  readonly text: string;
-  /**
-   * true = 前缀/后缀来自成品内嵌源，字节与导出时的底图完全一致（sha256 应成立）；
-   * false = 旧版成品没有内嵌源，用 geo.base 合成外壳（只有 inner 可信，sha256 不成立）。
-   */
-  readonly exact: boolean;
-}
-
 /**
- * 从成品还原底图原文。
- * 为什么旧版要合成外壳：内联的 `inner` 就是底图根标签内的全部内容，缺的只是 XML 声明、
- * 根起始标签（含 viewBox）与收尾；geo.base 已经记录了 viewBox/宽高，可以拼出可渲染的外壳，
- * 让预览与再次合成都能用。返回 null 表示连 `mapdoc-map` 组都定位不到（不是本编辑器的成品）。
+ * 从成品还原底图原文：`basePrefix + inner + baseSuffix`。
+ * 只接受内嵌源齐全的成品（`FinalSource` 存在），因为前缀/后缀就是原始底图的字节；
+ * 返回 null 表示连 `mapdoc-map` 组都定位不到（不是本编辑器的成品）。
  */
-export function reconstructFinalBase(final: FinalSvgInfo, geoBase: GeoBase): FinalBaseText | null {
+export function reconstructFinalBase(final: FinalSvgInfo): string | null {
   const inner = final.base_inner;
-  if (inner === null) return null;
-  if (final.source !== null) {
-    return {
-      text: `${final.source.basePrefix}${inner}${final.source.baseSuffix}`,
-      exact: final.source.exact,
-    };
-  }
-  const [x, y, width, height] = geoBase.view_box;
-  const header =
-    '<?xml version="1.0" encoding="utf-8"?>\n' +
-    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ' +
-    `width="${geoBase.width_pt}pt" height="${geoBase.height_pt}pt" ` +
-    `viewBox="${x} ${y} ${width} ${height}">`;
-  return { text: `${header}${inner}</svg>\n`, exact: false };
+  if (inner === null || final.source === null) return null;
+  return `${final.source.basePrefix}${inner}${final.source.baseSuffix}`;
 }

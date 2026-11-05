@@ -11,8 +11,7 @@
  * 口径来源：C1–C4 与中文错误文案沿用本项目无后端改造前的底图契约（该 Python 实现已随
  * `tools/` 删除，语义见 `docs/PAGE-EDITOR.md` §7），但输入是浏览器已经按 UTF-8 解码好的
  * 文本字符串，所以偏移量是 UTF-16 code unit 下标，只用于本进程内切片，不跨语言比较。
- * 元信息：作者 compose，2026-10-28，无后端数据流（浏览器上传 base.svg + geo.json）；
- *         2026-10-29 增加 prefix/suffix 并公开 findTagEnd（成品 SVG 再编辑用）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 /** 一次底图契约检查的完整结果；`errors` 为空才允许打开/合成 */

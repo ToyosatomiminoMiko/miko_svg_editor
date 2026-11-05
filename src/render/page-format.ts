@@ -5,8 +5,7 @@
  * 以及 colorbar 渐变 id 的唯一命名。
  * 为什么单列一层：SVG 里「28.0」与「28」不是同一份字节，预览、page 摘要与导出的
  * final.svg 必须共用同一套格式化，否则同一 layout 会得到不同字节。
- * 元信息：作者 frontend，2026-10-27，随 `docs/PAGE-EDITOR.md` 新契约落地；2026-10-28
- * 无后端改造后由预览与 `render/compose-svg.ts` 共同复用。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { PAGE_DECIMALS } from '../config/page';

@@ -5,7 +5,7 @@
  * 行盒」推出的声明几何框（不再用 DOM getBBox，也不再有外扩容差）。这里把每条推导钉住：
  * 水平边界来自锚点 + 前进宽度，垂直边界来自行基线 + 字体行盒，旋转来自 §5.3 的
  * rotate(rotation_deg px py)，图例/色标用 §5.4/§5.5 的声明框并按 map 空间缩放。
- * 元信息：作者 frontend，2026-10-28，无后端数据流（上传后排版/选中框同源）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -52,12 +52,17 @@ describe('itemBoundsPt：text 水平边界', () => {
     const text = textLayout(item, geo, layout);
     const width = textBlockWidth(item, fallbackTextMeasure.width, layout.style.font_family);
     const bounds = itemBoundsPt(item, layout, geo);
+    const font = fontOf(item);
+    const ascent = fallbackTextMeasure.ascent(font);
+    const descent = fallbackTextMeasure.descent(font);
+    const step = item.font_size_pt * item.line_height;
+    const halfLeading = Math.max(0, (step - (ascent + descent)) / 2);
     expect(bounds.width).toBeCloseTo(width, 10);
     expect(bounds.x).toBeCloseTo(left(text.px, width), 10);
-    expect(bounds.y).toBeCloseTo(text.py - fallbackTextMeasure.ascent(fontOf(item)), 10);
+    expect(bounds.y).toBeCloseTo(text.py - ascent - halfLeading, 10);
   });
 
-  it('宽高按实测字体行盒而不是固定外扩：垂直 = 首行上伸 .. 末行下伸', () => {
+  it('宽高按实测字体行盒 + 半行距：垂直 = 首行上沿 .. 末行下沿', () => {
     const item: TextItem = {
       ...base,
       space: 'page',
@@ -73,10 +78,35 @@ describe('itemBoundsPt：text 水平边界', () => {
     const font = fontOf(item);
     const ascent = fallbackTextMeasure.ascent(font);
     const descent = fallbackTextMeasure.descent(font);
-    const bounds = itemBoundsPt(item, layout, geo);
     const step = item.font_size_pt * item.line_height;
-    expect(bounds.y).toBeCloseTo(text.py - ascent, 10);
-    expect(bounds.height).toBeCloseTo((item.lines.length - 1) * step + ascent + descent, 10);
+    const halfLeading = Math.max(0, (step - (ascent + descent)) / 2);
+    const bounds = itemBoundsPt(item, layout, geo);
+    expect(bounds.y).toBeCloseTo(text.py - ascent - halfLeading, 10);
+    expect(bounds.height).toBeCloseTo(
+      (item.lines.length - 1) * step + ascent + descent + halfLeading * 2,
+      10,
+    );
+  });
+
+  it('单行选中框随行高变高；行高小于字体行盒时半行距为 0（不裁字）', () => {
+    const item: TextItem = {
+      ...firstOf('text'),
+      space: 'page',
+      x: 100,
+      y: 60,
+      anchor: 'middle',
+      rotation_deg: 0,
+      font_size_pt: 10,
+      lines: ['单行'],
+    };
+    const tight = itemBoundsPt({ ...item, line_height: 1 }, layout, geo);
+    const loose = itemBoundsPt({ ...item, line_height: 1.5 }, layout, geo);
+    const compressed = itemBoundsPt({ ...item, line_height: 0.5 }, layout, geo);
+    expect(loose.height).toBeGreaterThan(tight.height);
+    expect(tight.height).toBeCloseTo(10, 10);
+    expect(loose.height).toBeCloseTo(15, 10);
+    // 字体行盒是 1.0em（回退 0.8+0.2），0.5 行高的负半行距被夹到 0
+    expect(compressed.height).toBeCloseTo(tight.height, 10);
   });
 });
 

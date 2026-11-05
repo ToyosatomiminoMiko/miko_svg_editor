@@ -12,11 +12,11 @@
  * （`.work/STYLE-SETTINGS-SPEC.md` §7.1）；工具条只负责转发打开动作，窗口状态归 app。
  * 为什么不用草图模式的 `ui/toolbar.ts`：那个工具条绑定约束求解内核（工具/约束/吸附），
  * 与出版排版编辑器无关；这里只保留 miko_ui 的按钮与 `dock` 外观词汇。
- * 元信息：作者 frontend，2026-10-27；2026-10-28 改为无后端双导出；
- *         作者 ui-dev，2026-11-05，新增「样式」组与「样式设置」按钮。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { create_element, createButton, createControlGroup } from 'miko_ui';
+import type { TextStyleCategoryId } from '../config/text-style';
 
 /** 工具条命令的回调集合（全部由 `app/page-editor.ts` 实现） */
 export interface PageToolbarHandlers {
@@ -38,8 +38,12 @@ export interface PageToolbarHandlers {
   addLegend(): void;
   /** 空色标 */
   addColorbar(): void;
-  /** 拉起「样式设置」窗口（按分类统一改字号/颜色/光晕等） */
-  openStyleSettings(): void;
+  /**
+   * 拉起「样式设置」窗口（按分类统一改字号/颜色/光晕等）。
+   * 工具条没有「当前选中项」概念，所以不带分类：窗口沿用上次选中的分类；
+   * 侧栏的「打开样式设置」按钮会带当前文字的分类（见 `ui/page-fields-text.ts`）。
+   */
+  openStyleSettings(category?: TextStyleCategoryId): void;
 }
 
 /** 一个命令按钮：文案、悬停提示、点击动作 */

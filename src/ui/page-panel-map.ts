@@ -4,7 +4,7 @@
  * 是什么：构建「地图」面板控件；宽高与图框样式直接写回 layout.map / layout.frame，
  * 派生高度（按底图宽高比算出）写在面板的一行提示里，每次 sync 刷新。
  * 为什么单独成模块：地图摆放与图框/刻度是同一块视觉配置，常量与读写回调集中在这里。
- * 元信息：作者 lead，2026-10-31，从 `ui/page-sidebar.ts` 原样搬出（行为不变）。
+ * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
  */
 
 import { createControlGroup, create_element } from 'miko_ui';
