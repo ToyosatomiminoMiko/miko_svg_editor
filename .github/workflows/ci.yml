@@ -1,7 +1,7 @@
 name: CI
 
-# 工程约束：typecheck / lint / test / build 四道闸门（见 README「运行与质量门」与 docs/ARCHITECTURE.md）。
-# 顺序有意安排为「最快的静态检查在前」，失败时尽早结束。
+# 工程约束:typecheck / lint / test / build 四道闸门(见 README「运行与质量门」与 docs/ARCHITECTURE.md).
+# 顺序有意安排为「最快的静态检查在前」,失败时尽早结束.
 on:
   push:
     branches: [main]
@@ -21,8 +21,8 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
-      # 线上 / CI 只认 registry 上的发布版 miko_ui：这里打印实际解析到的版本备查。
-      # 本步纯信息输出，`|| true` 保证任何情况都不会让 CI 失败（本地软链不该出现在 CI）。
+      # 线上 / CI 只认 registry 上的发布版 miko_ui:这里打印实际解析到的版本备查.
+      # 本步纯信息输出,`|| true` 保证任何情况都不会让 CI 失败(本地软链不该出现在 CI).
       - name: 确认 miko_ui 来源为 npm 发布版
         run: |
           npm ls miko_ui || true

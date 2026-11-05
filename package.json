@@ -8,6 +8,7 @@
   "type": "module",
   "scripts": {
     "predev": "node scripts/dev_ui_link.mjs auto",
+    "prepare": "node -e \"try{require('node:child_process').execSync('git config --local core.hooksPath .githooks',{stdio:'ignore'})}catch{}\"",
     "dev": "vite",
     "ui:link": "node scripts/dev_ui_link.mjs link",
     "ui:unlink": "node scripts/dev_ui_link.mjs unlink",

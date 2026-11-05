@@ -1,10 +1,10 @@
 /*
- * 出版排版编辑器（map.html）的页面样式。
+ * 出版排版编辑器(map.html)的页面样式.
  *
- * 边界：只写 `.page-*` 消费者类名；token、控件外观（按钮/面板/分段/开关/数字框/消息区）
- * 全部来自 miko_ui/styles.css，画布主题变量来自 src/styles.css 的 :root。
- * 布局只有三行：工具条（auto）| 画布 + 侧栏（1fr）| 状态行（auto）；侧栏固定 340px，
- * 画布吃掉剩余宽度。SVG 内部元素（纸面/图框/文字/选中框）也在这里收口，避免进入 app 逻辑。
+ * 边界:只写 `.page-*` 消费者类名;token,控件外观(按钮/面板/分段/开关/数字框/消息区)
+ * 全部来自 miko_ui/styles.css,画布主题变量来自 src/styles.css 的 :root.
+ * 布局只有三行:工具条(auto)| 画布 + 侧栏(1fr)| 状态行(auto);侧栏固定 340px,
+ * 画布吃掉剩余宽度.SVG 内部元素(纸面/图框/文字/选中框)也在这里收口,避免进入 app 逻辑.
  */
 
 .page-shell {
@@ -19,7 +19,7 @@
 
 /* ---------------- 顶部工具条 ---------------- */
 
-/* 库的 .dock 是绝对定位的任务栏；这里把它交还给网格并允许换行 */
+/* 库的 .dock 是绝对定位的任务栏;这里把它交还给网格并允许换行 */
 .page-topbar.dock {
   position: relative;
   top: auto;
@@ -127,12 +127,12 @@
   color: var(--color-text-meta);
 }
 
-/* 「左右居中」打开时对齐分段被约束覆盖：禁用逻辑在 TS，这里只给禁用态视觉 */
+/* 「左右居中」打开时对齐分段被约束覆盖:禁用逻辑在 TS,这里只给禁用态视觉 */
 .page-sidebar .segmented.is-disabled {
   opacity: 0.5;
 }
 
-/* 「左右居中」打开时 x 数字框被冻结：整行变淡（控件本身也已 disabled，这里只是视觉提示） */
+/* 「左右居中」打开时 x 数字框被冻结:整行变淡(控件本身也已 disabled,这里只是视觉提示) */
 .page-sidebar .control-row.is-disabled {
   opacity: 0.5;
 }
@@ -151,7 +151,7 @@
 
 /* ---------------- 打开地图上传面板 ---------------- */
 
-/* 遮罩铺满画布：拖放目标越大越不容易拖错；面板隐藏后画布继续给编辑器用 */
+/* 遮罩铺满画布:拖放目标越大越不容易拖错;面板隐藏后画布继续给编辑器用 */
 .page-open {
   position: absolute;
   inset: 0;
@@ -163,7 +163,7 @@
   background: var(--color-bg-desktop);
 }
 
-/* 作者样式里的 display:grid 会盖过 UA 的 [hidden]，这里显式收回 */
+/* 作者样式里的 display:grid 会盖过 UA 的 [hidden],这里显式收回 */
 .page-open[hidden] {
   display: none;
 }
@@ -186,7 +186,7 @@
   color: var(--color-text-meta);
 }
 
-/* SVG / JSON 两栏：各自独立选择、独立回显；虚线框也表示「可以往这里拖」 */
+/* SVG / JSON 两栏:各自独立选择,独立回显;虚线框也表示「可以往这里拖」 */
 .page-open-slots {
   display: grid;
   gap: 8px;
@@ -210,7 +210,7 @@
   background: var(--color-accent-hover-bg);
 }
 
-/* 已选文件用实线框：一眼区分「还没选」和「已经有文件」 */
+/* 已选文件用实线框:一眼区分「还没选」和「已经有文件」 */
 .page-open-slot.is-filled {
   border-style: solid;
 }
@@ -260,7 +260,7 @@
   display: none;
 }
 
-/* 读取/校验期间视觉上锁住两栏，避免用户误以为没收到点击 */
+/* 读取/校验期间视觉上锁住两栏,避免用户误以为没收到点击 */
 .page-open.is-busy .page-open-slots {
   opacity: 0.55;
   pointer-events: none;
@@ -276,7 +276,7 @@
   }
 }
 
-/* ---------------- 输入控件（颜色/文本） ---------------- */
+/* ---------------- 输入控件(颜色/文本) ---------------- */
 
 .page-color-input {
   width: 36px;
@@ -496,7 +496,7 @@
 
 /* ---------------- 样式设置窗口 ---------------- */
 
-/* 遮罩与 .page-confirm-overlay 同风格；z-index 低于确认框（100），窗口开着时确认框仍能压住它 */
+/* 遮罩与 .page-confirm-overlay 同风格;z-index 低于确认框(100),窗口开着时确认框仍能压住它 */
 .page-style-overlay {
   position: fixed;
   inset: 0;
@@ -507,12 +507,12 @@
   background: rgba(4, 7, 16, 0.62);
 }
 
-/* 作者样式里的 display:grid 会盖过 UA 的 [hidden]，这里显式收回 */
+/* 作者样式里的 display:grid 会盖过 UA 的 [hidden],这里显式收回 */
 .page-style-overlay[hidden] {
   display: none;
 }
 
-/* 窗口 = 面板外观（与 .ui-panel 同一套 token）：头部 / 总说明 / 两列正文 */
+/* 窗口 = 面板外观(与 .ui-panel 同一套 token):头部 / 总说明 / 两列正文 */
 .page-style-window {
   display: flex;
   flex-direction: column;
@@ -558,7 +558,7 @@
   flex: none;
 }
 
-/* 头部总说明：解释两组分类的区别与「改动会作用于整个分类」 */
+/* 头部总说明:解释两组分类的区别与「改动会作用于整个分类」 */
 .page-style-intro {
   flex: 0 0 auto;
   padding: 8px 14px;
@@ -580,7 +580,7 @@
   color: var(--color-text-meta);
 }
 
-/* 两列：280px 分类列表 + 剩余宽度的字段区；两列各自滚动 */
+/* 两列:280px 分类列表 + 剩余宽度的字段区;两列各自滚动 */
 .page-style-body {
   display: grid;
   flex: 1 1 auto;
@@ -619,7 +619,7 @@
   color: var(--color-text-meta);
 }
 
-/* 分组内的语义小标题（城市 / 行政区与强调区 / 国名与自然地物…）：只做视觉分节，不参与分类契约 */
+/* 分组内的语义小标题(城市 / 行政区与强调区 / 国名与自然地物...):只做视觉分节,不参与分类契约 */
 .page-style-section {
   display: flex;
   flex-direction: column;
@@ -634,7 +634,7 @@
   color: var(--color-text-faint);
 }
 
-/* 分类按钮：与侧栏元素列表同一套「行」视觉（描边 + 悬停 accent + 激活 accent 底） */
+/* 分类按钮:与侧栏元素列表同一套「行」视觉(描边 + 悬停 accent + 激活 accent 底) */
 .page-style-category {
   display: flex;
   align-items: center;
@@ -660,7 +660,7 @@
   border-color: var(--color-accent-border);
 }
 
-/* 底图没有该分类：置灰提示「改了对当前图无效果」，但仍可选中查看原因（不 disabled） */
+/* 底图没有该分类:置灰提示「改了对当前图无效果」,但仍可选中查看原因(不 disabled) */
 .page-style-category.is-empty {
   opacity: 0.55;
 }
@@ -669,7 +669,7 @@
   opacity: 0.8;
 }
 
-/* 色块底色由 TS 写（该分类当前颜色）；描边用专门的 swatch token，保证深色底上可见 */
+/* 色块底色由 TS 写(该分类当前颜色);描边用专门的 swatch token,保证深色底上可见 */
 .page-style-swatch {
   flex: none;
   width: 12px;
@@ -686,7 +686,7 @@
   text-overflow: ellipsis;
 }
 
-/* 徽章：miko_ui 的 .ui-badge 只给基线（min-width 40px 对这里太宽），此处按语义收窄 */
+/* 徽章:miko_ui 的 .ui-badge 只给基线(min-width 40px 对这里太宽),此处按语义收窄 */
 .page-style-badge {
   min-width: 0;
   padding: 1px 6px;
@@ -699,7 +699,7 @@
   background: var(--color-fill-inset);
 }
 
-/* 「已改」= 该分类存在用户覆盖（page.text_style 里有这条）；默认态不显示 */
+/* 「已改」= 该分类存在用户覆盖(page.text_style 里有这条);默认态不显示 */
 .page-style-changed {
   color: var(--color-warning);
   background: var(--color-warning-bg);
@@ -720,7 +720,7 @@
   background: var(--color-warning-bg);
 }
 
-/* 右列：固定的分类头 + 可滚动的字段区 */
+/* 右列:固定的分类头 + 可滚动的字段区 */
 .page-style-fields {
   display: flex;
   flex-direction: column;
@@ -750,7 +750,7 @@
   color: var(--color-text-strong);
 }
 
-/* 「恢复默认」放在分类头最右：只有存在覆盖时才可用（禁用态由 TS 写） */
+/* 「恢复默认」放在分类头最右:只有存在覆盖时才可用(禁用态由 TS 写) */
 .page-style-reset {
   margin-left: auto;
   flex: none;
@@ -784,7 +784,7 @@
   text-overflow: ellipsis;
 }
 
-/* 空分类原因（地图分类 0 项 / 页面分类还没有文字）：一行警告色说明，不阻塞操作 */
+/* 空分类原因(地图分类 0 项 / 页面分类还没有文字):一行警告色说明,不阻塞操作 */
 .page-style-cat-empty {
   margin: 0;
   padding: 4px 8px;
@@ -799,7 +799,7 @@
   display: none;
 }
 
-/* 实时预览条：背景由 TS 写纸张色；地图分类用浅色地图底（成品底图是浅色，避免深色主题下观感相反） */
+/* 实时预览条:背景由 TS 写纸张色;地图分类用浅色地图底(成品底图是浅色,避免深色主题下观感相反) */
 .page-style-preview-wrap {
   display: flex;
   flex-direction: column;
@@ -830,7 +830,7 @@
   height: 100%;
 }
 
-/* 字段区：四组（字号 / 颜色与字形 / 行距与字距 / 描边光晕）一起滚动 */
+/* 字段区:四组(字号 / 颜色与字形 / 行距与字距 / 描边光晕)一起滚动 */
 .page-style-fields-body {
   display: flex;
   flex: 1 1 auto;
@@ -841,8 +841,8 @@
   overflow-y: auto;
 }
 
-/* 数值字段右侧的 reset：用 miko_ui 的重置按钮口径（.slider-field-reset 即 Button 基线），
-   这里只保证它不被 flex 压缩（默认值来源不再用说明段落解释，改为按字段重置） */
+/* 数值字段右侧的 reset:用 miko_ui 的重置按钮口径(.slider-field-reset 即 Button 基线),
+   这里只保证它不被 flex 压缩(默认值来源不再用说明段落解释,改为按字段重置) */
 .page-style-fields .slider-field-reset {
   flex: none;
 }
@@ -854,12 +854,12 @@
   color: var(--color-text-meta);
 }
 
-/* 光晕关闭时颜色/宽度行整行变淡（控件本身也已 disabled，这里只是视觉提示） */
+/* 光晕关闭时颜色/宽度行整行变淡(控件本身也已 disabled,这里只是视觉提示) */
 .page-style-fields .control-row.is-disabled {
   opacity: 0.5;
 }
 
-/* 「字重」一行：文字标签 + 分段按钮组，分段按钮组吃掉剩余宽度 */
+/* 「字重」一行:文字标签 + 分段按钮组,分段按钮组吃掉剩余宽度 */
 .page-style-weight-row .segmented {
   flex: 1 1 auto;
 }
@@ -898,8 +898,8 @@
   cursor: move;
 }
 
-/* 选中框：几何由 core/page-layout.ts 的 §5.7 item 几何框算出（画的是声明框本身）；
-   这里只管外观——颜色/线宽/虚线都在 CSS 里，不再有 TS 侧的装饰性常量。 */
+/* 选中框:几何由 core/page-layout.ts 的 §5.7 item 几何框算出(画的是声明框本身);
+   这里只管外观--颜色/线宽/虚线都在 CSS 里,不再有 TS 侧的装饰性常量. */
 .page-selection-box {
   stroke: var(--color-accent);
   stroke-width: 1;
@@ -909,8 +909,8 @@
   pointer-events: none;
 }
 
-/* 命中盒：几何 = 同一 §5.7 框 + config PAGE_HIT_TOLERANCE_PT 的指针容差；
-   透明、只吃指针事件，不参与任何视觉。 */
+/* 命中盒:几何 = 同一 §5.7 框 + config PAGE_HIT_TOLERANCE_PT 的指针容差;
+   透明,只吃指针事件,不参与任何视觉. */
 .page-hit-box {
   fill: transparent;
   stroke: none;

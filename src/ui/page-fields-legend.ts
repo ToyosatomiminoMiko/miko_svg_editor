@@ -1,11 +1,11 @@
 /**
- * 图例元素的属性字段：尺寸/字号/内边距/色块，外框，以及图例条目编辑。
+ * 图例元素的属性字段:尺寸/字号/内边距/色块,外框,以及图例条目编辑.
  *
- * 是什么：选中 legend 元素时构建的属性面板片段。条目编辑的「隐藏」不是 layout 字段：
- * 契约 §4.1 的条目没有 visible，隐藏 = 从 layout 移除并记进侧栏会话状态，重新显示时按
- * 原位置插回（不会写进 layout）。
- * 为什么单独成模块：图例字段与条目增删/显隐是这里最长的一块逻辑，独立后便于单独阅读与修改。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 是什么:选中 legend 元素时构建的属性面板片段.条目编辑的「隐藏」不是 layout 字段:
+ * 契约 §4.1 的条目没有 visible,隐藏 = 从 layout 移除并记进侧栏会话状态,重新显示时按
+ * 原位置插回(不会写进 layout).
+ * 为什么单独成模块:图例字段与条目增删/显隐是这里最长的一块逻辑,独立后便于单独阅读与修改.
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import {
@@ -33,14 +33,14 @@ function defaultLegendEntry(): LegendEntry {
   };
 }
 
-/** 图例条目的中文形状名（UI 只用） */
+/** 图例条目的中文形状名(UI 只用) */
 const SHAPE_LABELS: Readonly<Record<LegendEntry['shape'], string>> = {
   line: '线',
   rect: '块',
   point: '点',
 };
 
-/** 图例属性面板片段（图例尺寸 + 外框 + 条目） */
+/** 图例属性面板片段(图例尺寸 + 外框 + 条目) */
 export function buildLegendFields(ctx: SidebarContext, item: LegendItem): HTMLElement[] {
   const fragments: HTMLElement[] = [];
 
@@ -62,7 +62,7 @@ export function buildLegendFields(ctx: SidebarContext, item: LegendItem): HTMLEl
   ctx.controls.addNumberRow(
     basics,
     'prop.legendWidth',
-    '宽度（pt）',
+    '宽度(pt)',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
       return target?.kind === 'legend' ? target.width_pt : PAGE_NEW_LEGEND_WIDTH_PT;
@@ -77,7 +77,7 @@ export function buildLegendFields(ctx: SidebarContext, item: LegendItem): HTMLEl
   ctx.controls.addNumberRow(
     basics,
     'prop.legendFont',
-    '字号（pt）',
+    '字号(pt)',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
       return target?.kind === 'legend' ? target.font_size_pt : PAGE_LEGEND_DEFAULTS.font_size_pt;
@@ -107,7 +107,7 @@ export function buildLegendFields(ctx: SidebarContext, item: LegendItem): HTMLEl
   ctx.controls.addNumberRow(
     basics,
     'prop.legendRowHeight',
-    '行高（pt）',
+    '行高(pt)',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
       return target?.kind === 'legend' ? target.row_height_pt : PAGE_LEGEND_DEFAULTS.row_height_pt;
@@ -247,7 +247,7 @@ export function buildLegendFields(ctx: SidebarContext, item: LegendItem): HTMLEl
   return fragments;
 }
 
-/** 图例条目编辑：label / 显隐 / 删除 / 新增（隐藏 = 从 layout 移除，会话内记住） */
+/** 图例条目编辑:label / 显隐 / 删除 / 新增(隐藏 = 从 layout 移除,会话内记住) */
 function buildLegendEntries(ctx: SidebarContext, item: LegendItem): HTMLElement {
   const container = create_element({ tag: 'div' }, { class: 'page-legend-entries' });
   const list = create_element({ tag: 'div' }, { class: 'page-legend-list' });
@@ -278,7 +278,7 @@ function buildLegendEntries(ctx: SidebarContext, item: LegendItem): HTMLElement 
     );
 
     const visible = createSwitch({ value: true });
-    visible.input.title = '隐藏该条目（从 layout 移除，可再次显示）';
+    visible.input.title = '隐藏该条目(从 layout 移除,可再次显示)';
     visible.onChange(() => hideLegendEntry(ctx, item.id, index));
     row.append(visible.element);
 
@@ -318,7 +318,7 @@ function buildLegendEntries(ctx: SidebarContext, item: LegendItem): HTMLElement 
     create_element(
       { tag: 'p' },
       { class: 'page-hint' },
-      `条目按数组顺序绘制；契约没有 visible 字段，隐藏条目不会写进 layout。`,
+      `条目按数组顺序绘制;契约没有 visible 字段,隐藏条目不会写进 layout.`,
     ),
     list,
   );
@@ -335,7 +335,7 @@ function buildLegendEntries(ctx: SidebarContext, item: LegendItem): HTMLElement 
   return createControlGroup('条目', container);
 }
 
-/** 隐藏一条图例条目：从 layout 移除并记进会话状态（重新显示时按原位置插回） */
+/** 隐藏一条图例条目:从 layout 移除并记进会话状态(重新显示时按原位置插回) */
 function hideLegendEntry(ctx: SidebarContext, legendId: number, index: number): void {
   ctx.markPropertyRebuild();
   ctx.handlers.onChange((layout) => {
@@ -350,7 +350,7 @@ function hideLegendEntry(ctx: SidebarContext, legendId: number, index: number): 
   });
 }
 
-/** 重新显示一条隐藏条目：按记住的原位置插回 layout */
+/** 重新显示一条隐藏条目:按记住的原位置插回 layout */
 function showLegendEntry(ctx: SidebarContext, legendId: number, hiddenIndex: number): void {
   ctx.markPropertyRebuild();
   ctx.handlers.onChange((layout) => {
@@ -366,7 +366,7 @@ function showLegendEntry(ctx: SidebarContext, legendId: number, hiddenIndex: num
   });
 }
 
-/** 删除一条隐藏条目（只从会话状态里删，layout 本来就没有它） */
+/** 删除一条隐藏条目(只从会话状态里删,layout 本来就没有它) */
 function deleteLegendEntry(ctx: SidebarContext, legendId: number, index: number): void {
   ctx.markPropertyRebuild();
   ctx.handlers.onChange((layout) => {

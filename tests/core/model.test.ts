@@ -1,10 +1,10 @@
 /**
- * model.ts 的增删查与级联清理。
- * 重点钉住三条容易回归的规则：
- * 1) 删图元只删「仅被它使用」的点及其尺寸，共享端点与其尺寸保留；
- * 2) 删点会递归删掉引用它的图元/约束；
- * 3) isEmpty / clearModel / pruneOrphanPoints 保证不残留不可见几何。
- * 每个用例先 clearModel()，避免单例模型在测试间互相污染。
+ * model.ts 的增删查与级联清理.
+ * 重点钉住三条容易回归的规则:
+ * 1) 删图元只删「仅被它使用」的点及其尺寸,共享端点与其尺寸保留;
+ * 2) 删点会递归删掉引用它的图元/约束;
+ * 3) isEmpty / clearModel / pruneOrphanPoints 保证不残留不可见几何.
+ * 每个用例先 clearModel(),避免单例模型在测试间互相污染.
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -52,7 +52,7 @@ describe('新增对象', () => {
     expect(addCircle(c, 5).r).toBe(5);
   });
 
-  it('圆弧半径由起点到圆心的距离决定，没有独立参数', () => {
+  it('圆弧半径由起点到圆心的距离决定,没有独立参数', () => {
     const c = addPt(0, 0);
     const start = addPt(3, 4); // |start - c| = 5
     const end = addPt(-3, 4);
@@ -63,7 +63,7 @@ describe('新增对象', () => {
     expect(g?.a1).toBeCloseTo(Math.atan2(4, -3), 12);
   });
 
-  it('圆弧引用圆心与两个端点（三个点都可被共享/级联删除）', () => {
+  it('圆弧引用圆心与两个端点(三个点都可被共享/级联删除)', () => {
     const c = addPt(0, 0);
     const start = addPt(10, 0);
     const end = addPt(0, 10);
@@ -87,7 +87,7 @@ describe('新增对象', () => {
 });
 
 describe('pointAt 复用', () => {
-  it('容差内复用同一点，容差外返回 undefined', () => {
+  it('容差内复用同一点,容差外返回 undefined', () => {
     const p = addPt(10, 10);
     expect(pointAt(10, 10)).toBe(p);
     expect(pointAt(10 + MIN_DRAW_LENGTH / 2, 10)).toBe(p);
@@ -97,7 +97,7 @@ describe('pointAt 复用', () => {
 });
 
 describe('removeEntity 级联', () => {
-  it('删线：端点与以端点为定义的距离尺寸一起删除', () => {
+  it('删线:端点与以端点为定义的距离尺寸一起删除', () => {
     const a = addPt(0, 0);
     const b = addPt(100, 0);
     const line = addLine(a, b);
@@ -114,7 +114,7 @@ describe('removeEntity 级联', () => {
     expect(isEmpty()).toBe(true);
   });
 
-  it('共享端点保留，引用共享端点的尺寸也保留', () => {
+  it('共享端点保留,引用共享端点的尺寸也保留', () => {
     const a = addPt(0, 0);
     const b = addPt(100, 0);
     const c = addPt(100, 100);
@@ -124,18 +124,18 @@ describe('removeEntity 级联', () => {
 
     removeEntity(line1);
 
-    // A 只属于 line1 → 删除；B 仍被 line2 使用 → 保留；C 保留
+    // A 只属于 line1 -> 删除;B 仍被 line2 使用 -> 保留;C 保留
     expect(model.pts.size).toBe(2);
     expect(getPoint(a.id)).toBeUndefined();
     expect(getPoint(b.id)).toBeDefined();
     expect(getPoint(c.id)).toBeDefined();
     expect(model.ents.size).toBe(1);
     expect(model.ents.get(line2.id)).toBeDefined();
-    // 尺寸引用 B/C，两者都在 → 不删
+    // 尺寸引用 B/C,两者都在 -> 不删
     expect(model.cons.has(sharedDim.id)).toBe(true);
   });
 
-  it('删圆：圆心随之删除', () => {
+  it('删圆:圆心随之删除', () => {
     const center = addPt(5, 5);
     const circle = addCircle(center, 10);
     removeEntity(circle);
@@ -143,7 +143,7 @@ describe('removeEntity 级联', () => {
     expect(model.pts.size).toBe(0);
   });
 
-  it('删图元时删除引用该图元的约束，但不误删其它图元的约束', () => {
+  it('删图元时删除引用该图元的约束,但不误删其它图元的约束', () => {
     const a = addPt(0, 0);
     const b = addPt(10, 0);
     const c = addPt(20, 0);
@@ -160,7 +160,7 @@ describe('removeEntity 级联', () => {
 });
 
 describe('removePoint 递归', () => {
-  it('删点会删掉引用它的图元，并级联到该图元的其它端点', () => {
+  it('删点会删掉引用它的图元,并级联到该图元的其它端点', () => {
     const a = addPt(0, 0);
     const b = addPt(10, 0);
     addLine(a, b);
@@ -180,7 +180,7 @@ describe('removePoint 递归', () => {
 });
 
 describe('removeConstraint', () => {
-  it('只删约束本身，不动点/图元', () => {
+  it('只删约束本身,不动点/图元', () => {
     const a = addPt(0, 0);
     const b = addPt(10, 0);
     addLine(a, b);
@@ -223,7 +223,7 @@ describe('findConstraint 去重', () => {
     expect(findConstraint('horizontal', { e: 999 })).toBeUndefined();
   });
 
-  it('非引用数值字段（radius/distance）不参与去重', () => {
+  it('非引用数值字段(radius/distance)不参与去重', () => {
     const c = addPt(0, 0);
     const circle = addCircle(c, 10);
     const con = addCon('radius', { e: circle.id, radius: 10 });

@@ -1,30 +1,30 @@
 /**
- * 样式设置窗口：按「页面文字 / 地图标注」分类统一编辑文字样式。
+ * 样式设置窗口:按「页面文字 / 地图标注」分类统一编辑文字样式.
  *
- * 是什么：独立模态窗口（遮罩 + 头部说明 + 两列正文）。左列按 `config/text-style.ts` 的
- * `TEXT_STYLE_CATEGORY_GROUPS` 列出全部分类（语义小标题 + 名称 + 色块 + 元素数量徽标 +
- * 已改标记；地图分类在底图里没有该 role 时置灰但仍可选中并解释原因）；右列顶部是固定的
- * 分类头（名称 / 类型 / 影响数量 / 默认或已改 / 示例 / 恢复默认 / 实时预览），下面是按
- * 四组重建的字段（字号 / 颜色与字形 / 行距与字距 / 描边光晕）。
- * 为什么样式只在窗口里按分类改：样式是分类级覆盖（`page.text_style`），改一次由 core
- * 批量写回该分类下所有 item（`.work/STYLE-SETTINGS-SPEC.md` §0/§3）。窗口只负责发
- * 「单字段补丁」与「恢复默认」，脏标记/重绘/侧栏同步全部由宿主的 onApply/onReset 完成；
- * 本模块不持有 layout，每次读都走 getLayout/getGeo 取最新值。
- * 字号口径：页面分类跟固定的代码默认字号；地图分类跟「该分类地名原始字号中位数 × 地图缩放」，
- * 且同分类全部地名统一为窗口值。默认值不再用说明段落解释，而是每个数值字段旁的 reset 按钮：
- * 点它删掉该字段覆盖并恢复代码默认值（值已是默认时按钮禁用）。
- * 左列数量徽标与右列「影响 N 个元素」都按 `itemsOfTextCategory` 的 item 数量算，
- * 保证窗口说的数字与实际会被改到的元素一致。
- * 刷新口径：选中分类切换 / 打开窗口 / 恢复默认时只重建右侧字段（分类头与预览是固定节点，
- * 避免恢复默认按钮随重建丢焦点）；用户输入与外部 layout 变化（sync）只就地刷新值、分类头、
- * 左列徽标与预览，且跳过聚焦中的控件，避免打断正在输入的数字。光晕开关会改变光晕颜色/宽度的
- * 可用性，这类结构变化由 refreshStructure() 单独处理，不重建整块字段（重建会丢焦点）。
- * 实时预览用 SVG 重画示例文字（与 `render/page-svg.ts` 同一套属性口径：halo 副本先画、
- * 填充副本后画），背景取纸张色（地图分类用浅色地图底），让字号/颜色/光晕的改动立刻可见。
- * 无障碍：模态 `role="dialog" aria-modal="true" aria-label="样式设置"`，头部总说明用
- * `aria-describedby` 关联；Esc / 点遮罩 / 头部「关闭」都能关闭（窗口不设底部操作条）；打开时焦点进窗口，
- * 关闭时归还给打开前的焦点；左列按钮带 `aria-pressed` 与含数量/已改状态的 aria-label。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 是什么:独立模态窗口(遮罩 + 头部说明 + 两列正文).左列按 `config/text-style.ts` 的
+ * `TEXT_STYLE_CATEGORY_GROUPS` 列出全部分类(语义小标题 + 名称 + 色块 + 元素数量徽标 +
+ * 已改标记;地图分类在底图里没有该 role 时置灰但仍可选中并解释原因);右列顶部是固定的
+ * 分类头(名称 / 类型 / 影响数量 / 默认或已改 / 示例 / 恢复默认 / 实时预览),下面是按
+ * 四组重建的字段(字号 / 颜色与字形 / 行距与字距 / 描边光晕).
+ * 为什么样式只在窗口里按分类改:样式是分类级覆盖(`page.text_style`),改一次由 core
+ * 批量写回该分类下所有 item(`.work/STYLE-SETTINGS-SPEC.md` §0/§3).窗口只负责发
+ * 「单字段补丁」与「恢复默认」,脏标记/重绘/侧栏同步全部由宿主的 onApply/onReset 完成;
+ * 本模块不持有 layout,每次读都走 getLayout/getGeo 取最新值.
+ * 字号口径:页面分类跟固定的代码默认字号;地图分类跟「该分类地名原始字号中位数 × 地图缩放」,
+ * 且同分类全部地名统一为窗口值.默认值不再用说明段落解释,而是每个数值字段旁的 reset 按钮:
+ * 点它删掉该字段覆盖并恢复代码默认值(值已是默认时按钮禁用).
+ * 左列数量徽标与右列「影响 N 个元素」都按 `itemsOfTextCategory` 的 item 数量算,
+ * 保证窗口说的数字与实际会被改到的元素一致.
+ * 刷新口径:选中分类切换 / 打开窗口 / 恢复默认时只重建右侧字段(分类头与预览是固定节点,
+ * 避免恢复默认按钮随重建丢焦点);用户输入与外部 layout 变化(sync)只就地刷新值,分类头,
+ * 左列徽标与预览,且跳过聚焦中的控件,避免打断正在输入的数字.光晕开关会改变光晕颜色/宽度的
+ * 可用性,这类结构变化由 refreshStructure() 单独处理,不重建整块字段(重建会丢焦点).
+ * 实时预览用 SVG 重画示例文字(与 `render/page-svg.ts` 同一套属性口径:halo 副本先画,
+ * 填充副本后画),背景取纸张色(地图分类用浅色地图底),让字号/颜色/光晕的改动立刻可见.
+ * 无障碍:模态 `role="dialog" aria-modal="true" aria-label="样式设置"`,头部总说明用
+ * `aria-describedby` 关联;Esc / 点遮罩 / 头部「关闭」都能关闭(窗口不设底部操作条);打开时焦点进窗口,
+ * 关闭时归还给打开前的焦点;左列按钮带 `aria-pressed` 与含数量/已改状态的 aria-label.
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import {
@@ -69,21 +69,21 @@ import {
   type TextStyleResetField,
 } from '../core/text-style';
 
-/** 窗口需要宿主注入的全部能力（布局/地图的最新值 + 补丁/恢复出口） */
+/** 窗口需要宿主注入的全部能力(布局/地图的最新值 + 补丁/恢复出口) */
 export interface StyleSettingsWindowDeps {
-  /** 宿主（挂 overlay；app 传 document.body） */
+  /** 宿主(挂 overlay;app 传 document.body) */
   readonly host: HTMLElement;
   readonly getLayout: () => PageLayout;
   readonly getGeo: () => Geo;
-  /** 应用补丁（编辑器负责脏标记/重绘/侧栏同步） */
+  /** 应用补丁(编辑器负责脏标记/重绘/侧栏同步) */
   readonly onApply: (category: TextStyleCategoryId, patch: TextStylePatch) => void;
   /** 恢复该分类默认样式 */
   readonly onReset: (category: TextStyleCategoryId) => void;
-  /** 只恢复某个字段的默认值（数值字段旁的 reset 按钮） */
+  /** 只恢复某个字段的默认值(数值字段旁的 reset 按钮) */
   readonly onResetField: (category: TextStyleCategoryId, field: TextStyleResetField) => void;
 }
 
-/** 分类列表里的一项：按钮本身 + 刷新时要改的色块/数量徽标/已改标记 */
+/** 分类列表里的一项:按钮本身 + 刷新时要改的色块/数量徽标/已改标记 */
 interface CategoryEntry {
   readonly button: HTMLButtonElement;
   readonly swatch: HTMLElement;
@@ -91,7 +91,7 @@ interface CategoryEntry {
   readonly changed: HTMLElement;
 }
 
-/** 右列固定分类头里需要随选中分类刷新的节点（重建设字段时不重建这些节点） */
+/** 右列固定分类头里需要随选中分类刷新的节点(重建设字段时不重建这些节点) */
 interface CategoryHead {
   readonly element: HTMLElement;
   readonly name: HTMLElement;
@@ -106,9 +106,9 @@ interface CategoryHead {
 }
 
 /**
- * 字段值绑定：重建字段时登记，sync 时就地刷新用。
- * 为什么用判别联合而不是基类：四类控件的「读值 → 写显示」只有几行差异，
- * 联合 + switch 在类型上就能保证每个分支都处理到（`switch-exhaustiveness-check`）。
+ * 字段值绑定:重建字段时登记,sync 时就地刷新用.
+ * 为什么用判别联合而不是基类:四类控件的「读值 -> 写显示」只有几行差异,
+ * 联合 + switch 在类型上就能保证每个分支都处理到(`switch-exhaustiveness-check`).
  */
 type FieldBinding =
   | { readonly kind: 'number'; readonly field: NumberFieldHandle; readonly read: () => number }
@@ -120,7 +120,7 @@ type FieldBinding =
       readonly read: () => string;
     };
 
-/** 字重分段选项：与侧栏改造前同一组四档（导入的其它合法字重原样保留，不在此改写） */
+/** 字重分段选项:与侧栏改造前同一组四档(导入的其它合法字重原样保留,不在此改写) */
 const FONT_WEIGHT_OPTIONS = [
   { value: '400', label: '常规' },
   { value: '500', label: '中等' },
@@ -128,24 +128,24 @@ const FONT_WEIGHT_OPTIONS = [
   { value: '700', label: '粗' },
 ] as const;
 
-/** 预览画布的用户坐标宽度（高度按内容动态撑开，缩放交给 preserveAspectRatio） */
+/** 预览画布的用户坐标宽度(高度按内容动态撑开,缩放交给 preserveAspectRatio) */
 const PREVIEW_WIDTH = 320;
-/** 预览条最小高度（px）：单行小字号时不至于显得空 */
+/** 预览条最小高度(px):单行小字号时不至于显得空 */
 const PREVIEW_MIN_HEIGHT = 72;
 
-/** 颜色值兜底：`<input type="color">` 只接受 #rrggbb（与 `page-sidebar-controls.ts` 同口径） */
+/** 颜色值兜底:`<input type="color">` 只接受 #rrggbb(与 `page-sidebar-controls.ts` 同口径) */
 function safeColor(value: string): string {
   return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000';
 }
 
-/** 预览里的数值属性：最多两位小数，避免 6.699999 这类浮点噪声进 SVG 属性 */
+/** 预览里的数值属性:最多两位小数,避免 6.699999 这类浮点噪声进 SVG 属性 */
 function previewNumber(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
 
 /**
- * 数值字段旁的 reset 登记项：按钮、对应数字框、当前值/默认值读取器。
- * 禁用口径由 refreshResets 统一算：值已等于默认值，或该字段结构上不可改（光晕关闭时的宽度）。
+ * 数值字段旁的 reset 登记项:按钮,对应数字框,当前值/默认值读取器.
+ * 禁用口径由 refreshResets 统一算:值已等于默认值,或该字段结构上不可改(光晕关闭时的宽度).
  */
 interface ResetBinding {
   readonly field: TextStyleResetField;
@@ -167,20 +167,20 @@ export class StyleSettingsWindow {
   private readonly head: CategoryHead;
   private readonly categoryEntries = new Map<TextStyleCategoryId, CategoryEntry>();
 
-  /** 当前选中分类：默认第一个页面文字分类；关闭后保留，下次打开仍在原分类 */
+  /** 当前选中分类:默认第一个页面文字分类;关闭后保留,下次打开仍在原分类 */
   private selected: TextStyleCategoryId =
     TEXT_STYLE_CATEGORY_GROUPS[0]?.categories[0]?.id ?? 'title';
   private isOpen = false;
-  /** 打开前的焦点元素：关闭时归还（元素可能已被移除，归还前判 isConnected） */
+  /** 打开前的焦点元素:关闭时归还(元素可能已被移除,归还前判 isConnected) */
   private previousFocus: HTMLElement | null = null;
 
-  /** 静态按钮的清理回调（关闭按钮/恢复默认），destroy 时统一释放 */
+  /** 静态按钮的清理回调(关闭按钮/恢复默认),destroy 时统一释放 */
   private readonly disposers: (() => void)[] = [];
-  /** 本次字段重建产生的控件清理回调（重建前先释放上一批） */
+  /** 本次字段重建产生的控件清理回调(重建前先释放上一批) */
   private fieldDisposers: (() => void)[] = [];
-  /** 字段值绑定（与 fieldDisposers 同生命周期） */
+  /** 字段值绑定(与 fieldDisposers 同生命周期) */
   private bindings: FieldBinding[] = [];
-  /** 每个数值字段的 reset 登记项（重建字段时换掉，refresh 时更新可用态与提示） */
+  /** 每个数值字段的 reset 登记项(重建字段时换掉,refresh 时更新可用态与提示) */
   private resets: ResetBinding[] = [];
   /** 光晕关闭时需要禁用的两个控件与其行 */
   private haloColorInput: HTMLInputElement | null = null;
@@ -190,7 +190,7 @@ export class StyleSettingsWindow {
   constructor(deps: StyleSettingsWindowDeps) {
     this.deps = deps;
 
-    // 遮罩 + 窗口骨架：类名是 styles-page.css 的消费契约
+    // 遮罩 + 窗口骨架:类名是 styles-page.css 的消费契约
     this.overlay = create_element({ tag: 'div' }, { class: 'page-style-overlay', hidden: '' });
     this.panel = create_element(
       { tag: 'div' },
@@ -207,24 +207,24 @@ export class StyleSettingsWindow {
     const headerClose = createButton({
       text: '关闭',
       class: 'page-style-close',
-      title: '关闭样式设置（Esc）',
+      title: '关闭样式设置(Esc)',
     });
     headerClose.onClick(() => this.close());
     header.append(title, headerClose.element);
 
-    // 头部总说明：解释两组分类的区别 + 改动生效范围（对话框用 aria-describedby 关联它）
+    // 头部总说明:解释两组分类的区别 + 改动生效范围(对话框用 aria-describedby 关联它)
     const introId = nextWidgetId('page-style-intro');
     const intro = create_element({ tag: 'div' }, { class: 'page-style-intro', id: introId });
     intro.append(
       create_element(
         { tag: 'p' },
         { class: 'page-style-intro-lead' },
-        '按分类统一设置文字样式；任何改动都会立即作用于该分类下的全部文字。',
+        '按分类统一设置文字样式;任何改动都会立即作用于该分类下的全部文字.',
       ),
       create_element(
         { tag: 'p' },
         { class: 'page-style-intro-detail' },
-        '页面文字不在地图上，按文字角色分类；地图标注来自 Cartopy geo.json，按地名 role 分类。地图分类的字号默认值不是某条地名的字号，而是「该分类地名原始字号中位数 × 地图缩放」。',
+        '页面文字不在地图上,按文字角色分类;地图标注来自 Cartopy geo.json,按地名 role 分类.地图分类的字号默认值不是某条地名的字号,而是「该分类地名原始字号中位数 × 地图缩放」.',
       ),
     );
     this.panel.setAttribute('aria-describedby', introId);
@@ -237,7 +237,7 @@ export class StyleSettingsWindow {
     this.fieldsEl.append(this.head.element, this.fieldsBodyEl);
     body.append(this.listEl, this.fieldsEl);
 
-    // 关闭入口只保留头部按钮（另有 Esc 与点遮罩），窗口不设底部操作条
+    // 关闭入口只保留头部按钮(另有 Esc 与点遮罩),窗口不设底部操作条
     this.panel.append(header, intro, body);
     this.overlay.append(this.panel);
     this.disposers.push(
@@ -246,7 +246,7 @@ export class StyleSettingsWindow {
     );
 
     this.buildCategoryList();
-    // 点遮罩（不是面板内部）关闭：与确认框同一条判定
+    // 点遮罩(不是面板内部)关闭:与确认框同一条判定
     this.overlay.addEventListener('click', (event) => {
       if (event.target === this.overlay) this.close();
     });
@@ -255,8 +255,8 @@ export class StyleSettingsWindow {
   /* =========================== 对外生命周期 =========================== */
 
   /**
-   * 打开窗口：可选直接定位到某个分类（侧栏「打开样式设置」带入当前 item 的分类）。
-   * 打开时总是重建字段，保证字段 kind 与选中分类一致；关闭期间选中项保留。
+   * 打开窗口:可选直接定位到某个分类(侧栏「打开样式设置」带入当前 item 的分类).
+   * 打开时总是重建字段,保证字段 kind 与选中分类一致;关闭期间选中项保留.
    */
   open(category?: TextStyleCategoryId): void {
     if (this.isOpen) {
@@ -275,7 +275,7 @@ export class StyleSettingsWindow {
     this.panel.focus();
   }
 
-  /** 关闭窗口：摘掉遮罩、解除 Esc、归还焦点；字段控件保留到下次重建/destroy */
+  /** 关闭窗口:摘掉遮罩,解除 Esc,归还焦点;字段控件保留到下次重建/destroy */
   close(): void {
     if (!this.isOpen) return;
     this.isOpen = false;
@@ -287,13 +287,13 @@ export class StyleSettingsWindow {
     if (previous !== null && previous.isConnected) previous.focus();
   }
 
-  /** 外部 layout 变化后刷新显示（可选调用；关闭状态下不读 layout，避免会话已销毁） */
+  /** 外部 layout 变化后刷新显示(可选调用;关闭状态下不读 layout,避免会话已销毁) */
   sync(): void {
     if (!this.isOpen) return;
     this.refresh();
   }
 
-  /** 卸载：关闭、释放全部控件、移除 DOM（切换文档/页面卸载时调用） */
+  /** 卸载:关闭,释放全部控件,移除 DOM(切换文档/页面卸载时调用) */
   destroy(): void {
     this.close();
     this.disposeFields();
@@ -303,9 +303,9 @@ export class StyleSettingsWindow {
     this.categoryEntries.clear();
   }
 
-  /* =========================== 左列：分类列表 =========================== */
+  /* =========================== 左列:分类列表 =========================== */
 
-  /** 按 config 的两组分类建左列；组内按 meta.section 切成语义小标题（不改变分类顺序） */
+  /** 按 config 的两组分类建左列;组内按 meta.section 切成语义小标题(不改变分类顺序) */
   private buildCategoryList(): void {
     const groups: HTMLElement[] = [];
     for (const group of TEXT_STYLE_CATEGORY_GROUPS) {
@@ -337,7 +337,7 @@ export class StyleSettingsWindow {
     this.listEl.replaceChildren(...groups);
   }
 
-  /** 一个分类按钮：色块 + 名称 + 已改标记 + 数量徽标（色彩与数量在 refreshList 里写） */
+  /** 一个分类按钮:色块 + 名称 + 已改标记 + 数量徽标(色彩与数量在 refreshList 里写) */
   private buildCategoryButton(meta: TextStyleCategoryMeta): CategoryEntry {
     const button = create_element(
       { tag: 'button' },
@@ -345,7 +345,7 @@ export class StyleSettingsWindow {
         type: 'button',
         class: 'page-style-category',
         'aria-pressed': 'false',
-        title: `${meta.label}：${meta.description}`,
+        title: `${meta.label}:${meta.description}`,
       },
     );
     const swatch = create_element({ tag: 'span' }, { class: 'page-style-swatch' });
@@ -360,7 +360,7 @@ export class StyleSettingsWindow {
     return { button, swatch, count, changed };
   }
 
-  /** 切换分类：只重建右侧字段（分类头/预览是固定节点，滚动位置也重置到字段顶部） */
+  /** 切换分类:只重建右侧字段(分类头/预览是固定节点,滚动位置也重置到字段顶部) */
   private select(category: TextStyleCategoryId): void {
     if (category === this.selected) return;
     this.selected = category;
@@ -370,13 +370,13 @@ export class StyleSettingsWindow {
   }
 
   /**
-   * 「恢复默认」：先让宿主删掉该分类覆盖，再按最新 layout 重建字段。
-   * 恢复后该分类回到「默认」，分类头里的按钮会被禁用；浏览器在按钮变 disabled 的瞬间会把
-   * 焦点丢回 body，所以这里先把焦点接回左列当前分类按钮，键盘用户不会丢失操作位置。
+   * 「恢复默认」:先让宿主删掉该分类覆盖,再按最新 layout 重建字段.
+   * 恢复后该分类回到「默认」,分类头里的按钮会被禁用;浏览器在按钮变 disabled 的瞬间会把
+   * 焦点丢回 body,所以这里先把焦点接回左列当前分类按钮,键盘用户不会丢失操作位置.
    */
   private resetSelected(): void {
-    // 不在这里按「有无覆盖」提前返回：页面分类没有覆盖、但字号与固定默认值不同
-    // （旧排版或旧文件）时按钮也是可用的，重置会回到固定默认字号；真正的不可用态由按钮 disabled 表达。
+    // 不在这里按「有无覆盖」提前返回:页面分类没有覆盖,但字号与固定默认值不同
+    // (旧排版或旧文件)时按钮也是可用的,重置会回到固定默认字号;真正的不可用态由按钮 disabled 表达.
     const hadFocus = this.overlay.ownerDocument.activeElement === this.head.reset.element;
     this.deps.onReset(this.selected);
     this.rebuildFields();
@@ -384,12 +384,12 @@ export class StyleSettingsWindow {
     if (hadFocus) this.categoryEntries.get(this.selected)?.button.focus();
   }
 
-  /* =========================== 右列：分类头与预览 =========================== */
+  /* =========================== 右列:分类头与预览 =========================== */
 
   /**
-   * 建右列顶部固定的分类头（只建一次）。
-   * 为什么固定不重建：恢复默认按钮在这里，它点击后要重建下面字段；若按钮本身也被重建，
-   * 焦点会落到 body 上，键盘用户会丢失操作位置。
+   * 建右列顶部固定的分类头(只建一次).
+   * 为什么固定不重建:恢复默认按钮在这里,它点击后要重建下面字段;若按钮本身也被重建,
+   * 焦点会落到 body 上,键盘用户会丢失操作位置.
    */
   private buildCategoryHead(): CategoryHead {
     const element = create_element({ tag: 'header' }, { class: 'page-style-cat' });
@@ -423,9 +423,9 @@ export class StyleSettingsWindow {
     return { element, name, kind, state, description, impact, example, empty, preview, reset };
   }
 
-  /* =========================== 右列：字段 =========================== */
+  /* =========================== 右列:字段 =========================== */
 
-  /** 重建右侧字段：先释放上一批控件，再按分类 kind 声明四组字段 */
+  /** 重建右侧字段:先释放上一批控件,再按分类 kind 声明四组字段 */
   private rebuildFields(): void {
     this.disposeFields();
     this.haloColorInput = null;
@@ -443,15 +443,15 @@ export class StyleSettingsWindow {
   }
 
   /**
-   * 「字号」组：数字行 + reset。
-   * 地图分类的默认值是「该分类地名原始字号中位数 × 地图缩放」，不是某条地名的字号；
-   * 页面分类的默认值是固定代码常量，不随纸张尺寸缩放。
+   * 「字号」组:数字行 + reset.
+   * 地图分类的默认值是「该分类地名原始字号中位数 × 地图缩放」,不是某条地名的字号;
+   * 页面分类的默认值是固定代码常量,不随纸张尺寸缩放.
    */
   private buildSizeSection(): HTMLElement {
     const grid = create_element({ tag: 'div' }, { class: 'page-field-grid' });
     this.addNumberRow(
       grid,
-      '字号（pt）',
+      '字号(pt)',
       () => this.readStyle().font_size_pt,
       (value) => this.apply({ font_size_pt: value }),
       {
@@ -464,7 +464,7 @@ export class StyleSettingsWindow {
     return createControlGroup('字号', grid);
   }
 
-  /** 「颜色与字形」组：文字颜色 / 字重 / 斜体 */
+  /** 「颜色与字形」组:文字颜色 / 字重 / 斜体 */
   private buildTypeSection(): HTMLElement {
     const grid = create_element({ tag: 'div' }, { class: 'page-field-grid' });
     this.addColorRow(
@@ -503,12 +503,12 @@ export class StyleSettingsWindow {
     return createControlGroup('颜色与字形', grid);
   }
 
-  /** 「行距与字距」组：行高倍数 / 字距 em */
+  /** 「行距与字距」组:行高倍数 / 字距 em */
   private buildSpacingSection(): HTMLElement {
     const grid = create_element({ tag: 'div' }, { class: 'page-field-grid' });
     this.addNumberRow(
       grid,
-      '行高（倍数）',
+      '行高(倍数)',
       () => this.readStyle().line_height,
       (value) => this.apply({ line_height: value }),
       {
@@ -523,7 +523,7 @@ export class StyleSettingsWindow {
     );
     this.addNumberRow(
       grid,
-      '字距（em）',
+      '字距(em)',
       () => this.readStyle().letter_spacing_em,
       (value) => this.apply({ letter_spacing_em: value }),
       {
@@ -539,13 +539,13 @@ export class StyleSettingsWindow {
     return createControlGroup('行距与字距', grid);
   }
 
-  /** 「描边（光晕）」组：开关 + 颜色 + 宽度；关闭时颜色/宽度禁用（避免在「无光晕」上写孤立值） */
+  /** 「描边(光晕)」组:开关 + 颜色 + 宽度;关闭时颜色/宽度禁用(避免在「无光晕」上写孤立值) */
   private buildHaloSection(kind: TextStyleCategoryKind): HTMLElement {
     const grid = create_element({ tag: 'div' }, { class: 'page-field-grid' });
     const hint =
       kind === 'map'
-        ? '地图底图复杂，光晕（白色描边）用于让文字保持可读。'
-        : '光晕（描边）用于让文字在复杂的底图或页面上保持可读。';
+        ? '地图底图复杂,光晕(白色描边)用于让文字保持可读.'
+        : '光晕(描边)用于让文字在复杂的底图或页面上保持可读.';
     grid.append(create_element({ tag: 'p' }, { class: 'page-style-hint' }, hint));
     this.addSwitchRow(
       grid,
@@ -565,7 +565,7 @@ export class StyleSettingsWindow {
     );
     const width = this.addNumberRow(
       grid,
-      '光晕宽度（pt）',
+      '光晕宽度(pt)',
       () => this.readStyle().halo?.width_pt ?? this.defaultHalo().width_pt,
       (value) => {
         const halo = this.readStyle().halo;
@@ -586,15 +586,15 @@ export class StyleSettingsWindow {
     this.haloColorInput = color.input;
     this.haloWidthField = width.field;
     this.haloRows.push(color.row, width.row);
-    return createControlGroup('描边（光晕）', grid);
+    return createControlGroup('描边(光晕)', grid);
   }
 
   /* =========================== 字段工厂 =========================== */
 
   /**
-   * 数字行：input 阶段即时写补丁；提交时解析失败就把显示回退到 layout 里的最新值。
-   * 给了 `reset` 就在数字框右侧挂一个 miko_ui 口径的 reset 按钮（与 Slider 的重置按钮同一件），
-   * 点它只恢复该字段的代码默认值；按钮可用态在 refreshResets 里统一刷新。
+   * 数字行:input 阶段即时写补丁;提交时解析失败就把显示回退到 layout 里的最新值.
+   * 给了 `reset` 就在数字框右侧挂一个 miko_ui 口径的 reset 按钮(与 Slider 的重置按钮同一件),
+   * 点它只恢复该字段的代码默认值;按钮可用态在 refreshResets 里统一刷新.
    */
   private addNumberRow(
     parent: HTMLElement,
@@ -654,9 +654,9 @@ export class StyleSettingsWindow {
   }
 
   /**
-   * 点 reset：让宿主删掉该字段覆盖并重算该分类文字，然后刷新窗口。
-   * 刷新后按钮通常变成禁用（值回到默认），浏览器会把焦点丢回 body；这里把焦点接回数字框，
-   * 键盘用户不会丢失操作位置。
+   * 点 reset:让宿主删掉该字段覆盖并重算该分类文字,然后刷新窗口.
+   * 刷新后按钮通常变成禁用(值回到默认),浏览器会把焦点丢回 body;这里把焦点接回数字框,
+   * 键盘用户不会丢失操作位置.
    */
   private resetField(button: ButtonHandle): void {
     const hadFocus = this.overlay.ownerDocument.activeElement === button.element;
@@ -667,7 +667,7 @@ export class StyleSettingsWindow {
     if (hadFocus) binding.input.input.focus();
   }
 
-  /** 颜色行：原生 `<input type="color">`（与侧栏颜色字段同一件），即时写补丁 */
+  /** 颜色行:原生 `<input type="color">`(与侧栏颜色字段同一件),即时写补丁 */
   private addColorRow(
     parent: HTMLElement,
     label: string,
@@ -684,7 +684,7 @@ export class StyleSettingsWindow {
     return { row, input };
   }
 
-  /** 开关行：切换即写补丁（状态在 layout 里，控件本身只是显示） */
+  /** 开关行:切换即写补丁(状态在 layout 里,控件本身只是显示) */
   private addSwitchRow(
     parent: HTMLElement,
     label: string,
@@ -701,7 +701,7 @@ export class StyleSettingsWindow {
 
   /* =========================== 刷新 =========================== */
 
-  /** 一次刷新：左列徽标/选中态、分类头、字段值、字段可用性、reset 可用态、实时预览 */
+  /** 一次刷新:左列徽标/选中态,分类头,字段值,字段可用性,reset 可用态,实时预览 */
   private refresh(): void {
     this.refreshList();
     this.refreshHead();
@@ -712,9 +712,9 @@ export class StyleSettingsWindow {
   }
 
   /**
-   * 左列：激活态 / 色块 / 数量徽标 / 已改标记 / 地图分类 0 项置灰。
-   * 地图分类在底图里没有该 role 时置灰（但不禁用：仍可选中并在右列看到原因）；
-   * 页面分类 0 项保持可用（之后还能新增该角色文字）。
+   * 左列:激活态 / 色块 / 数量徽标 / 已改标记 / 地图分类 0 项置灰.
+   * 地图分类在底图里没有该 role 时置灰(但不禁用:仍可选中并在右列看到原因);
+   * 页面分类 0 项保持可用(之后还能新增该角色文字).
    */
   private refreshList(): void {
     const layout = this.getLayout();
@@ -734,16 +734,16 @@ export class StyleSettingsWindow {
       entry.count.textContent = String(itemCount);
       entry.changed.hidden = !overridden;
       entry.button.title = empty
-        ? `${meta.label}：${meta.description}（该底图没有此分类，修改对当前图无效果）`
-        : `${meta.label}：${meta.description}`;
+        ? `${meta.label}:${meta.description}(该底图没有此分类,修改对当前图无效果)`
+        : `${meta.label}:${meta.description}`;
       const spoken = [meta.label, `${itemCount} 个元素`];
       if (overridden) spoken.push('已改');
       if (empty) spoken.push('该底图没有此分类');
-      entry.button.setAttribute('aria-label', spoken.join('，'));
+      entry.button.setAttribute('aria-label', spoken.join(','));
     }
   }
 
-  /** 右列分类头：类型徽标、影响数量、默认/已改、示例、空分类原因、恢复默认可用性 */
+  /** 右列分类头:类型徽标,影响数量,默认/已改,示例,空分类原因,恢复默认可用性 */
   private refreshHead(): void {
     const meta = TEXT_STYLE_CATEGORY_META[this.selected];
     const layout = this.getLayout();
@@ -753,13 +753,13 @@ export class StyleSettingsWindow {
 
     this.head.name.textContent = meta.label;
     this.head.kind.textContent = meta.kind === 'map' ? '地图标注' : '页面文字';
-    // 第三种状态「排版值」：用户没写覆盖，但当前字号与固定默认值不同（旧排版或旧文件）。
-    // 它不是「已改」，也不同于「默认」，明确标出来才解释得清恢复按钮为什么可用。
+    // 第三种状态「排版值」:用户没写覆盖,但当前字号与固定默认值不同(旧排版或旧文件).
+    // 它不是「已改」,也不同于「默认」,明确标出来才解释得清恢复按钮为什么可用.
     this.head.state.textContent = overridden ? '已改' : paperSizeDiffers ? '排版值' : '默认';
     this.head.state.classList.toggle('is-changed', overridden);
     this.head.description.textContent = meta.description;
     this.head.impact.textContent = `影响 ${items.length} 个元素`;
-    this.head.example.textContent = `示例：${this.exampleTextOf(meta, items)}`;
+    this.head.example.textContent = `示例:${this.exampleTextOf(meta, items)}`;
 
     const emptyReason = this.emptyReasonOf(meta, items.length);
     this.head.empty.hidden = emptyReason === null;
@@ -770,15 +770,15 @@ export class StyleSettingsWindow {
     this.head.reset.setText(`恢复「${meta.label}」默认值`);
     this.head.reset.element.title = canReset
       ? paperSizeDiffers
-        ? `当前字号来自旧排版（与固定默认字号不同）；恢复默认会回到代码固定值`
+        ? `当前字号来自旧排版(与固定默认字号不同);恢复默认会回到代码固定值`
         : `把「${meta.label}」恢复为代码默认样式`
-      : `「${meta.label}」当前就是默认样式，无需恢复`;
+      : `「${meta.label}」当前就是默认样式,无需恢复`;
   }
 
   /**
-   * 页面分类当前字号是否偏离固定默认字号。
-   * 只用于恢复默认按钮是否可用：旧排版/旧文件里的 item 字号可能与当前固定默认值不同，
-   * 此时没有覆盖，也应该允许用户一键回到默认字号。
+   * 页面分类当前字号是否偏离固定默认字号.
+   * 只用于恢复默认按钮是否可用:旧排版/旧文件里的 item 字号可能与当前固定默认值不同,
+   * 此时没有覆盖,也应该允许用户一键回到默认字号.
    */
   private pageSizeDiffersFromDefault(): boolean {
     const meta = TEXT_STYLE_CATEGORY_META[this.selected];
@@ -790,7 +790,7 @@ export class StyleSettingsWindow {
     );
   }
 
-  /** 字段值：就地写回未聚焦的控件（聚焦中的输入框保持用户文本，避免打断输入） */
+  /** 字段值:就地写回未聚焦的控件(聚焦中的输入框保持用户文本,避免打断输入) */
   private refreshValues(): void {
     const active = this.overlay.ownerDocument.activeElement;
     for (const binding of this.bindings) {
@@ -821,7 +821,7 @@ export class StyleSettingsWindow {
     }
   }
 
-  /** 结构可用性：光晕关闭时禁用光晕颜色/宽度 */
+  /** 结构可用性:光晕关闭时禁用光晕颜色/宽度 */
   private refreshStructure(): void {
     const haloDisabled = this.readStyle().halo === null;
     for (const row of this.haloRows) row.classList.toggle('is-disabled', haloDisabled);
@@ -830,9 +830,9 @@ export class StyleSettingsWindow {
   }
 
   /**
-   * reset 可用态：值回到默认（或结构上不可改，如光晕关闭时的宽度）就禁用；
-   * 标题写明会回到多少，点之前就能看到目标值。数值比较用 5e-4 容差：地图字号保留 1 位小数、
-   * 行高/字距按 step 输入，浮点噪声不该让按钮在默认值附近乱闪。
+   * reset 可用态:值回到默认(或结构上不可改,如光晕关闭时的宽度)就禁用;
+   * 标题写明会回到多少,点之前就能看到目标值.数值比较用 5e-4 容差:地图字号保留 1 位小数,
+   * 行高/字距按 step 输入,浮点噪声不该让按钮在默认值附近乱闪.
    */
   private refreshResets(): void {
     for (const reset of this.resets) {
@@ -850,7 +850,7 @@ export class StyleSettingsWindow {
     }
   }
 
-  /** 当前分类的默认字号：页面分类固定常量；地图分类 = 该分类地名原始字号中位数 × 地图缩放 */
+  /** 当前分类的默认字号:页面分类固定常量;地图分类 = 该分类地名原始字号中位数 × 地图缩放 */
   private defaultFontSizePt(): number {
     const meta = TEXT_STYLE_CATEGORY_META[this.selected];
     const layout = this.getLayout();
@@ -865,7 +865,7 @@ export class StyleSettingsWindow {
     return defaultTextFontSizePt(this.selected, layout);
   }
 
-  /** 实时预览：用当前分类样式重画示例文字（halo 副本先画、填充副本后画，与渲染层同口径） */
+  /** 实时预览:用当前分类样式重画示例文字(halo 副本先画,填充副本后画,与渲染层同口径) */
   private refreshPreview(): void {
     const meta = TEXT_STYLE_CATEGORY_META[this.selected];
     const layout = this.getLayout();
@@ -921,14 +921,14 @@ export class StyleSettingsWindow {
     );
     svg.append(...nodes);
     this.head.preview.classList.toggle('is-map', meta.kind === 'map');
-    // 页面文字用纸张色作预览底；地图分类的浅色地图底由 CSS 的 .is-map 给（与成品观感一致）
+    // 页面文字用纸张色作预览底;地图分类的浅色地图底由 CSS 的 .is-map 给(与成品观感一致)
     this.head.preview.style.background = meta.kind === 'map' ? '' : layout.style.paper_color;
     this.head.preview.replaceChildren(svg);
   }
 
   /* =========================== 补丁出口与小工具 =========================== */
 
-  /** 应用单字段补丁：交宿主落 layout/重绘，然后就地刷新本窗口（含结构变化） */
+  /** 应用单字段补丁:交宿主落 layout/重绘,然后就地刷新本窗口(含结构变化) */
   private apply(patch: TextStylePatch): void {
     this.deps.onApply(this.selected, patch);
     this.refresh();
@@ -946,15 +946,15 @@ export class StyleSettingsWindow {
     return readTextCategoryStyle(this.getLayout(), this.getGeo(), this.selected);
   }
 
-  /** 底图里该地图分类的地名条数（0 = 该底图没有这个分类，左列置灰的原因） */
+  /** 底图里该地图分类的地名条数(0 = 该底图没有这个分类,左列置灰的原因) */
   private geoLabelCount(category: TextStyleCategoryId): number {
     if (TEXT_STYLE_CATEGORY_META[category].kind !== 'map') return 0;
     return this.getGeo().labels.filter((label) => label.role === category).length;
   }
 
   /**
-   * 右列「示例」文字：页面分类取第一条 item 的整段文字（多行用 / 分隔）；地图分类取前 1~2 条
-   * 地名的首行（用 · 分隔）。没有 item 时退回 config 里的静态示例，避免示例行空着。
+   * 右列「示例」文字:页面分类取第一条 item 的整段文字(多行用 / 分隔);地图分类取前 1~2 条
+   * 地名的首行(用 · 分隔).没有 item 时退回 config 里的静态示例,避免示例行空着.
    */
   private exampleTextOf(meta: TextStyleCategoryMeta, items: readonly TextItem[]): string {
     if (items.length === 0) return meta.example;
@@ -971,7 +971,7 @@ export class StyleSettingsWindow {
     return text.length > 0 ? text : meta.example;
   }
 
-  /** 预览行：页面分类看第一条 item 的前两行；地图分类取前两条地名首行；都为空时用静态示例 */
+  /** 预览行:页面分类看第一条 item 的前两行;地图分类取前两条地名首行;都为空时用静态示例 */
   private previewLinesOf(meta: TextStyleCategoryMeta, items: readonly TextItem[]): string[] {
     const lines =
       meta.kind === 'map'
@@ -983,32 +983,32 @@ export class StyleSettingsWindow {
     return lines.length > 0 ? lines : [meta.example];
   }
 
-  /** 空分类原因（右列分类头里的一行说明）；页面分类 0 项只提示、不置灰 */
+  /** 空分类原因(右列分类头里的一行说明);页面分类 0 项只提示,不置灰 */
   private emptyReasonOf(meta: TextStyleCategoryMeta, itemCount: number): string | null {
     if (meta.kind === 'map') {
       const labelCount = this.geoLabelCount(this.selected);
       if (labelCount === 0) {
-        return `该底图没有「${meta.label}」地名，修改对当前图没有效果。`;
+        return `该底图没有「${meta.label}」地名,修改对当前图没有效果.`;
       }
       if (itemCount === 0) {
-        return `当前排版里没有「${meta.label}」文字（可能已被删除），修改不会影响已有元素。`;
+        return `当前排版里没有「${meta.label}」文字(可能已被删除),修改不会影响已有元素.`;
       }
       return null;
     }
     if (itemCount === 0) {
-      return `当前排版里还没有「${meta.label}」文字，修改会在新增该分类文字时生效。`;
+      return `当前排版里还没有「${meta.label}」文字,修改会在新增该分类文字时生效.`;
     }
     return null;
   }
 
-  /** 光晕打开时的默认值：地图分类跟 `MAP_LABEL_STYLE`，页面分类跟 `TEXT_HALO` */
+  /** 光晕打开时的默认值:地图分类跟 `MAP_LABEL_STYLE`,页面分类跟 `TEXT_HALO` */
   private defaultHalo(): Halo {
     return TEXT_STYLE_CATEGORY_META[this.selected].kind === 'map'
       ? { color: MAP_LABEL_STYLE.halo_color, width_pt: MAP_LABEL_STYLE.halo_width_pt }
       : { color: TEXT_HALO.color, width_pt: TEXT_HALO.width_pt };
   }
 
-  /** 释放上一批字段控件（重建/destroy 前调用）：先解绑控件，再清空登记 */
+  /** 释放上一批字段控件(重建/destroy 前调用):先解绑控件,再清空登记 */
   private disposeFields(): void {
     for (const dispose of this.fieldDisposers) dispose();
     this.fieldDisposers = [];
@@ -1016,7 +1016,7 @@ export class StyleSettingsWindow {
     this.resets = [];
   }
 
-  /** Esc 关闭；capture 阶段拦截，避免同一次按键再触发画布快捷键（与确认框同做法） */
+  /** Esc 关闭;capture 阶段拦截,避免同一次按键再触发画布快捷键(与确认框同做法) */
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape') return;
     event.preventDefault();

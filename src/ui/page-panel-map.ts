@@ -1,22 +1,22 @@
 /**
- * 出版排版编辑器侧栏的「地图」面板（摆放 x/y/宽、派生高度、图框与刻度样式）。
+ * 出版排版编辑器侧栏的「地图」面板(摆放 x/y/宽,派生高度,图框与刻度样式).
  *
- * 是什么：构建「地图」面板控件；宽高与图框样式直接写回 layout.map / layout.frame，
- * 派生高度（按底图宽高比算出）写在面板的一行提示里，每次 sync 刷新。
- * 为什么单独成模块：地图摆放与图框/刻度是同一块视觉配置，常量与读写回调集中在这里。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 是什么:构建「地图」面板控件;宽高与图框样式直接写回 layout.map / layout.frame,
+ * 派生高度(按底图宽高比算出)写在面板的一行提示里,每次 sync 刷新.
+ * 为什么单独成模块:地图摆放与图框/刻度是同一块视觉配置,常量与读写回调集中在这里.
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import { createControlGroup, create_element } from 'miko_ui';
 import type { SidebarContext } from './page-sidebar-context';
 
-/** 构建「地图」面板：摆放 / 图框 / 样式三组控件 */
+/** 构建「地图」面板:摆放 / 图框 / 样式三组控件 */
 export function buildMapPanel(body: HTMLElement, ctx: SidebarContext): void {
   const positionRow = create_element({ tag: 'div' }, { class: 'page-field-grid' });
   ctx.controls.addNumberRow(
     positionRow,
     'map.x',
-    'x（pt）',
+    'x(pt)',
     () => ctx.getLayout().map.x,
     (value) => ctx.handlers.onChange((layout) => (layout.map.x = value)),
     { step: 1 },
@@ -24,7 +24,7 @@ export function buildMapPanel(body: HTMLElement, ctx: SidebarContext): void {
   ctx.controls.addNumberRow(
     positionRow,
     'map.y',
-    'y（pt）',
+    'y(pt)',
     () => ctx.getLayout().map.y,
     (value) => ctx.handlers.onChange((layout) => (layout.map.y = value)),
     { step: 1 },
@@ -32,7 +32,7 @@ export function buildMapPanel(body: HTMLElement, ctx: SidebarContext): void {
   ctx.controls.addNumberRow(
     positionRow,
     'map.width',
-    '宽（pt）',
+    '宽(pt)',
     () => ctx.getLayout().map.width_pt,
     (value) => ctx.handlers.onChange((layout) => (layout.map.width_pt = value)),
     { min: 2, step: 1 },

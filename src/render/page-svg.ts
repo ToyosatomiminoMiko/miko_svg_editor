@@ -1,15 +1,15 @@
 /**
- * 预览 SVG：`layout + geo → SVG DOM`（纸张白底、底图 `<image>`、图框/刻度、items）。
+ * 预览 SVG:`layout + geo -> SVG DOM`(纸张白底,底图 `<image>`,图框/刻度,items).
  *
- * 是什么：把 `docs/PAGE-EDITOR.md` §5 的布局公式落成浏览器里的 SVG 节点，供编辑器
- * 所见即所得预览。根 `<svg>` 的 `viewBox`（缩放/平移）由调用方（`app/page-editor.ts`）
- * 维护；本模块只维护根节点内部的分层与内容。
- * 为什么用 `document.createElementNS` 而不是拼字符串 / `innerHTML`：文本来自用户输入，
- * 只有文本节点（`textContent`）与属性写入两条路，天然不存在标签注入；同时保留
- * 底图 `<image>` 的惰性加载（重绘时复用同一个 image 节点，不闪烁）。
- * 预览与成品的差异只在「交互辅助」：命中盒、选中框只在预览出现，不参与成品；两者的几何
- * 都来自 `core/page-layout.ts` 的 §5.7 item 几何框（不是 DOM getBBox，也不是外扩装饰）。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 是什么:把 `docs/PAGE-EDITOR.md` §5 的布局公式落成浏览器里的 SVG 节点,供编辑器
+ * 所见即所得预览.根 `<svg>` 的 `viewBox`(缩放/平移)由调用方(`app/page-editor.ts`)
+ * 维护;本模块只维护根节点内部的分层与内容.
+ * 为什么用 `document.createElementNS` 而不是拼字符串 / `innerHTML`:文本来自用户输入,
+ * 只有文本节点(`textContent`)与属性写入两条路,天然不存在标签注入;同时保留
+ * 底图 `<image>` 的惰性加载(重绘时复用同一个 image 节点,不闪烁).
+ * 预览与成品的差异只在「交互辅助」:命中盒,选中框只在预览出现,不参与成品;两者的几何
+ * 都来自 `core/page-layout.ts` 的 §5.7 item 几何框(不是 DOM getBBox,也不是外扩装饰).
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import { PAGE_HIT_TOLERANCE_PT } from '../config/page';
@@ -49,17 +49,17 @@ import {
 /* =========================== 选项与分层 =========================== */
 
 export interface PageSvgOptions {
-  /** 底图地址：上传底图字节的 objectURL（由 app/page-main.ts 创建并 revoke） */
+  /** 底图地址:上传底图字节的 objectURL(由 app/page-main.ts 创建并 revoke) */
   readonly baseUrl: string;
-  /** 当前选中元素 id；null = 无选中 */
+  /** 当前选中元素 id;null = 无选中 */
   readonly selectedId: number | null;
-  /** 文本度量（宽度 + 字体行盒）：命中盒与选中框的几何依据；缺省用无 DOM 回退 */
+  /** 文本度量(宽度 + 字体行盒):命中盒与选中框的几何依据;缺省用无 DOM 回退 */
   readonly measureText?: TextMeasure;
-  /** 是否给元素挂命中标记；导出/静态预览可关掉 */
+  /** 是否给元素挂命中标记;导出/静态预览可关掉 */
   readonly interactive?: boolean;
 }
 
-/** 根 SVG 内固定分层；重复渲染只更新内容，不复建底图 image */
+/** 根 SVG 内固定分层;重复渲染只更新内容,不复建底图 image */
 interface PageLayers {
   readonly defs: SVGDefsElement;
   readonly paper: SVGRectElement;
@@ -72,7 +72,7 @@ interface PageLayers {
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const layersByRoot = new WeakMap<SVGSVGElement, PageLayers>();
 
-/** 建一个 SVG 元素（几何/文本属性一律字符串） */
+/** 建一个 SVG 元素(几何/文本属性一律字符串) */
 function svg<K extends keyof SVGElementTagNameMap>(
   tag: K,
   attributes: Readonly<Record<string, string | undefined>> = {},
@@ -89,7 +89,7 @@ function svg<K extends keyof SVGElementTagNameMap>(
   return element;
 }
 
-/** 首次渲染时建层；根节点被外部替换时重建 */
+/** 首次渲染时建层;根节点被外部替换时重建 */
 function ensureLayers(root: SVGSVGElement): PageLayers {
   const cached = layersByRoot.get(root);
   if (cached && root.contains(cached.paper)) return cached;
@@ -107,7 +107,7 @@ function ensureLayers(root: SVGSVGElement): PageLayers {
   return layers;
 }
 
-/* =========================== 文字（§5.3） =========================== */
+/* =========================== 文字(§5.3) =========================== */
 
 interface TextVisualOptions {
   readonly fontFamily: string;
@@ -115,10 +115,10 @@ interface TextVisualOptions {
 }
 
 /**
- * 一批文字行：`halo=true` 时用光晕样式（先描边后填充的副本）。
- * 文字属性顺序与成品（`render/compose-svg.ts`）保持一致：
- * x/y → text-anchor → font-family → font-size → font-style → font-weight → letter-spacing
- * → fill → 光晕的 stroke/stroke-width/paint-order；字重 400 / 字距 0 时不写属性。
+ * 一批文字行:`halo=true` 时用光晕样式(先描边后填充的副本).
+ * 文字属性顺序与成品(`render/compose-svg.ts`)保持一致:
+ * x/y -> text-anchor -> font-family -> font-size -> font-style -> font-weight -> letter-spacing
+ * -> fill -> 光晕的 stroke/stroke-width/paint-order;字重 400 / 字距 0 时不写属性.
  */
 function createTextLines(
   item: TextItem,
@@ -153,8 +153,8 @@ function createTextLines(
 }
 
 /**
- * 命中盒：item 声明几何框（§5.7）四周加 `PAGE_HIT_TOLERANCE_PT` 的指针容差。
- * 透明、只吃指针事件；容差只是交互精度，不进入选中框（选中框画原样的声明框）。
+ * 命中盒:item 声明几何框(§5.7)四周加 `PAGE_HIT_TOLERANCE_PT` 的指针容差.
+ * 透明,只吃指针事件;容差只是交互精度,不进入选中框(选中框画原样的声明框).
  */
 function createHitBox(bounds: ItemBounds): SVGRectElement {
   return svg('rect', {
@@ -166,7 +166,7 @@ function createHitBox(bounds: ItemBounds): SVGRectElement {
   });
 }
 
-/** 一个 text 元素（含光晕/旋转/命中） */
+/** 一个 text 元素(含光晕/旋转/命中) */
 function renderTextItem(
   item: TextItem,
   layout: PageLayout,
@@ -203,8 +203,8 @@ function renderTextItem(
     fillGroup.append(line);
   }
   group.append(fillGroup);
-  // 命中盒放在最后（最上层）：文字/光晕自身也是可见绘制，避免命中时被字形边缘挡掉。
-  // 它画在组的坐标系里，因此与文字共用同一个 rotate transform（旋转文字的命中区不会错位）。
+  // 命中盒放在最后(最上层):文字/光晕自身也是可见绘制,避免命中时被字形边缘挡掉.
+  // 它画在组的坐标系里,因此与文字共用同一个 rotate transform(旋转文字的命中区不会错位).
   if (options.interactive !== false) {
     group.append(
       createHitBox(itemBoundsPt(item, layout, geo, options.measureText ?? fallbackTextMeasure)),
@@ -213,9 +213,9 @@ function renderTextItem(
   return group;
 }
 
-/* =========================== 图例（§5.4） =========================== */
+/* =========================== 图例(§5.4) =========================== */
 
-/** 图例条目的一个色块（线/矩形/点标记） */
+/** 图例条目的一个色块(线/矩形/点标记) */
 function createLegendSwatch(
   entry: LegendEntry,
   geometry: { readonly x0: number; readonly x1: number; readonly centerY: number },
@@ -299,7 +299,7 @@ function createLegendSwatch(
   }
 }
 
-/** 一个 legend 元素；`sizeScale` 只用于 map 空间（宽度乘 s，其余保持 pt） */
+/** 一个 legend 元素;`sizeScale` 只用于 map 空间(宽度乘 s,其余保持 pt) */
 function renderLegendItem(
   item: LegendItem,
   layout: PageLayout,
@@ -370,7 +370,7 @@ function renderLegendItem(
       ),
     );
   });
-  // 预览命中区：图例通常只有描边，直接点空白列也要能选中；几何 = §5.7 声明框 + 指针容差
+  // 预览命中区:图例通常只有描边,直接点空白列也要能选中;几何 = §5.7 声明框 + 指针容差
   if (options.interactive !== false) {
     group.append(
       createHitBox(itemBoundsPt(item, layout, geo, options.measureText ?? fallbackTextMeasure)),
@@ -379,9 +379,9 @@ function renderLegendItem(
   return group;
 }
 
-/* =========================== 色标（§5.5） =========================== */
+/* =========================== 色标(§5.5) =========================== */
 
-/** 一个 colorbar 元素；渐变定义写在根 `<defs>` 里（id 按契约固定） */
+/** 一个 colorbar 元素;渐变定义写在根 `<defs>` 里(id 按契约固定) */
 function renderColorbarItem(
   item: ColorbarItem,
   layout: PageLayout,
@@ -395,8 +395,8 @@ function renderColorbarItem(
     class: 'page-item page-item-colorbar',
     'data-page-item': String(item.id),
   });
-  // geo 没有 relief（Cartopy 不画色标）时，layout 里残留的 colorbar 无法取色带/刻度：
-  // 直接跳过该元素而不是让预览崩溃（导出 composeFinalSvg 会给出明确错误）。
+  // geo 没有 relief(Cartopy 不画色标)时,layout 里残留的 colorbar 无法取色带/刻度:
+  // 直接跳过该元素而不是让预览崩溃(导出 composeFinalSvg 会给出明确错误).
   const relief = geo.relief;
   if (relief === null) return group;
   const bar = colorbarLayout(effective, relief, placement.scale);
@@ -460,7 +460,7 @@ function renderColorbarItem(
   return group;
 }
 
-/* =========================== 图框/刻度（§5.2） =========================== */
+/* =========================== 图框/刻度(§5.2) =========================== */
 
 /** 图框矩形 + 刻度短线 + 刻度文字 */
 function renderFrame(layer: SVGGElement, layout: PageLayout, geo: Geo, fontFamily: string): void {
@@ -491,7 +491,7 @@ function renderFrame(layer: SVGGElement, layout: PageLayout, geo: Geo, fontFamil
           x2: formatPageNumber(tick.x2),
           y2: formatPageNumber(tick.y2),
           stroke: frame.tick_color,
-          // 与成品合成一致：刻度短线线宽取 frame.width_pt（不是 SVG 默认 1）
+          // 与成品合成一致:刻度短线线宽取 frame.width_pt(不是 SVG 默认 1)
           'stroke-width': formatPageNumber(frame.width_pt),
         }),
         svg(
@@ -515,9 +515,9 @@ function renderFrame(layer: SVGGElement, layout: PageLayout, geo: Geo, fontFamil
 
 /* =========================== 渐变定义 =========================== */
 
-/** colorbar 渐变（y1=100% 下 = vmin，y2=0% 上 = vmax，契约 §5.5） */
+/** colorbar 渐变(y1=100% 下 = vmin,y2=0% 上 = vmax,契约 §5.5) */
 function renderGradientDefs(defs: SVGDefsElement, layout: PageLayout, geo: Geo): void {
-  // 没有 relief 就没有可画的色带：清空 defs（预览跳过 colorbar，合成侧会报错）。
+  // 没有 relief 就没有可画的色带:清空 defs(预览跳过 colorbar,合成侧会报错).
   const relief = geo.relief;
   if (relief === null) {
     defs.replaceChildren();
@@ -547,14 +547,14 @@ function renderGradientDefs(defs: SVGDefsElement, layout: PageLayout, geo: Geo):
   defs.replaceChildren(...gradients);
 }
 
-/* =========================== 选中框（§5.7） =========================== */
+/* =========================== 选中框(§5.7) =========================== */
 
 /**
- * 选中框 = 该项的声明几何框 `itemBoundsPt()`（纸张坐标、未旋转）。
- * 为什么不用 getBBox：它不含元素自身的 transform（旋转文字会画在锚点附近而错位），还会把
- * 命中盒一起算进包围盒（于是框变成外扩容差）；声明框由 geo.json 的 page 块 + §5 公式 + CSS 字体
- * 度量推出，与预览/导出同源，且能单测。
- * 旋转项按 §5.3 的 `rotate(rotation_deg px py)` 施加到框本身，所以虚线框始终贴着文字块。
+ * 选中框 = 该项的声明几何框 `itemBoundsPt()`(纸张坐标,未旋转).
+ * 为什么不用 getBBox:它不含元素自身的 transform(旋转文字会画在锚点附近而错位),还会把
+ * 命中盒一起算进包围盒(于是框变成外扩容差);声明框由 geo.json 的 page 块 + §5 公式 + CSS 字体
+ * 度量推出,与预览/导出同源,且能单测.
+ * 旋转项按 §5.3 的 `rotate(rotation_deg px py)` 施加到框本身,所以虚线框始终贴着文字块.
  */
 function renderSelection(
   layer: SVGGElement,
@@ -593,10 +593,10 @@ function renderSelection(
 /* =========================== 渲染入口 =========================== */
 
 /**
- * 渲染整页到调用方提供的根 `<svg>`。
+ * 渲染整页到调用方提供的根 `<svg>`.
  *
- * 只改根节点内部；`viewBox`/尺寸由调用方控制。重复调用会复用 `<image>`（底图不重新请求），
- * 其余层按 layout 重建——编辑期每帧重建几十个节点，成本远小于一次重排。
+ * 只改根节点内部;`viewBox`/尺寸由调用方控制.重复调用会复用 `<image>`(底图不重新请求),
+ * 其余层按 layout 重建--编辑期每帧重建几十个节点,成本远小于一次重排.
  */
 export function renderPageSvg(
   root: SVGSVGElement,
@@ -634,7 +634,7 @@ export function renderPageSvg(
   });
   layers.overlay.replaceChildren(...items);
 
-  // 选中框：几何来自 layout + 文本度量，不依赖 DOM 布局（重复渲染/缩放都同一条公式）
+  // 选中框:几何来自 layout + 文本度量,不依赖 DOM 布局(重复渲染/缩放都同一条公式)
   renderSelection(
     layers.selection,
     layout,

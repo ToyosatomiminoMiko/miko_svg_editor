@@ -1,7 +1,7 @@
 /**
- * 尺寸标注绘制：把 dimensions.dimLayout 产出的屏幕布局原语（界线 / 尺寸线 / 圆弧 / 箭头 / 文字）画到画布上。
- * 正式标注与命令落位预览共用 drawDimLayout，悬停只换颜色；
- * 布局是纯函数，绘制与命中/拖拽因此共用同一份「看到什么就能点/拖什么」。
+ * 尺寸标注绘制:把 dimensions.dimLayout 产出的屏幕布局原语(界线 / 尺寸线 / 圆弧 / 箭头 / 文字)画到画布上.
+ * 正式标注与命令落位预览共用 drawDimLayout,悬停只换颜色;
+ * 布局是纯函数,绘制与命中/拖拽因此共用同一份「看到什么就能点/拖什么」.
  */
 
 import { dimLayout } from '../core/dimensions';
@@ -12,8 +12,8 @@ import type { Theme } from './theme';
 import { arrowScreen, lineScreen } from './draw-primitives';
 
 /**
- * 尺寸标注：绘制原语全部是屏幕坐标，绘制/命中/拖拽共用 dimensions.dimLayout 这一份布局。
- * 悬停中的尺寸用选中色；正式标注与落位预览共用 drawDimLayout。
+ * 尺寸标注:绘制原语全部是屏幕坐标,绘制/命中/拖拽共用 dimensions.dimLayout 这一份布局.
+ * 悬停中的尺寸用选中色;正式标注与落位预览共用 drawDimLayout.
  */
 export function drawDim(
   ctx: CanvasRenderingContext2D,
@@ -27,7 +27,7 @@ export function drawDim(
   drawDimLayout(ctx, theme, layout, hovered ? theme.selection : theme.dim);
 }
 
-/** 用指定颜色画一份尺寸布局；save/restore 保证描边、虚线、字体不会泄漏到后续绘制 */
+/** 用指定颜色画一份尺寸布局;save/restore 保证描边,虚线,字体不会泄漏到后续绘制 */
 export function drawDimLayout(
   ctx: CanvasRenderingContext2D,
   theme: Theme,
@@ -47,7 +47,7 @@ export function drawDimLayout(
 
   for (const arc of layout.arcs) {
     ctx.beginPath();
-    // sweep 有符号：<0 时 canvas 从 start 逆着画到 start+sweep（counterclockwise = true）
+    // sweep 有符号:<0 时 canvas 从 start 逆着画到 start+sweep(counterclockwise = true)
     ctx.arc(
       arc.center.x,
       arc.center.y,

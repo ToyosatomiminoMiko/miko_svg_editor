@@ -1,8 +1,8 @@
 /**
- * 图元多态契约：EntityBase 子类各自实现的「同一组操作」在种类之间口径一致。
- * 这些用例钉住的是调用点依赖的接口，而不是某种图元的内部字段：
- * 引用点、尺寸目标、几何基元、重合/相切约束映射、求解自由度与圆弧结构残差
- * 都通过多态方法给出，新增图元种类时应先让这里覆盖到新子类。
+ * 图元多态契约:EntityBase 子类各自实现的「同一组操作」在种类之间口径一致.
+ * 这些用例钉住的是调用点依赖的接口,而不是某种图元的内部字段:
+ * 引用点,尺寸目标,几何基元,重合/相切约束映射,求解自由度与圆弧结构残差
+ * 都通过多态方法给出,新增图元种类时应先让这里覆盖到新子类.
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -32,7 +32,7 @@ beforeEach(() => {
   clearModel();
 });
 
-describe('引用点、标签与大类', () => {
+describe('引用点,标签与大类', () => {
   it('每种图元按自己的结构给出 pointIds / label / category', () => {
     const a = addPt(0, 0);
     const b = addPt(10, 0);
@@ -55,7 +55,7 @@ describe('引用点、标签与大类', () => {
     expect(pe.pointIds).toEqual([pe.p]);
   });
 
-  it('isCurveEntity 用子类关系判断圆/弧，点图元拥有自己的点', () => {
+  it('isCurveEntity 用子类关系判断圆/弧,点图元拥有自己的点', () => {
     const center = addPt(0, 0);
     const circle = addCircle(center, 10);
     const arc = addArcByAngles(addPt(50, 50), 5, 0, 1);
@@ -70,7 +70,7 @@ describe('引用点、标签与大类', () => {
 });
 
 describe('尺寸目标与结构角色', () => {
-  it('直线标长度、圆/弧标半径、点图元没有独立尺寸', () => {
+  it('直线标长度,圆/弧标半径,点图元没有独立尺寸', () => {
     const a = addPt(0, 0);
     const b = addPt(10, 0);
     const line = addLine(a, b);
@@ -84,7 +84,7 @@ describe('尺寸目标与结构角色', () => {
     expect(pe.dimTarget()).toBeNull();
   });
 
-  it('pointRole 指出点在图元里的结构角色（重合的上下文排除用）', () => {
+  it('pointRole 指出点在图元里的结构角色(重合的上下文排除用)', () => {
     const a = addPt(0, 0);
     const b = addPt(10, 0);
     const line = addLine(a, b);
@@ -102,7 +102,7 @@ describe('尺寸目标与结构角色', () => {
 });
 
 describe('几何基元归一', () => {
-  it('直线 → segment、圆与整圆弧 → sweep=TAU 的 circular、点图元 → dot', () => {
+  it('直线 -> segment,圆与整圆弧 -> sweep=TAU 的 circular,点图元 -> dot', () => {
     const a = addPt(0, 0);
     const b = addPt(10, 0);
     const line = addLine(a, b);
@@ -120,7 +120,7 @@ describe('几何基元归一', () => {
     expect(primitiveOf(pe)).toEqual({ kind: 'dot', at: getPoint(pe.p) });
   });
 
-  it('引用点缺失时 primitive 返回 null，只读路径据此跳过', () => {
+  it('引用点缺失时 primitive 返回 null,只读路径据此跳过', () => {
     const line = addLine(addPt(0, 0), addPt(1, 1));
     line.a = 999;
     expect(primitiveOf(line)).toBeNull();
@@ -128,7 +128,7 @@ describe('几何基元归一', () => {
 });
 
 describe('约束映射多态', () => {
-  it('pointOnConstraint：直线 pointOnLine、圆/弧 pointOnCircle、点图元无', () => {
+  it('pointOnConstraint:直线 pointOnLine,圆/弧 pointOnCircle,点图元无', () => {
     const p = addPt(1, 1);
     const line = addLine(addPt(0, 0), addPt(10, 0));
     const circle = addCircle(addPt(0, 0), 10);
@@ -147,7 +147,7 @@ describe('约束映射多态', () => {
     expect(pe.pointOnConstraint(p.id)).toBeNull();
   });
 
-  it('tangentWith：线与圆互相分派到 tangentLineCircle，圆与弧落到 tangentCircleCircle', () => {
+  it('tangentWith:线与圆互相分派到 tangentLineCircle,圆与弧落到 tangentCircleCircle', () => {
     const line = addLine(addPt(0, 0), addPt(10, 0));
     const circle = addCircle(addPt(0, 0), 10);
     const arc = addArcByAngles(addPt(50, 50), 10, 0, 1);
@@ -174,7 +174,7 @@ describe('约束映射多态', () => {
 });
 
 describe('求解自由度与结构残差', () => {
-  it('只有圆贡献标量自由度（半径），且写回时钳制 >= 0', () => {
+  it('只有圆贡献标量自由度(半径),且写回时钳制 >= 0', () => {
     const line = addLine(addPt(0, 0), addPt(10, 0));
     const circle = addCircle(addPt(0, 0), 10);
     const pe = addPointEntity(addPt(3, 3));
@@ -188,7 +188,7 @@ describe('求解自由度与结构残差', () => {
     expect(circle.r).toBe(0);
   });
 
-  it('圆弧的端点共圆残差由自己提供：合法圆弧为 0，端点被挪开后非 0', () => {
+  it('圆弧的端点共圆残差由自己提供:合法圆弧为 0,端点被挪开后非 0', () => {
     const arc = addArcByAngles(addPt(0, 0), 10, 0, Math.PI / 2);
     const residuals = (e: ArcEntity): number[] => e.structuralResiduals(getPoint);
     expect(residuals(arc)).toHaveLength(1);
@@ -207,7 +207,7 @@ describe('求解自由度与结构残差', () => {
 });
 
 describe('半径的多态取值', () => {
-  it('圆读自身 r，圆弧由圆心到起点的距离推出；直线/点返回 null', () => {
+  it('圆读自身 r,圆弧由圆心到起点的距离推出;直线/点返回 null', () => {
     const center = addPt(0, 0);
     const circle = addCircle(center, 10);
     const start = addPt(3, 4);
@@ -222,7 +222,7 @@ describe('半径的多态取值', () => {
 });
 
 describe('容器类型', () => {
-  it('模型里存的是各自子类实例，可安全使用 instanceof 守卫', () => {
+  it('模型里存的是各自子类实例,可安全使用 instanceof 守卫', () => {
     addLine(addPt(0, 0), addPt(1, 0));
     addCircle(addPt(5, 5), 2);
     addPointEntity(addPt(9, 9));

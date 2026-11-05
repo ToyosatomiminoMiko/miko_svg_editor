@@ -1,12 +1,12 @@
 /**
- * 出版排版编辑器侧栏的「页面」面板（纸张预设/方向/宽高）。
+ * 出版排版编辑器侧栏的「页面」面板(纸张预设/方向/宽高).
  *
- * 是什么：构建「页面」面板的控件并接上写回回调；面板自身不持有状态——layout 经
- * `SidebarContext` 读最新值。纸张只决定画布/纸面尺寸，已放置元素的位置只由各自 x/y 决定；
- * 改纸张不会自动重排元素，也没有「默认版式」可重新生成（初始排版只在打开时生成一次）。
- * 为什么单独成模块：原 `page-sidebar.ts` 把四块面板与三类元素字段塞在同一个 1466 行文件里；
- * 拆开后页面尺寸相关的常量与规则只出现在本文件，改纸张行为不会牵动其它面板。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 是什么:构建「页面」面板的控件并接上写回回调;面板自身不持有状态--layout 经
+ * `SidebarContext` 读最新值.纸张只决定画布/纸面尺寸,已放置元素的位置只由各自 x/y 决定;
+ * 改纸张不会自动重排元素,也没有「默认版式」可重新生成(初始排版只在打开时生成一次).
+ * 为什么单独成模块:原 `page-sidebar.ts` 把四块面板与三类元素字段塞在同一个 1466 行文件里;
+ * 拆开后页面尺寸相关的常量与规则只出现在本文件,改纸张行为不会牵动其它面板.
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import { createControlGroup, create_element, createSegmented } from 'miko_ui';
@@ -19,7 +19,7 @@ import {
 } from '../config/page';
 import type { SidebarContext } from './page-sidebar-context';
 
-/** 构建「页面」面板：纸张预设/方向/宽高（位置全部由各元素 x/y 决定，改纸张不重排） */
+/** 构建「页面」面板:纸张预设/方向/宽高(位置全部由各元素 x/y 决定,改纸张不重排) */
 export function buildPaperPanel(body: HTMLElement, ctx: SidebarContext): void {
   const presetRow = create_element({ tag: 'div' }, { class: 'page-segmented-row' });
   const presetSegmented = createSegmented<PaperPresetId>({
@@ -61,7 +61,7 @@ export function buildPaperPanel(body: HTMLElement, ctx: SidebarContext): void {
   ctx.controls.addNumberRow(
     sizeRow,
     'page.width',
-    '宽（pt）',
+    '宽(pt)',
     () => ctx.getLayout().paper.width_pt,
     (value) => setPaperSize(ctx, 'width_pt', value),
     { min: 50, max: 5000, step: 0.5, onCommit: () => notifyPaperChanged(ctx) },
@@ -69,7 +69,7 @@ export function buildPaperPanel(body: HTMLElement, ctx: SidebarContext): void {
   ctx.controls.addNumberRow(
     sizeRow,
     'page.height',
-    '高（pt）',
+    '高(pt)',
     () => ctx.getLayout().paper.height_pt,
     (value) => setPaperSize(ctx, 'height_pt', value),
     { min: 50, max: 5000, step: 0.5, onCommit: () => notifyPaperChanged(ctx) },
@@ -80,12 +80,12 @@ export function buildPaperPanel(body: HTMLElement, ctx: SidebarContext): void {
     create_element(
       { tag: 'p' },
       { class: 'page-hint' },
-      '纸张尺寸与元素位置都以 pt 落盘；预览与导出的 final.svg 共用同一套排版公式。',
+      '纸张尺寸与元素位置都以 pt 落盘;预览与导出的 final.svg 共用同一套排版公式.',
     ),
   );
 }
 
-/** 切换纸张预设：非自定义时按方向取预设宽高 */
+/** 切换纸张预设:非自定义时按方向取预设宽高 */
 function applyPaperPreset(ctx: SidebarContext, id: PaperPresetId): void {
   ctx.handlers.onChange((layout) => {
     layout.paper.preset = id;
@@ -99,12 +99,12 @@ function applyPaperPreset(ctx: SidebarContext, id: PaperPresetId): void {
   notifyPaperChanged(ctx);
 }
 
-/** 纸张尺寸/方向改变后的统一提示：不会自动重排，元素位置只由各自 x/y 决定 */
+/** 纸张尺寸/方向改变后的统一提示:不会自动重排,元素位置只由各自 x/y 决定 */
 function notifyPaperChanged(ctx: SidebarContext): void {
-  ctx.handlers.notify('纸张已改变：已放置元素位置不变，可拖拽或改 x/y 调整');
+  ctx.handlers.notify('纸张已改变:已放置元素位置不变,可拖拽或改 x/y 调整');
 }
 
-/** 切换方向：有预设时取预设尺寸，自定义尺寸则交换宽高 */
+/** 切换方向:有预设时取预设尺寸,自定义尺寸则交换宽高 */
 function applyOrientation(ctx: SidebarContext, orientation: PaperOrientation): void {
   ctx.handlers.onChange((layout) => {
     const before = layout.paper.orientation;
@@ -115,7 +115,7 @@ function applyOrientation(ctx: SidebarContext, orientation: PaperOrientation): v
       layout.paper.width_pt = size.width_pt;
       layout.paper.height_pt = size.height_pt;
     } else if (before !== orientation) {
-      // 自定义尺寸没有「纵向原值」可查：按当前宽高交换，直观且可逆
+      // 自定义尺寸没有「纵向原值」可查:按当前宽高交换,直观且可逆
       const width = layout.paper.width_pt;
       layout.paper.width_pt = layout.paper.height_pt;
       layout.paper.height_pt = width;
@@ -124,11 +124,11 @@ function applyOrientation(ctx: SidebarContext, orientation: PaperOrientation): v
   notifyPaperChanged(ctx);
 }
 
-/** 手改宽/高：预设不再成立，统一记成 Custom */
+/** 手改宽/高:预设不再成立,统一记成 Custom */
 function setPaperSize(ctx: SidebarContext, key: 'width_pt' | 'height_pt', value: number): void {
   ctx.handlers.onChange((layout) => {
     layout.paper[key] = value;
-    // 手改尺寸后预设不再成立，统一记成 Custom（避免预设标签与数字不一致）
+    // 手改尺寸后预设不再成立,统一记成 Custom(避免预设标签与数字不一致)
     layout.paper.preset = 'Custom';
   });
 }

@@ -1,8 +1,8 @@
 /**
- * 画布渲染器：只负责 canvas/DPR 尺寸管理与一帧的绘制编排（网格 → 图元/点 → 尺寸 → 交互覆盖物）。
- * 具体画法拆在 draw-* 模块，本类把当前相机、主题与交互状态显式传给它们，自身不持有绘制逻辑；
- * 外观（颜色/线宽/虚线/箭头/像素对齐/线帽）全部来自构造时注入的 Theme，
- * 主题单一来源是应用样式 src/styles.css 的 :root（theme.ts 只负责读取一次）。
+ * 画布渲染器:只负责 canvas/DPR 尺寸管理与一帧的绘制编排(网格 -> 图元/点 -> 尺寸 -> 交互覆盖物).
+ * 具体画法拆在 draw-* 模块,本类把当前相机,主题与交互状态显式传给它们,自身不持有绘制逻辑;
+ * 外观(颜色/线宽/虚线/箭头/像素对齐/线帽)全部来自构造时注入的 Theme,
+ * 主题单一来源是应用样式 src/styles.css 的 :root(theme.ts 只负责读取一次).
  */
 
 import { cam } from '../core/camera';
@@ -37,7 +37,7 @@ export class Renderer {
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // resize 也走 render：视口尺寸变化后立刻按新尺寸重画
+    // resize 也走 render:视口尺寸变化后立刻按新尺寸重画
     this.render();
   }
 
@@ -53,7 +53,7 @@ export class Renderer {
     for (const e of model.ents.values()) {
       drawEntity(ctx, theme, e, isSelectedForRender(e), state.hoverEnt === e, cam);
     }
-    // 点图元的点由 drawEntity 画成「外环 + 实心中心」，这里跳过，避免同一位置画两遍
+    // 点图元的点由 drawEntity 画成「外环 + 实心中心」,这里跳过,避免同一位置画两遍
     const owned = ownedPointIds();
     for (const p of model.pts.values()) {
       if (owned.has(p.id)) continue;

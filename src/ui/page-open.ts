@@ -1,57 +1,57 @@
 /**
- * 出版排版编辑器的「打开地图」上传面板。
+ * 出版排版编辑器的「打开地图」上传面板.
  *
- * 是什么：画布中央的一块面板——一段说明、两个独立的选择栏（SVG / JSON）、一个「打开地图」
- * 按钮和一行错误文案。每栏自带「选择…」按钮、隐藏的 `<input type="file">` 与文件名回显；拖到页面
- * 任意位置的文件会按扩展名自动落进对应一栏。本文件只负责分栏、展示已选文件、把选好的文件交给
- * 回调，以及显示打开失败的中文原因。
- * 为什么 SVG 与 JSON 分成两栏：打开需要「底图 + geo.json」两份文件，用户经常只想换其中一份
- * （底图没变、只重新生成 geo.json；或排版文件没变、只换了底图）。合成一个 multiple 选择框时，
- * 第二次选择会覆盖第一次的全部选中项，用户只能每次把两份一起重选；拆成两栏后各栏独立替换，
- * 另一栏原样保留。
- * 为什么只选 SVG 也能点「打开地图」：本编辑器导出的成品 SVG 内嵌了整份 geo.json 与底图，
- * 单文件就是可再编辑的工程；JSON 栏因此是可选的（旧版没有内嵌源的成品已不再支持）。
- * 是否单文件、是否配套由 core 按内容判断，UI 不读文件内容。
- * 为什么只按扩展名分栏：UI 层不该读文件内容。分栏只是把文件送进哪个框，真正的分类与校验
- * （JSON 的 `format`、sha256、viewBox 一致性、内嵌源）在 `core/open-map.ts` 里做，
- * 内容 format 始终是唯一真值——扩展名分错也不会被误判，只是进错一栏后由 app 报错。
- * 为什么 geo 栏只收一个文件：排版（page 块）就在同一份 geo.json 里，两份 JSON 无法判断以谁为准。
- * 为什么面板覆盖整个画布：拖放目标越大越不容易拖错；面板隐藏后画布继续给编辑器用。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 是什么:画布中央的一块面板--一段说明,两个独立的选择栏(SVG / JSON),一个「打开地图」
+ * 按钮和一行错误文案.每栏自带「选择...」按钮,隐藏的 `<input type="file">` 与文件名回显;拖到页面
+ * 任意位置的文件会按扩展名自动落进对应一栏.本文件只负责分栏,展示已选文件,把选好的文件交给
+ * 回调,以及显示打开失败的中文原因.
+ * 为什么 SVG 与 JSON 分成两栏:打开需要「底图 + geo.json」两份文件,用户经常只想换其中一份
+ * (底图没变,只重新生成 geo.json;或排版文件没变,只换了底图).合成一个 multiple 选择框时,
+ * 第二次选择会覆盖第一次的全部选中项,用户只能每次把两份一起重选;拆成两栏后各栏独立替换,
+ * 另一栏原样保留.
+ * 为什么只选 SVG 也能点「打开地图」:本编辑器导出的成品 SVG 内嵌了整份 geo.json 与底图,
+ * 单文件就是可再编辑的工程;JSON 栏因此是可选的(旧版没有内嵌源的成品已不再支持).
+ * 是否单文件,是否配套由 core 按内容判断,UI 不读文件内容.
+ * 为什么只按扩展名分栏:UI 层不该读文件内容.分栏只是把文件送进哪个框,真正的分类与校验
+ * (JSON 的 `format`,sha256,viewBox 一致性,内嵌源)在 `core/open-map.ts` 里做,
+ * 内容 format 始终是唯一真值--扩展名分错也不会被误判,只是进错一栏后由 app 报错.
+ * 为什么 geo 栏只收一个文件:排版(page 块)就在同一份 geo.json 里,两份 JSON 无法判断以谁为准.
+ * 为什么面板覆盖整个画布:拖放目标越大越不容易拖错;面板隐藏后画布继续给编辑器用.
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import { create_element, createButton, createPanel, type ButtonHandle } from 'miko_ui';
 import { PAGE_UPLOAD_JSON_ACCEPT, PAGE_UPLOAD_SVG_ACCEPT } from '../config/page';
 import { classifyUploadFile } from '../core/document';
 
-/** 面板向组合根报告用户选择的结果（SVG 在前、JSON 在后；不做内容过滤） */
+/** 面板向组合根报告用户选择的结果(SVG 在前,JSON 在后;不做内容过滤) */
 export interface PageOpenHandlers {
   onFiles(files: readonly File[]): void;
 }
 
-/** 上传面板句柄：显示/隐藏、清错、读写忙碌态 */
+/** 上传面板句柄:显示/隐藏,清错,读写忙碌态 */
 export interface PageOpenPanelHandle {
-  /** 覆盖画布的面板根节点（已挂进宿主） */
+  /** 覆盖画布的面板根节点(已挂进宿主) */
   readonly element: HTMLElement;
   show(): void;
   hide(): void;
-  /** 复位：清空两栏、清错误、清文件框的值（允许再次选择同一个文件）、取消忙碌态 */
+  /** 复位:清空两栏,清错误,清文件框的值(允许再次选择同一个文件),取消忙碌态 */
   reset(): void;
-  /** 展示/清除错误文案（null 表示清除） */
+  /** 展示/清除错误文案(null 表示清除) */
   setError(message: string | null): void;
-  /** 读取与校验期间锁住输入，避免并发打开两份地图 */
+  /** 读取与校验期间锁住输入,避免并发打开两份地图 */
   setBusy(busy: boolean): void;
 }
 
 /** 一栏的节点与已选文件 */
 interface Slot {
-  /** 整栏（标签 + 文件名 + 按钮），点空白处等同点「选择…」 */
+  /** 整栏(标签 + 文件名 + 按钮),点空白处等同点「选择...」 */
   readonly root: HTMLElement;
   readonly pick: ButtonHandle;
   readonly input: HTMLInputElement;
   /** 文件名回显节点 */
   readonly name: HTMLElement;
-  /** 空栏时的回显文案（JSON 栏要提示「可选」，因为它不是每次都需要） */
+  /** 空栏时的回显文案(JSON 栏要提示「可选」,因为它不是每次都需要) */
   readonly emptyText: string;
   files: readonly File[];
 }
@@ -63,13 +63,13 @@ interface SlotOptions {
   readonly pickText: string;
   readonly pickTitle: string;
   readonly accept: string;
-  /** 是否允许多选：SVG 与 geo.json 都只收一个（一份文件就是全部真值） */
+  /** 是否允许多选:SVG 与 geo.json 都只收一个(一份文件就是全部真值) */
   readonly multiple: boolean;
 }
 
 /**
- * 在画布宿主里建上传面板（面板自带遮罩，`position: absolute; inset: 0`）。
- * 宿主需要是定位元素（`.page-canvas-host` 已是 `position: relative`）。
+ * 在画布宿主里建上传面板(面板自带遮罩,`position: absolute; inset: 0`).
+ * 宿主需要是定位元素(`.page-canvas-host` 已是 `position: relative`).
  */
 export function createPageOpenPanel(
   host: HTMLElement,
@@ -80,15 +80,15 @@ export function createPageOpenPanel(
   const lead = create_element(
     { tag: 'p' },
     { class: 'page-open-lead' },
-    '分别选择底图 SVG 与 geo.json；或只选一份本编辑器导出的成品 SVG。',
+    '分别选择底图 SVG 与 geo.json;或只选一份本编辑器导出的成品 SVG.',
   );
   const hint = create_element(
     { tag: 'p' },
     { class: 'page-open-hint' },
-    '底图由 Cartopy_file 生成（负责几何），geo.json 记录刻度、地名与配色；成品 SVG 自带底图与排版，选中它就能继续编辑（旧版导出、不含内嵌排版数据的成品不再支持，需要 base.svg + geo.json 重新打开）。也可以把文件拖到页面任意位置，会按扩展名自动放进对应一栏。',
+    '底图由 Cartopy_file 生成(负责几何),geo.json 记录刻度,地名与配色;成品 SVG 自带底图与排版,选中它就能继续编辑(旧版导出,不含内嵌排版数据的成品不再支持,需要 base.svg + geo.json 重新打开).也可以把文件拖到页面任意位置,会按扩展名自动放进对应一栏.',
   );
 
-  /** 建一栏：标签 + 文件名回显 + 「选择…」按钮 + 隐藏 input */
+  /** 建一栏:标签 + 文件名回显 + 「选择...」按钮 + 隐藏 input */
   const createSlot = (options: SlotOptions): Slot => {
     const name = create_element(
       { tag: 'span' },
@@ -124,17 +124,16 @@ export function createPageOpenPanel(
   const svgSlot = createSlot({
     label: '底图 / 成品 SVG',
     emptyText: '未选择',
-    pickText: '选择 SVG…',
-    pickTitle:
-      '选择 Cartopy 生成的底图 .svg，或本编辑器导出过的成品 SVG（自带排版，可单文件再编辑）',
+    pickText: '选择 SVG...',
+    pickTitle: '选择 Cartopy 生成的底图 .svg,或本编辑器导出过的成品 SVG(自带排版,可单文件再编辑)',
     accept: PAGE_UPLOAD_SVG_ACCEPT,
     multiple: false,
   });
   const jsonSlot = createSlot({
     label: 'geo.json',
-    emptyText: '可选（成品 SVG 自带排版时可省略）',
-    pickText: '选择 geo.json…',
-    pickTitle: '选择 geo.json（Cartopy 产出的，或本编辑器导出的带排版文件）',
+    emptyText: '可选(成品 SVG 自带排版时可省略)',
+    pickText: '选择 geo.json...',
+    pickTitle: '选择 geo.json(Cartopy 产出的,或本编辑器导出的带排版文件)',
     accept: PAGE_UPLOAD_JSON_ACCEPT,
     multiple: false,
   });
@@ -179,23 +178,23 @@ export function createPageOpenPanel(
     errorText.hidden = message === null || message.length === 0;
   };
 
-  /** 把两栏状态同步到 DOM：文件名、已填样式、按钮可用性 */
+  /** 把两栏状态同步到 DOM:文件名,已填样式,按钮可用性 */
   const sync = (): void => {
     for (const slot of [svgSlot, jsonSlot]) {
       const filled = slot.files.length > 0;
       slot.name.textContent = filled
-        ? slot.files.map((file) => file.name).join('、')
+        ? slot.files.map((file) => file.name).join(',')
         : slot.emptyText;
       slot.root.classList.toggle('is-filled', filled);
       slot.input.disabled = busy;
       slot.pick.setDisabled(busy);
     }
-    // 只选一个 SVG 也允许点「打开地图」：成品 SVG 自带排版；普通底图缺 geo.json 时由 core 报错。
+    // 只选一个 SVG 也允许点「打开地图」:成品 SVG 自带排版;普通底图缺 geo.json 时由 core 报错.
     const ready = svgSlot.files.length > 0;
     openButton.setDisabled(busy || !ready);
     openButton.element.title = ready
       ? ''
-      : '先选择底图 SVG 与 geo.json，或一份本编辑器导出的成品 SVG';
+      : '先选择底图 SVG 与 geo.json,或一份本编辑器导出的成品 SVG';
   };
 
   const setBusy = (next: boolean): void => {
@@ -206,15 +205,15 @@ export function createPageOpenPanel(
   };
 
   /**
-   * 把一批文件送进对应栏（选择框与拖放共用）：
-   * - SVG 最多一个（底图或成品），多了直接报错、两栏都不改；
-   * - 只拖一种文件时另一栏保持原值（用户可能分两次拖）；
-   * - JSON 栏一次只收一个 geo.json（排版与地理数据同在一个文件里，不能合并两份）；
-   * - JSON 不是必需的：成品 SVG 自带排版时可以只拖一份 SVG。
+   * 把一批文件送进对应栏(选择框与拖放共用):
+   * - SVG 最多一个(底图或成品),多了直接报错,两栏都不改;
+   * - 只拖一种文件时另一栏保持原值(用户可能分两次拖);
+   * - JSON 栏一次只收一个 geo.json(排版与地理数据同在一个文件里,不能合并两份);
+   * - JSON 不是必需的:成品 SVG 自带排版时可以只拖一份 SVG.
    */
   const applyFiles = (files: readonly File[]): void => {
     if (files.length === 0) {
-      setError('拖入的内容不是文件：请拖入 .svg 与 .json');
+      setError('拖入的内容不是文件:请拖入 .svg 与 .json');
       return;
     }
     const svgFiles: File[] = [];
@@ -235,15 +234,15 @@ export function createPageOpenPanel(
       }
     }
     if (unknown.length > 0) {
-      setError(`不识别的文件：${unknown.join('、')}。只接受 .svg 与 .json`);
+      setError(`不识别的文件:${unknown.join(',')}.只接受 .svg 与 .json`);
       return;
     }
     if (svgFiles.length > 1) {
-      setError(`只能选择一个 .svg（收到了 ${svgFiles.length} 个）`);
+      setError(`只能选择一个 .svg(收到了 ${svgFiles.length} 个)`);
       return;
     }
     if (jsonFiles.length > 1) {
-      setError(`只能选择一个 geo.json（收到了 ${jsonFiles.length} 个）`);
+      setError(`只能选择一个 geo.json(收到了 ${jsonFiles.length} 个)`);
       return;
     }
     if (svgFiles.length === 1) svgSlot.files = svgFiles;
@@ -252,7 +251,7 @@ export function createPageOpenPanel(
     sync();
   };
 
-  /** 「打开地图」：至少选一份 SVG 就把文件交给组合根（内容校验与是否配套仍由 core 做） */
+  /** 「打开地图」:至少选一份 SVG 就把文件交给组合根(内容校验与是否配套仍由 core 做) */
   const submit = (): void => {
     if (busy) return;
     if (svgSlot.files.length === 0) return;
@@ -267,7 +266,7 @@ export function createPageOpenPanel(
       if (busy) return;
       slot.input.click();
     });
-    // 点整栏空白处等同点按钮；点在按钮上时由按钮自己的 click 处理，避免一次点击弹两次文件框
+    // 点整栏空白处等同点按钮;点在按钮上时由按钮自己的 click 处理,避免一次点击弹两次文件框
     slot.root.addEventListener('click', (event) => {
       if (event.target === slot.pick.element) return;
       if (busy) return;
@@ -275,7 +274,7 @@ export function createPageOpenPanel(
     });
     slot.input.addEventListener('change', () => {
       const files = slot.input.files === null ? [] : [...slot.input.files];
-      // 清掉 value：否则用户修好文件后重新选同一个文件不会触发 change
+      // 清掉 value:否则用户修好文件后重新选同一个文件不会触发 change
       slot.input.value = '';
       if (files.length === 0) return;
       applyFiles(files);
@@ -290,7 +289,7 @@ export function createPageOpenPanel(
   });
   overlay.addEventListener('dragleave', (event) => {
     const next = event.relatedTarget;
-    // 在面板内部从子节点移到另一个子节点也会触发 dragleave：只有离开整个遮罩才算离开
+    // 在面板内部从子节点移到另一个子节点也会触发 dragleave:只有离开整个遮罩才算离开
     if (next instanceof Node && overlay.contains(next)) return;
     setDragging(false);
   });

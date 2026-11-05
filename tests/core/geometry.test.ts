@@ -1,7 +1,7 @@
 /**
- * geometry.ts 的拾取、吸附、包围盒与框选判定。
- * 全部在 node 环境跑：几何函数不读全局相机，容差由 zoom 参数换算成世界单位，
- * 因此「同一屏幕像素容差在不同缩放下命中不同世界范围」可以直接断言。
+ * geometry.ts 的拾取,吸附,包围盒与框选判定.
+ * 全部在 node 环境跑:几何函数不读全局相机,容差由 zoom 参数换算成世界单位,
+ * 因此「同一屏幕像素容差在不同缩放下命中不同世界范围」可以直接断言.
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -27,14 +27,14 @@ beforeEach(() => {
 });
 
 describe('pickPoint 容差随 zoom 换算', () => {
-  it('zoom=1：PICK_POINT_PX 像素内命中，超出不命中', () => {
+  it('zoom=1:PICK_POINT_PX 像素内命中,超出不命中', () => {
     const p = addPt(0, 0);
     const tol = PICK_POINT_PX;
     expect(pickPoint({ x: tol - 1, y: 0 }, 1)).toBe(p);
     expect(pickPoint({ x: tol + 1, y: 0 }, 1)).toBeNull();
   });
 
-  it('zoom=2：同样的世界距离在放大后不再命中（世界容差减半）', () => {
+  it('zoom=2:同样的世界距离在放大后不再命中(世界容差减半)', () => {
     const p = addPt(0, 0);
     expect(pickPoint({ x: PICK_POINT_PX / 2 - 0.5, y: 0 }, 2)).toBe(p);
     expect(pickPoint({ x: PICK_POINT_PX / 2 + 0.5, y: 0 }, 2)).toBeNull();
@@ -48,7 +48,7 @@ describe('pickPoint 容差随 zoom 换算', () => {
 });
 
 describe('pickEntity', () => {
-  it('直线按世界距离命中，容差随 zoom', () => {
+  it('直线按世界距离命中,容差随 zoom', () => {
     const line = addLine(addPt(0, 0), addPt(100, 0));
     expect(pickEntity({ x: 50, y: PICK_ENTITY_PX - 1 }, 1)).toBe(line);
     expect(pickEntity({ x: 50, y: PICK_ENTITY_PX + 1 }, 1)).toBeNull();
@@ -61,11 +61,11 @@ describe('pickEntity', () => {
     const circle = addCircle(center, 10);
     expect(pickEntity({ x: 10, y: 0 }, 1)).toBe(circle);
     expect(pickEntity({ x: 10 + PICK_ENTITY_PX + 1, y: 0 }, 1)).toBeNull();
-    // 圆心不是圆周：圆心附近近距离不命中
+    // 圆心不是圆周:圆心附近近距离不命中
     expect(pickEntity({ x: 0, y: 0 }, 1)).toBeNull();
   });
 
-  it('部分圆弧只命中弧段角度内；整圆弧任意角度都命中', () => {
+  it('部分圆弧只命中弧段角度内;整圆弧任意角度都命中', () => {
     const center = addPt(0, 0);
     const quarter = addArcByAngles(center, 10, 0, Math.PI / 2);
     const onArc = { x: 10 * Math.cos(Math.PI / 4), y: 10 * Math.sin(Math.PI / 4) };
@@ -75,7 +75,7 @@ describe('pickEntity', () => {
 
     clearModel();
     const c2 = addPt(0, 0);
-    const full = addArcByAngles(c2, 10, 0, 0); // a0 === a1 → 整圆
+    const full = addArcByAngles(c2, 10, 0, 0); // a0 === a1 -> 整圆
     for (let k = 0; k < 8; k++) {
       const ang = (TAU * k) / 8;
       expect(pickEntity({ x: 10 * Math.cos(ang), y: 10 * Math.sin(ang) }, 1)).toBe(full);
@@ -84,7 +84,7 @@ describe('pickEntity', () => {
 });
 
 describe('圆弧端点就是普通点', () => {
-  it('pickPoint 命中圆心与起点/终点；pickEntity 仍按弧段命中', () => {
+  it('pickPoint 命中圆心与起点/终点;pickEntity 仍按弧段命中', () => {
     const center = addPt(0, 0);
     const arc = addArcByAngles(center, 10, 0, Math.PI / 2);
     const g = arcGeometry(arc);
@@ -92,7 +92,7 @@ describe('圆弧端点就是普通点', () => {
     expect(pickPoint(g.start, 1)).toBe(g.start);
     expect(pickPoint(g.end, 1)).toBe(g.end);
     expect(pickPoint(center, 1)).toBe(center);
-    // 端点上既有点又有弧：拾取层先返回点（选择语义再由 selection.clickSelect 决定）
+    // 端点上既有点又有弧:拾取层先返回点(选择语义再由 selection.clickSelect 决定)
     expect(pickPoint({ x: 10, y: 0 }, 1)).toBe(g.start);
     expect(pickEntity({ x: 10, y: 0 }, 1)).toBe(arc);
   });
@@ -132,22 +132,22 @@ describe('computeSnap 优先级', () => {
     expect(snap?.pos.y).toBeCloseTo(80, 12);
   });
 
-  it('线上任意点优先于网格（端点/中点都被排除后）', () => {
+  it('线上任意点优先于网格(端点/中点都被排除后)', () => {
     addLine(addPt(0, 0), addPt(100, 0));
     const snap = computeSnap({ x: 20, y: 0 }, 1);
     expect(snap?.pri).toBe(SNAP_PRIORITY.on);
     expect(snap?.pos).toEqual({ x: 20, y: 0 });
   });
 
-  it('无几何可吸附时回退到网格，且网格容差打了折扣', () => {
+  it('无几何可吸附时回退到网格,且网格容差打了折扣', () => {
     const snap = computeSnap({ x: 23, y: 17 }, 1);
     expect(snap?.pri).toBe(SNAP_PRIORITY.grid);
     expect(snap?.pos).toEqual({ x: 20, y: 20 });
-    // 折扣后的网格容差 = SNAP_PX * SNAP_GRID_FACTOR，更远就不吸附
+    // 折扣后的网格容差 = SNAP_PX * SNAP_GRID_FACTOR,更远就不吸附
     expect(computeSnap({ x: 23, y: 20 + SNAP_PX }, 1)).toBeNull();
   });
 
-  it('吸附总开关由调用方（selection.updateHover）决定，computeSnap 本身不读 state', () => {
+  it('吸附总开关由调用方(selection.updateHover)决定,computeSnap 本身不读 state', () => {
     addPt(0, 0);
     state.snapEnabled = false;
     expect(computeSnap({ x: 0, y: 0 }, 1)?.pri).toBe(SNAP_PRIORITY.point);
@@ -159,7 +159,7 @@ describe('sketchBounds', () => {
     expect(sketchBounds()).toBeNull();
   });
 
-  it('直线包围盒 = 端点范围 + 留白（最长边 × padRatio + BBOX_PAD_MIN）', () => {
+  it('直线包围盒 = 端点范围 + 留白(最长边 × padRatio + BBOX_PAD_MIN)', () => {
     addLine(addPt(0, 0), addPt(10, 0));
     expect(sketchBounds()).toEqual({
       minx: -1.5,
@@ -171,10 +171,10 @@ describe('sketchBounds', () => {
     });
   });
 
-  it('圆弧按弧段紧包围盒，整圆弧按整圆', () => {
+  it('圆弧按弧段紧包围盒,整圆弧按整圆', () => {
     const center = addPt(0, 0);
     addArcByAngles(center, 10, 0, Math.PI / 2);
-    // 弧段边界含 0 / π/2 两个方向的三角值，用 closeTo 避免浮点末位差异
+    // 弧段边界含 0 / π/2 两个方向的三角值,用 closeTo 避免浮点末位差异
     const bb = sketchBounds();
     expect(bb?.minx).toBeCloseTo(-1.5, 12);
     expect(bb?.miny).toBeCloseTo(-1.5, 12);
@@ -262,7 +262,7 @@ describe('矩形与线段判定', () => {
 
 describe('引用悬空时的容错', () => {
   it('图元引用不存在的点时被跳过而不是抛错', () => {
-    // 绕过 model 的级联保证，把已有图元改成悬空引用，模拟异常数据（这里只测几何容错）
+    // 绕过 model 的级联保证,把已有图元改成悬空引用,模拟异常数据(这里只测几何容错)
     const line = addLine(addPt(0, 0), addPt(1, 1));
     line.a = 999;
     line.b = 998;

@@ -1,11 +1,11 @@
 /**
- * 编辑器控制器：事件接线 + 手势状态机 + 工具栏回调委托。
- * 领域原子操作在 sketch-actions.ts，操作/参数槽位与命令会话在 operations.ts，
- * 选择/悬停语义在 selection.ts，视图在 viewport.ts，工具栏命令与统一同步在 ui/editor-controls.ts，
- * 尺寸输入框在 ui/hint-editor.ts。
+ * 编辑器控制器:事件接线 + 手势状态机 + 工具栏回调委托.
+ * 领域原子操作在 sketch-actions.ts,操作/参数槽位与命令会话在 operations.ts,
+ * 选择/悬停语义在 selection.ts,视图在 viewport.ts,工具栏命令与统一同步在 ui/editor-controls.ts,
+ * 尺寸输入框在 ui/hint-editor.ts.
  *
- * 点击路由只有两条：有命令会话 → 交给 operations 补参数槽位（填满立即执行）；否则选择工具走选择/拖拽/框选。
- * 按键路由：Enter 兜底执行命令、Backspace 回退参数、Esc 按「输入框 → 框选 → 命令 → 选择」阶梯取消。
+ * 点击路由只有两条:有命令会话 -> 交给 operations 补参数槽位(填满立即执行);否则选择工具走选择/拖拽/框选.
+ * 按键路由:Enter 兜底执行命令,Backspace 回退参数,Esc 按「输入框 -> 框选 -> 命令 -> 选择」阶梯取消.
  */
 
 import { cam, s2w } from '../core/camera';
@@ -31,8 +31,8 @@ import { applyPan, beginPan, wheelZoom, type PanAnchor } from '../core/viewport'
 import { TOOLS, type ClickInput } from '../core/operations';
 
 /**
- * 尺寸拖拽手势：startS/startW 是按下时的屏幕/世界坐标（屏幕位移判阈值，世界坐标只作记录），
- * moved 越过 DRAG_THRESHOLD_PX 后置位；未拖动松手 = 单击打开尺寸输入框。
+ * 尺寸拖拽手势:startS/startW 是按下时的屏幕/世界坐标(屏幕位移判阈值,世界坐标只作记录),
+ * moved 越过 DRAG_THRESHOLD_PX 后置位;未拖动松手 = 单击打开尺寸输入框.
  */
 interface DimGesture {
   con: DimConstraint;
@@ -52,17 +52,17 @@ export class Editor {
   private readonly controls: EditorControls;
   private readonly measureText: MeasureText;
   private readonly dimFont: string;
-  /** 工具栏回调：由 EditorControls 生成，main.ts 交给 buildToolbar */
+  /** 工具栏回调:由 EditorControls 生成,main.ts 交给 buildToolbar */
   readonly handlers: ToolbarHandlers;
   private toolbar: ToolbarHandle | null = null;
-  /** 手势瞬态：拖拽/平移，结束即清；Point 不再有 dragging 标记（瞬态不写进模型） */
+  /** 手势瞬态:拖拽/平移,结束即清;Point 不再有 dragging 标记(瞬态不写进模型) */
   private gesture: Gesture | null = null;
 
   /**
-   * @param canvas 画布节点（右侧网格里的画布格）
-   * @param sidebarRoot 左侧状态栏宿主；已选择列表与状态/尺寸输入合并在这一栏里
-   * @param theme 画布主题（线宽/颜色 token）
-   * @param measureText 文本测量适配器（尺寸标注布局用）
+   * @param canvas 画布节点(右侧网格里的画布格)
+   * @param sidebarRoot 左侧状态栏宿主;已选择列表与状态/尺寸输入合并在这一栏里
+   * @param theme 画布主题(线宽/颜色 token)
+   * @param measureText 文本测量适配器(尺寸标注布局用)
    */
   constructor(
     canvas: HTMLCanvasElement,
@@ -94,19 +94,19 @@ export class Editor {
     });
     this.handlers = createToolbarHandlers(this.controls);
     this.attachEvents();
-    // 画布尺寸跟着布局格走：窗口缩放、侧栏拖拽、dock 换行都会改变它的 CSS 盒。
-    // 这些变化里只有窗口缩放会派发 window.resize，ResizeObserver 才能全都收到。
+    // 画布尺寸跟着布局格走:窗口缩放,侧栏拖拽,dock 换行都会改变它的 CSS 盒.
+    // 这些变化里只有窗口缩放会派发 window.resize,ResizeObserver 才能全都收到.
     const resizeObserver = new ResizeObserver(() => renderer.resize());
     resizeObserver.observe(canvas);
     renderer.resize();
   }
 
-  /** info 级提示：由 main.ts 接到 ui/notify 的 initNotifications 上，闪示在状态栏 */
+  /** info 级提示:由 main.ts 接到 ui/notify 的 initNotifications 上,闪示在状态栏 */
   flashInfo(message: string): void {
     this.hintEditor.flashInfo(message);
   }
 
-  /** 工具栏构建完成后回填引用，并设置默认工具 */
+  /** 工具栏构建完成后回填引用,并设置默认工具 */
   bindToolbar(toolbar: ToolbarHandle): void {
     this.toolbar = toolbar;
     toolbar.setSnap(state.snapEnabled);
@@ -119,14 +119,14 @@ export class Editor {
     this.canvas.addEventListener('pointerdown', (ev) => this.onPointerDown(ev));
     this.canvas.addEventListener('pointermove', (ev) => this.onPointerMove(ev));
     this.canvas.addEventListener('pointerup', (ev) => this.finishGesture(ev, false));
-    // 系统手势/多指中断：与 pointerup 同一收尾，避免 capture/手势状态残留（BUG-12）
+    // 系统手势/多指中断:与 pointerup 同一收尾,避免 capture/手势状态残留(BUG-12)
     this.canvas.addEventListener('pointercancel', (ev) => this.finishGesture(ev, true));
     this.canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
     this.canvas.addEventListener('wheel', (ev) => this.onWheel(ev), { passive: false });
     window.addEventListener('keydown', (ev) => this.onKeyDown(ev));
   }
 
-  /** 指针屏幕坐标；顺带刷新世界坐标指针位置 */
+  /** 指针屏幕坐标;顺带刷新世界坐标指针位置 */
   private pointerS(ev: PointerEvent): Vec {
     const rect = this.canvas.getBoundingClientRect();
     const sp = { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
@@ -134,7 +134,7 @@ export class Editor {
     return sp;
   }
 
-  /** 点击补参数所需的上下文（世界坐标、相机快照、吸附、尺寸命中所需的测量/字体） */
+  /** 点击补参数所需的上下文(世界坐标,相机快照,吸附,尺寸命中所需的测量/字体) */
   private clickInput(): ClickInput {
     return {
       w: state.cursorWorld,
@@ -157,9 +157,9 @@ export class Editor {
   }
 
   /**
-   * 左键按下：命令会话优先（点击往槽位里填参数，填满即由 EditorControls 执行）；
-   * 否则选择工具走选择/拖拽/框选。
-   * 防御分支：工具不是 select 却没有命令（正常流程不会出现），补启动一次操作。
+   * 左键按下:命令会话优先(点击往槽位里填参数,填满即由 EditorControls 执行);
+   * 否则选择工具走选择/拖拽/框选.
+   * 防御分支:工具不是 select 却没有命令(正常流程不会出现),补启动一次操作.
    */
   private onPrimaryClick(sp: Vec, shift: boolean): void {
     if (state.command) {
@@ -171,7 +171,7 @@ export class Editor {
       this.controls.clickCommand(this.clickInput());
       return;
     }
-    // 选择工具单击尺寸标注：进入尺寸手势（不选中几何、不框选）；尺寸优先于几何拾取
+    // 选择工具单击尺寸标注:进入尺寸手势(不选中几何,不框选);尺寸优先于几何拾取
     const dim = pickDim(state.cursorWorld, cam, this.measureText, this.dimFont);
     if (dim) {
       this.startDim(dim, sp);
@@ -181,7 +181,7 @@ export class Editor {
     const result = clickSelect(state.cursorWorld, cam.z, shift);
     if (result.dragPoints.length > 0) this.startDrag(result.dragPoints);
     if (result.startMarquee) {
-      // 框选也是一种手势：先清掉悬停/吸附标记，避免十字停在旧位置（BUG-11）
+      // 框选也是一种手势:先清掉悬停/吸附标记,避免十字停在旧位置(BUG-11)
       clearHover();
       state.marquee = { s0: { ...sp }, currentS: { ...sp }, active: false, add: shift };
     }
@@ -235,8 +235,8 @@ export class Editor {
     } else if (gesture?.kind === 'drag') {
       this.controls.finishDrag(cancelled);
     } else if (gesture?.kind === 'dim') {
-      // 结束/取消都清悬停高亮（下次移动由 updateHover 重新命中）；
-      // 未拖动的正常 pointerup 视为单击，打开该尺寸的输入框（不求解）
+      // 结束/取消都清悬停高亮(下次移动由 updateHover 重新命中);
+      // 未拖动的正常 pointerup 视为单击,打开该尺寸的输入框(不求解)
       state.hoverDim = null;
       if (!cancelled && ev.type === 'pointerup' && !gesture.dim.moved) {
         this.controls.openDimEditor(gesture.dim.con);
@@ -244,7 +244,7 @@ export class Editor {
         this.controls.sync();
       }
     } else if (marquee) {
-      // 结算用捕获的手势参数；state.marquee 只负责手势进行中的 live 状态
+      // 结算用捕获的手势参数;state.marquee 只负责手势进行中的 live 状态
       if (marquee.active && !cancelled) applyMarquee(marquee);
       this.controls.sync();
     }
@@ -302,7 +302,7 @@ export class Editor {
     clearHover();
   }
 
-  /** 尺寸手势入口：清吸附/悬停后点亮该尺寸，记录按下时的屏幕/世界坐标 */
+  /** 尺寸手势入口:清吸附/悬停后点亮该尺寸,记录按下时的屏幕/世界坐标 */
   private startDim(con: DimConstraint, sp: Vec): void {
     clearHover();
     state.hoverDim = con;
@@ -312,7 +312,7 @@ export class Editor {
     };
   }
 
-  /** 尺寸拖动：屏幕位移越过阈值才算拖动，之后按世界坐标改摆放参数（不改目标值、不需要求解） */
+  /** 尺寸拖动:屏幕位移越过阈值才算拖动,之后按世界坐标改摆放参数(不改目标值,不需要求解) */
   private moveDim(dim: DimGesture, sp: Vec): void {
     if (!dim.moved && Math.hypot(sp.x - dim.startS.x, sp.y - dim.startS.y) > DRAG_THRESHOLD_PX) {
       dim.moved = true;
@@ -321,12 +321,12 @@ export class Editor {
   }
 
   /**
-   * Esc 优先级阶梯：输入框 → 框选 → 命令会话 → 工具回选择 → 清空选择。
-   * 命令会话取消会同时删掉本次新建但未使用的点（operations.cancelCommand）。
+   * Esc 优先级阶梯:输入框 -> 框选 -> 命令会话 -> 工具回选择 -> 清空选择.
+   * 命令会话取消会同时删掉本次新建但未使用的点(operations.cancelCommand).
    */
   private cancelAction(): void {
-    // 兜底：正常事件顺序下不可达（输入框聚焦时 Esc 被 input 的 keydown 拦下且 stopPropagation），
-    // 保留以便将来 cancelAction 被其它路径调用时仍能先收尾输入框。
+    // 兜底:正常事件顺序下不可达(输入框聚焦时 Esc 被 input 的 keydown 拦下且 stopPropagation),
+    // 保留以便将来 cancelAction 被其它路径调用时仍能先收尾输入框.
     if (this.hintEditor.editing) {
       this.hintEditor.cancel();
       return;

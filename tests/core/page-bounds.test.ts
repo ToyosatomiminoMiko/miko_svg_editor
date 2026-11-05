@@ -1,11 +1,11 @@
 /**
- * `core/page-layout.ts` 的 §5.7 item 几何框（`itemBoundsPt`）单测。
+ * `core/page-layout.ts` 的 §5.7 item 几何框(`itemBoundsPt`)单测.
  *
- * 为什么要有这些用例：预览里的选中框与点击命中盒都改成「由 geo.json 的 page 块 + §5 公式 + 字体
- * 行盒」推出的声明几何框（不再用 DOM getBBox，也不再有外扩容差）。这里把每条推导钉住：
- * 水平边界来自锚点 + 前进宽度，垂直边界来自行基线 + 字体行盒，旋转来自 §5.3 的
- * rotate(rotation_deg px py)，图例/色标用 §5.4/§5.5 的声明框并按 map 空间缩放。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 为什么要有这些用例:预览里的选中框与点击命中盒都改成「由 geo.json 的 page 块 + §5 公式 + 字体
+ * 行盒」推出的声明几何框(不再用 DOM getBBox,也不再有外扩容差).这里把每条推导钉住:
+ * 水平边界来自锚点 + 前进宽度,垂直边界来自行基线 + 字体行盒,旋转来自 §5.3 的
+ * rotate(rotation_deg px py),图例/色标用 §5.4/§5.5 的声明框并按 map 空间缩放.
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -28,7 +28,7 @@ const document = makeDocument();
 const geo = document.geo;
 const layout = defaultPageLayout(geo);
 
-/** 取默认排版里的第一个指定 kind 元素；没有就抛（fixture 一定给了 legend/colorbar） */
+/** 取默认排版里的第一个指定 kind 元素;没有就抛(fixture 一定给了 legend/colorbar) */
 function firstOf<K extends 'text' | 'legend' | 'colorbar'>(
   kind: K,
 ): Extract<TextItem | LegendItem | ColorbarItem, { kind: K }> {
@@ -40,7 +40,7 @@ function firstOf<K extends 'text' | 'legend' | 'colorbar'>(
   return item;
 }
 
-describe('itemBoundsPt：text 水平边界', () => {
+describe('itemBoundsPt:text 水平边界', () => {
   const base = firstOf('text');
 
   it.each([
@@ -62,7 +62,7 @@ describe('itemBoundsPt：text 水平边界', () => {
     expect(bounds.y).toBeCloseTo(text.py - ascent - halfLeading, 10);
   });
 
-  it('宽高按实测字体行盒 + 半行距：垂直 = 首行上沿 .. 末行下沿', () => {
+  it('宽高按实测字体行盒 + 半行距:垂直 = 首行上沿 .. 末行下沿', () => {
     const item: TextItem = {
       ...base,
       space: 'page',
@@ -88,7 +88,7 @@ describe('itemBoundsPt：text 水平边界', () => {
     );
   });
 
-  it('单行选中框随行高变高；行高小于字体行盒时半行距为 0（不裁字）', () => {
+  it('单行选中框随行高变高;行高小于字体行盒时半行距为 0(不裁字)', () => {
     const item: TextItem = {
       ...firstOf('text'),
       space: 'page',
@@ -105,16 +105,16 @@ describe('itemBoundsPt：text 水平边界', () => {
     expect(loose.height).toBeGreaterThan(tight.height);
     expect(tight.height).toBeCloseTo(10, 10);
     expect(loose.height).toBeCloseTo(15, 10);
-    // 字体行盒是 1.0em（回退 0.8+0.2），0.5 行高的负半行距被夹到 0
+    // 字体行盒是 1.0em(回退 0.8+0.2),0.5 行高的负半行距被夹到 0
     expect(compressed.height).toBeCloseTo(tight.height, 10);
   });
 });
 
-describe('itemBoundsPt：text 旋转与坐标空间', () => {
+describe('itemBoundsPt:text 旋转与坐标空间', () => {
   const base = firstOf('text');
   const flat: TextItem = { ...base, rotation_deg: 0 };
 
-  it('旋转框记录 §5.3 的 rotate(rotation_deg px py)，不改变未旋转几何', () => {
+  it('旋转框记录 §5.3 的 rotate(rotation_deg px py),不改变未旋转几何', () => {
     const rotated: TextItem = { ...flat, rotation_deg: -30 };
     const plain = itemBoundsPt(flat, layout, geo);
     const turned = itemBoundsPt(rotated, layout, geo);
@@ -140,8 +140,8 @@ describe('itemBoundsPt：text 旋转与坐标空间', () => {
   });
 });
 
-describe('itemBoundsPt：legend / colorbar 声明框', () => {
-  it('page 空间图例：x/y/width 来自 layout，高度来自 §5.4 公式', () => {
+describe('itemBoundsPt:legend / colorbar 声明框', () => {
+  it('page 空间图例:x/y/width 来自 layout,高度来自 §5.4 公式', () => {
     const item = firstOf('legend');
     const bounds = itemBoundsPt(item, layout, geo);
     expect(bounds.x).toBeCloseTo(item.x, 10);
@@ -151,7 +151,7 @@ describe('itemBoundsPt：legend / colorbar 声明框', () => {
     expect(bounds.rotation_deg).toBe(0);
   });
 
-  it('map 空间图例：原点走 §5.1、宽高按 s 缩放', () => {
+  it('map 空间图例:原点走 §5.1,宽高按 s 缩放', () => {
     const item: LegendItem = { ...firstOf('legend'), space: 'map', x: 320, y: 240 };
     const placement = itemPlacement(item, layout, geo);
     const bounds = itemBoundsPt(item, layout, geo);
@@ -164,7 +164,7 @@ describe('itemBoundsPt：legend / colorbar 声明框', () => {
     );
   });
 
-  it('色标：宽高都按 map 空间 s 缩放（与 §5.5 声明框一致）', () => {
+  it('色标:宽高都按 map 空间 s 缩放(与 §5.5 声明框一致)', () => {
     const item: ColorbarItem = { ...firstOf('colorbar'), space: 'map', x: 320, y: 240 };
     const placement = itemPlacement(item, layout, geo);
     const bounds = itemBoundsPt(item, layout, geo);
@@ -176,14 +176,14 @@ describe('itemBoundsPt：legend / colorbar 声明框', () => {
 });
 
 describe('字体行盒回退口径', () => {
-  it('无 canvas 时按字号 × 0.8em / 0.2em（浏览器用 CSS font 的 fontBoundingBox）', () => {
+  it('无 canvas 时按字号 × 0.8em / 0.2em(浏览器用 CSS font 的 fontBoundingBox)', () => {
     expect(fallbackTextMeasure.ascent('10px sans-serif')).toBeCloseTo(8, 10);
     expect(fallbackTextMeasure.descent('10px sans-serif')).toBeCloseTo(2, 10);
     expect(fallbackTextMeasure.ascent('12px sans-serif')).toBeCloseTo(9.6, 10);
   });
 });
 
-/** 与 itemBoundsPt 内部一致的字体简写（item.font_family 优先，否则 layout.style；含字重） */
+/** 与 itemBoundsPt 内部一致的字体简写(item.font_family 优先,否则 layout.style;含字重) */
 function fontOf(item: TextItem): string {
   return fontShorthand(
     item.font_size_pt,

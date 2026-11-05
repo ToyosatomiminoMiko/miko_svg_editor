@@ -1,9 +1,9 @@
 /**
- * `core/page.ts`（契约 codec/校验）与 `core/page-layout.ts`（§5 布局公式）的单测。
+ * `core/page.ts`(契约 codec/校验)与 `core/page-layout.ts`(§5 布局公式)的单测.
  *
- * 为什么是 node 环境：这两层必须不碰 DOM——文本测量以参数注入，默认回退是纯字符宽度估算；
- * 这里用固定 geo/base 检查默认排版、刻度/图例/色标位置与序列化确定性。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 为什么是 node 环境:这两层必须不碰 DOM--文本测量以参数注入,默认回退是纯字符宽度估算;
+ * 这里用固定 geo/base 检查默认排版,刻度/图例/色标位置与序列化确定性.
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -51,7 +51,7 @@ import {
   opacityValue,
 } from '../../src/render/page-format';
 
-/** 构造一份最小 geo：底图 896.350289 × 712.3824，含 2 条经度/2 条纬度刻度、2 个地名 */
+/** 构造一份最小 geo:底图 896.350289 × 712.3824,含 2 条经度/2 条纬度刻度,2 个地名 */
 function makeGeo(): Geo {
   return {
     format: 'mapdoc-geo',
@@ -145,10 +145,10 @@ function makeGeo(): Geo {
       title: '伏尔加河流域地形图',
       subtitle: 'ETOPO 2022 | 流域: HydroSHEDS | 国界: GADM 4.1',
       notes: [
-        '注 1：这是一段足够长的右栏注记，用来验证默认排版会按右栏可用宽度折行后写进 lines 数组，而不是交给渲染期自动换行。',
-        '注 2：第二行注记。',
+        '注 1:这是一段足够长的右栏注记,用来验证默认排版会按右栏可用宽度折行后写进 lines 数组,而不是交给渲染期自动换行.',
+        '注 2:第二行注记.',
       ],
-      source: '地形: NOAA NCEI ETOPO 2022（15″） | 流域: HydroSHEDS | 国界: GADM 4.1',
+      source: '地形: NOAA NCEI ETOPO 2022(15″) | 流域: HydroSHEDS | 国界: GADM 4.1',
       area_annotation: ['伏尔加河流域', '约 141 万 km²'],
       legend_title: '图例',
       colorbar_title: '高程 / 水深',
@@ -156,13 +156,13 @@ function makeGeo(): Geo {
   };
 }
 
-/** 默认排版结果（多数用例共用） */
+/** 默认排版结果(多数用例共用) */
 function makeScene(): PageLayout {
   return defaultPageLayout(makeGeo());
 }
 
-describe('formatPageNumber（与 Python 侧同语义）', () => {
-  it('3 位小数、去尾零、无单位', () => {
+describe('formatPageNumber(与 Python 侧同语义)', () => {
+  it('3 位小数,去尾零,无单位', () => {
     expect(formatPageNumber(28)).toBe('28');
     expect(formatPageNumber(28.0)).toBe('28');
     expect(formatPageNumber(28.5)).toBe('28.5');
@@ -200,17 +200,17 @@ describe('规范化与序列化', () => {
     expect(roundToPageDecimals(28.0000001)).toBe(28);
   });
 
-  it('serializePage 键排序、无空白、数字 3 位小数', () => {
+  it('serializePage 键排序,无空白,数字 3 位小数', () => {
     const layout = makeScene();
     const text = serializePage(layout);
     expect(text.startsWith('{"frame":')).toBe(true);
-    // 无缩进/分隔空白（字符串内部的空格不算，如字体栈与副标题）
+    // 无缩进/分隔空白(字符串内部的空格不算,如字体栈与副标题)
     expect(text).not.toContain('": ');
     expect(text).not.toContain('", "');
     expect(text).not.toContain('\n');
-    // 规范化：A4 宽度 841.889764 → 841.89
+    // 规范化:A4 宽度 841.889764 -> 841.89
     expect(text).toContain('"width_pt":841.89');
-    // 键序稳定：同一 layout 两次序列化结果一致
+    // 键序稳定:同一 layout 两次序列化结果一致
     expect(serializePage(makeScene())).toBe(text);
   });
 
@@ -252,7 +252,7 @@ describe('validatePage', () => {
     }
   });
 
-  it('拒绝非法纸张尺寸、重复 id、seq 不大于最大 id', () => {
+  it('拒绝非法纸张尺寸,重复 id,seq 不大于最大 id', () => {
     const layout = makeScene();
     layout.paper.width_pt = 10;
     expect(validatePage(layout).ok).toBe(false);
@@ -278,7 +278,7 @@ describe('validatePage', () => {
     expect(validatePage(empty).ok).toBe(false);
   });
 
-  it('拒绝非法字重/字距（100..900 整数、-1..2 有限数）', () => {
+  it('拒绝非法字重/字距(100..900 整数,-1..2 有限数)', () => {
     for (const weight of [50, 950, 450.5, Number.NaN]) {
       const layout = makeScene();
       const text = layout.items.find((item): item is TextItem => item.kind === 'text')!;
@@ -291,7 +291,7 @@ describe('validatePage', () => {
       text.letter_spacing_em = spacing;
       expect(validatePage(layout).ok).toBe(false);
     }
-    // 边界值合法：权重 100/900、字距 -1/2
+    // 边界值合法:权重 100/900,字距 -1/2
     for (const [weight, spacing] of [
       [100, -1],
       [900, 2],
@@ -324,8 +324,8 @@ describe('validatePage', () => {
   });
 });
 
-describe('defaultPageLayout（§9 初始排版）', () => {
-  it('A4 横向、页边距 28、地图占左侧、右栏三块、标题/副标题/来源都在', () => {
+describe('defaultPageLayout(§9 初始排版)', () => {
+  it('A4 横向,页边距 28,地图占左侧,右栏三块,标题/副标题/来源都在', () => {
     const layout = makeScene();
     expect(layout.paper).toEqual({
       preset: 'A4',
@@ -350,7 +350,7 @@ describe('defaultPageLayout（§9 初始排版）', () => {
     const colorbar = layout.items.find((item) => item.kind === 'colorbar')!;
     expect(legend.kind).toBe('legend');
     expect(colorbar.kind).toBe('colorbar');
-    // 右栏：legend → notes → colorbar 自上而下
+    // 右栏:legend -> notes -> colorbar 自上而下
     if (legend.kind === 'legend' && colorbar.kind === 'colorbar') {
       const note = layout.items.find(
         (item) => item.kind === 'text' && item.role === 'note',
@@ -361,19 +361,19 @@ describe('defaultPageLayout（§9 初始排版）', () => {
     }
   });
 
-  it('全部地名都作为 map 空间文字铺上，id 唯一、seq 大于最大 id', () => {
+  it('全部地名都作为 map 空间文字铺上,id 唯一,seq 大于最大 id', () => {
     const layout = makeScene();
     const labels = layout.items.filter(
       (item): item is TextItem => item.kind === 'text' && item.space === 'map',
     );
     expect(labels).toHaveLength(makeGeo().labels.length);
     expect(labels[0]!.lines).toEqual(['甲国']);
-    // 地名字号按地图缩放比换算（Lead 联调结论：否则相对原图放大 1.7 倍压字）
+    // 地名字号按地图缩放比换算(Lead 联调结论:否则相对原图放大 1.7 倍压字)
     const scale = layout.map.width_pt / makeGeo().base.width_pt;
-    // 地图分类字号恒统一：country 只有一条 12pt → 中位数 × s，夹 4..40 并保留 1 位小数
+    // 地图分类字号恒统一:country 只有一条 12pt -> 中位数 × s,夹 4..40 并保留 1 位小数
     const expectedSize = Math.round(Math.min(40, Math.max(4, 12 * scale)) * 10) / 10;
     expect(labels[0]!.font_size_pt).toBe(expectedSize);
-    // 颜色/斜体来自 role 表；描边宽度是纸面常量（不随 s 缩放），旋转统一 0
+    // 颜色/斜体来自 role 表;描边宽度是纸面常量(不随 s 缩放),旋转统一 0
     expect(labels[0]!.color).toBe('#3a3a3a');
     expect(labels[0]!.italic).toBe(false);
     expect(labels[0]!.halo).toEqual({ color: '#ffffff', width_pt: 2 });
@@ -387,7 +387,7 @@ describe('defaultPageLayout（§9 初始排版）', () => {
     expect(layout.seq).toBe(Math.max(...ids) + 1);
   });
 
-  it('notes 按右栏宽度折行写入 lines（不自动换行）', () => {
+  it('notes 按右栏宽度折行写入 lines(不自动换行)', () => {
     const layout = makeScene();
     const note = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'note',
@@ -401,7 +401,7 @@ describe('defaultPageLayout（§9 初始排版）', () => {
     }
   });
 
-  it('legend width 按最长 label 测量，右栏宽度足够', () => {
+  it('legend width 按最长 label 测量,右栏宽度足够', () => {
     const layout = makeScene();
     const legend = layout.items.find((item) => item.kind === 'legend');
     expect(legend?.kind).toBe('legend');
@@ -416,7 +416,7 @@ describe('defaultPageLayout（§9 初始排版）', () => {
     );
   });
 
-  it('保留传入纸张（默认排版不重置纸张）', () => {
+  it('保留传入纸张(默认排版不重置纸张)', () => {
     const paper = {
       preset: 'A5' as const,
       orientation: 'landscape' as const,
@@ -430,8 +430,8 @@ describe('defaultPageLayout（§9 初始排版）', () => {
   });
 });
 
-describe('纸张自适应（defaultPageLayout 的 k）', () => {
-  it('A5 横向默认排版：注记与色标不重叠、不越过页底预留区', () => {
+describe('纸张自适应(defaultPageLayout 的 k)', () => {
+  it('A5 横向默认排版:注记与色标不重叠,不越过页底预留区', () => {
     const geo = makeGeo();
     const a5 = {
       preset: 'A5' as const,
@@ -451,21 +451,21 @@ describe('纸张自适应（defaultPageLayout 的 k）', () => {
     expect(colorbar?.kind).toBe('colorbar');
     if (!note || colorbar?.kind !== 'colorbar') return;
 
-    // k：A5 横向相对 A4 横向的比例（夹在 0.62..1.6）
+    // k:A5 横向相对 A4 横向的比例(夹在 0.62..1.6)
     const k = Math.min(
       1.6,
       Math.max(0.62, Math.min(a5.width_pt / 841.889764, a5.height_pt / 595.275591)),
     );
     expect(k).toBeLessThan(1);
 
-    // 注记最后一行基线 + 色标整体在页底之前，且色标不压注记
+    // 注记最后一行基线 + 色标整体在页底之前,且色标不压注记
     const noteLastBaseline =
       note.y + (note.lines.length - 1) * note.font_size_pt * note.line_height;
     expect(colorbar.y).toBeGreaterThan(noteLastBaseline);
     expect(colorbar.y + colorbar.height_pt).toBeLessThanOrEqual(a5.height_pt - 28 - 24 * k + 1e-6);
     expect(colorbar.height_pt).toBeGreaterThanOrEqual(40);
 
-    // 图例与版式间距按 k 缩小；页面文字字号固定，地名字号只跟地图缩放 s
+    // 图例与版式间距按 k 缩小;页面文字字号固定,地名字号只跟地图缩放 s
     const legend = layout.items.find((item) => item.kind === 'legend');
     if (legend?.kind === 'legend') expect(legend.font_size_pt).toBeCloseTo(9 * k, 9);
     expect(note.font_size_pt).toBeCloseTo(7.5, 9);
@@ -480,13 +480,13 @@ describe('纸张自适应（defaultPageLayout 的 k）', () => {
     const label = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.space === 'map',
     );
-    // 地图分类统一字号 = 该分类地名原始字号中位数 × s，夹 4..40、保留 1 位小数
+    // 地图分类统一字号 = 该分类地名原始字号中位数 × s,夹 4..40,保留 1 位小数
     const labelScale = layout.map.width_pt / geo.base.width_pt;
     expect(label?.font_size_pt).toBe(
       Math.round(Math.min(40, Math.max(4, 12 * labelScale)) * 10) / 10,
     );
 
-    // 来源仍在页内、且地图不越过来源预留区
+    // 来源仍在页内,且地图不越过来源预留区
     const source = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'source',
     );
@@ -496,7 +496,7 @@ describe('纸张自适应（defaultPageLayout 的 k）', () => {
     ).toBeLessThan(a5.height_pt - 28);
   });
 
-  it('A4 横向 k=1：版式与既有默认值一致', () => {
+  it('A4 横向 k=1:版式与既有默认值一致', () => {
     const layout = makeScene();
     const legend = layout.items.find((item) => item.kind === 'legend');
     if (legend?.kind === 'legend') expect(legend.font_size_pt).toBeCloseTo(9, 9);
@@ -506,7 +506,7 @@ describe('纸张自适应（defaultPageLayout 的 k）', () => {
     expect(note?.font_size_pt).toBeCloseTo(7.5, 9);
     expect(layout.map.y).toBe(72);
   });
-  it('A4/A5 纵向：地图用满内容宽、下方一排三块、互不覆盖且不越界', () => {
+  it('A4/A5 纵向:地图用满内容宽,下方一排三块,互不覆盖且不越界', () => {
     const geo = makeGeo();
     const cases = [
       {
@@ -537,7 +537,7 @@ describe('纸张自适应（defaultPageLayout 的 k）', () => {
         Math.max(0.62, Math.min(longSide / 841.889764, shortSide / 595.275591)),
       );
 
-      // 地图用满内容宽度，标题仍在页顶
+      // 地图用满内容宽度,标题仍在页顶
       expect(layout.map.x).toBe(28);
       expect(layout.map.width_pt).toBeCloseTo(paper.width_pt - 56, 9);
       expect(layout.map.y).toBeCloseTo(28 + 44 * k, 9);
@@ -555,8 +555,8 @@ describe('纸张自适应（defaultPageLayout 的 k）', () => {
       const legendHeight = legendLayout(legend).height;
       const mapBottom =
         layout.map.y + (layout.map.width_pt * geo.base.height_pt) / geo.base.width_pt;
-      // 纵向一排要让开经度刻度标签（tick 字号不随 k 缩），并额外留出注记字形上沿：
-      // notes 首行基线 = rowY，group 上沿约再高 0.8em。
+      // 纵向一排要让开经度刻度标签(tick 字号不随 k 缩),并额外留出注记字形上沿:
+      // notes 首行基线 = rowY,group 上沿约再高 0.8em.
       const noteSize = note.font_size_pt;
       const tickLabelBottom =
         layout.frame.tick_length_pt +
@@ -568,12 +568,12 @@ describe('纸张自适应（defaultPageLayout 的 k）', () => {
       expect(legend.y).toBeCloseTo(mapBottom + Math.max(12 * k, tickExtent), 9);
       expect(legend.y).toBeGreaterThan(mapBottom);
 
-      // 三块中最靠上的上沿（注记含 ascent）要高于刻度标签底部 + 4
+      // 三块中最靠上的上沿(注记含 ascent)要高于刻度标签底部 + 4
       const noteTop = note.y - note.font_size_pt * 0.8;
       const topmost = Math.min(legend.y, colorbar.y, noteTop);
       expect(topmost).toBeGreaterThanOrEqual(mapBottom + tickLabelBottom + 4 - 1e-6);
 
-      // 三块同一排：图例在左、注记居中、色标贴右，互不相交
+      // 三块同一排:图例在左,注记居中,色标贴右,互不相交
       expect(legend.x).toBe(28);
       expect(legend.y).toBeCloseTo(note.y, 9);
       expect(legend.x + legend.width_pt).toBeLessThanOrEqual(note.x + 1e-9);
@@ -584,7 +584,7 @@ describe('纸张自适应（defaultPageLayout 的 k）', () => {
       const noteWidth = Math.max(...note.lines.map((line) => fallbackMeasureText(line, noteFont)));
       expect(note.x + noteWidth).toBeLessThanOrEqual(colorbar.x + 1e-6);
 
-      // 色标标题（基线 y-4）在整排之内，不画到地图底/刻度标签上
+      // 色标标题(基线 y-4)在整排之内,不画到地图底/刻度标签上
       const titleBlock = 8 * k * 1.4 + 4;
       const rowHeight = Math.max(
         legendHeight,
@@ -614,7 +614,7 @@ describe('纸张自适应（defaultPageLayout 的 k）', () => {
 });
 
 describe('§5.1 坐标变换', () => {
-  it('底图坐标 → 纸张坐标并反解', () => {
+  it('底图坐标 -> 纸张坐标并反解', () => {
     const geo = makeGeo();
     const layout = makeScene();
     const transform = mapTransform(geo, layout.map);
@@ -643,7 +643,7 @@ describe('§5.1 坐标变换', () => {
 });
 
 describe('§5.2 图框/刻度', () => {
-  it('经度 bottom：线向下、基线 = 框底 + 刻度长 + gap + 字号', () => {
+  it('经度 bottom:线向下,基线 = 框底 + 刻度长 + gap + 字号', () => {
     const geo = makeGeo();
     const layout = makeScene();
     const ticks = frameTickLayout(layout, geo);
@@ -665,7 +665,7 @@ describe('§5.2 图框/刻度', () => {
     expect(first.anchor).toBe('middle');
   });
 
-  it('纬度 left/right：线向外、基线 = py + 字号×0.35', () => {
+  it('纬度 left/right:线向外,基线 = py + 字号×0.35', () => {
     const geo = makeGeo();
     const layout = makeScene();
     const ticks = frameTickLayout(layout, geo).filter((tick) => tick.axis === 'lat');
@@ -721,11 +721,11 @@ describe('§5.4 图例', () => {
 });
 
 describe('§5.5 色标', () => {
-  it('tick 位置按 vmin/vmax 线性映射，标题居中且带单位', () => {
+  it('tick 位置按 vmin/vmax 线性映射,标题居中且带单位', () => {
     const layout = makeScene();
     const colorbar = layout.items.find((item) => item.kind === 'colorbar');
     if (colorbar?.kind !== 'colorbar') throw new Error('缺少色标');
-    // fixture 的 geo 一定带 relief；类型上 relief 可空（无色标的 geo），这里取非空断言
+    // fixture 的 geo 一定带 relief;类型上 relief 可空(无色标的 geo),这里取非空断言
     const relief = makeGeo().relief!;
     const bar = colorbarLayout(colorbar, relief);
     expect(bar.titleText).toBe('高程 / 水深 (m)');
@@ -754,7 +754,7 @@ describe('§5.5 色标', () => {
 });
 
 describe('§5.3 文字布局', () => {
-  it('多行基线 = 首行 + i × 字号 × 行高；map 空间过变换', () => {
+  it('多行基线 = 首行 + i × 字号 × 行高;map 空间过变换', () => {
     const geo = makeGeo();
     const layout = makeScene();
     const label = layout.items.find(
@@ -778,7 +778,7 @@ describe('§5.3 文字布局', () => {
 });
 
 describe('文字折行', () => {
-  it('按宽度折行、保留显式换行、超长词硬切', () => {
+  it('按宽度折行,保留显式换行,超长词硬切', () => {
     const font = fontShorthand(9, 'sans-serif');
     const lines = wrapText('abcdefghij', font, 30);
     expect(lines.length).toBeGreaterThan(1);
@@ -792,35 +792,35 @@ describe('文字折行', () => {
 });
 
 /* ======================================================================
- * 分类文字样式：page.text_style 与 text item geo_label_id
+ * 分类文字样式:page.text_style 与 text item geo_label_id
  * ====================================================================== */
 
-/** 把 layout 克隆成可写任意坏数据的普通对象（validatePage 接收 unknown） */
+/** 把 layout 克隆成可写任意坏数据的普通对象(validatePage 接收 unknown) */
 function mutablePage(): Record<string, unknown> {
   return structuredClone(makeScene()) as unknown as Record<string, unknown>;
 }
 
-/** 校验 page 块并只取错误清单（ok 时返回空数组） */
+/** 校验 page 块并只取错误清单(ok 时返回空数组) */
 function errorsOf(value: unknown): readonly string[] {
   const result = validatePage(value);
   return result.ok ? [] : result.errors;
 }
 
-describe('page.text_style 校验（§1.1）', () => {
-  it('defaultPageLayout 回写 text_style:{} 且通过校验；text item 都带 geo_label_id', () => {
+describe('page.text_style 校验(§1.1)', () => {
+  it('defaultPageLayout 回写 text_style:{} 且通过校验;text item 都带 geo_label_id', () => {
     const layout = makeScene();
     expect(layout.text_style).toEqual({});
     expect(validatePage(layout, makeGeo()).ok).toBe(true);
     for (const item of layout.items) {
       if (item.kind !== 'text') continue;
-      // 地图地名 item 记录来源 label.id；页面文字恒为 null
+      // 地图地名 item 记录来源 label.id;页面文字恒为 null
       if (item.space === 'map') expect(typeof item.geo_label_id).toBe('string');
       else expect(item.geo_label_id).toBeNull();
     }
   });
 
-  it('合法覆盖（7 个字段）通过校验', () => {
-    // 覆盖只允许 7 个已知键；字号是绝对值（不存在 null = 跟随旧数据的写法）。
+  it('合法覆盖(7 个字段)通过校验', () => {
+    // 覆盖只允许 7 个已知键;字号是绝对值(不存在 null = 跟随旧数据的写法).
     const page = mutablePage();
     page['text_style'] = {
       title: {
@@ -856,7 +856,7 @@ describe('page.text_style 校验（§1.1）', () => {
     expect(errorsOf(badValue)).toContain('text_style.title: 必须是对象');
   });
 
-  it('逐字段取值范围（所有分类的 font_size_pt 都不允许 null）', () => {
+  it('逐字段取值范围(所有分类的 font_size_pt 都不允许 null)', () => {
     const cases: readonly [unknown, string][] = [
       [{ title: { font_size_pt: 0 } }, 'text_style.title.font_size_pt: 必须是 1..500 的有限数字'],
       [{ title: { font_size_pt: 501 } }, 'text_style.title.font_size_pt: 必须是 1..500 的有限数字'],
@@ -885,7 +885,7 @@ describe('page.text_style 校验（§1.1）', () => {
       expect(errorsOf(page)).toContain(message);
     }
 
-    // 边界合法：字号 1/500、字距 -1/2、行高 0.5/5、字重 100/900、光晕宽度 0
+    // 边界合法:字号 1/500,字距 -1/2,行高 0.5/5,字重 100/900,光晕宽度 0
     const boundary = makeScene();
     boundary.text_style = {
       title: {
@@ -905,7 +905,7 @@ describe('page.text_style 校验（§1.1）', () => {
     expect(errorsOf(boundary)).toEqual([]);
   });
 
-  it('halo 必须是 null 或 { color, width_pt: 0..20 }，未知字段报错', () => {
+  it('halo 必须是 null 或 { color, width_pt: 0..20 },未知字段报错', () => {
     const cases: readonly [unknown, string][] = [
       [{ title: { halo: 1 } }, 'text_style.title.halo: 必须是对象或 null'],
       [{ title: { halo: {} } }, 'text_style.title.halo.color: 缺少字段'],
@@ -929,7 +929,7 @@ describe('page.text_style 校验（§1.1）', () => {
     }
   });
 
-  it('导出 page 块包含 text_style（只落用户改过的字段）', () => {
+  it('导出 page 块包含 text_style(只落用户改过的字段)', () => {
     const layout = makeScene();
     layout.text_style = { title: { color: '#ff0000', font_size_pt: 20 } };
     const parsed = JSON.parse(serializeMapDocFile(makeGeo(), layout)) as {
@@ -939,8 +939,8 @@ describe('page.text_style 校验（§1.1）', () => {
   });
 });
 
-describe('text item geo_label_id 校验（§1.2）：分类来源必填，不是兼容字段', () => {
-  /** 取第一个指定空间/角色的 text item（validatePage 接收 unknown，按可写对象操作） */
+describe('text item geo_label_id 校验(§1.2):分类来源必填,不是兼容字段', () => {
+  /** 取第一个指定空间/角色的 text item(validatePage 接收 unknown,按可写对象操作) */
   function textItemOf(
     page: Record<string, unknown>,
     space: 'page' | 'map',
@@ -969,7 +969,7 @@ describe('text item geo_label_id 校验（§1.2）：分类来源必填，不是
     );
   });
 
-  it('页面文字必须为 null；给了 geo 时地图地名 id 必须能在 geo.labels 里查到', () => {
+  it('页面文字必须为 null;给了 geo 时地图地名 id 必须能在 geo.labels 里查到', () => {
     const pageText = mutablePage();
     textItemOf(pageText, 'page')['geo_label_id'] = 'label-country-A';
     expect(errorsOf(pageText).some((error) => error.includes('页面文字必须为 null'))).toBe(true);
@@ -981,13 +981,13 @@ describe('text item geo_label_id 校验（§1.2）：分类来源必填，不是
     if (result.ok) return;
     expect(result.errors.some((error) => error.includes('在 geo.labels 里找不到 id'))).toBe(true);
 
-    // 默认排版本身必须完全合法（含每一条地图地名的来源 id）
+    // 默认排版本身必须完全合法(含每一条地图地名的来源 id)
     expect(validatePage(makeScene(), makeGeo()).ok).toBe(true);
   });
 });
 
-describe('normalizePage：text_style / geo_label_id 补默认（§1.1/§1.2）', () => {
-  it('缺省 text_style → {}、旧 text item 补 geo_label_id:null，且不修改入参', () => {
+describe('normalizePage:text_style / geo_label_id 补默认(§1.1/§1.2)', () => {
+  it('缺省 text_style -> {},旧 text item 补 geo_label_id:null,且不修改入参', () => {
     const raw = mutablePage();
     delete raw['text_style'];
     const items = raw['items'] as Record<string, unknown>[];
@@ -1003,7 +1003,7 @@ describe('normalizePage：text_style / geo_label_id 补默认（§1.1/§1.2）',
     expect(raw).toEqual(before);
   });
 
-  it('覆盖表收敛：未知分类/未知字段丢弃、空对象清理、地图 null 删除、halo null 保留、深拷贝', () => {
+  it('覆盖表收敛:未知分类/未知字段丢弃,空对象清理,地图 null 删除,halo null 保留,深拷贝', () => {
     const raw = mutablePage();
     raw['text_style'] = {
       title: { color: '#123456', halo: null, junk: 1 },
@@ -1033,7 +1033,7 @@ describe('normalizePage：text_style / geo_label_id 补默认（§1.1/§1.2）',
 });
 
 /* ======================================================================
- * 左右居中约束：text item center_h
+ * 左右居中约束:text item center_h
  * ====================================================================== */
 
 /** 取默认排版里指定角色的页面文字 */
@@ -1046,8 +1046,8 @@ function pageTextOf(layout: PageLayout, role: TextItem['role']): TextItem {
   return item;
 }
 
-describe('text item center_h：页面文字左右居中约束', () => {
-  it('默认排版：标题/副标题/来源开启且落在纸张中心，注记/手动地名/地图地名关闭', () => {
+describe('text item center_h:页面文字左右居中约束', () => {
+  it('默认排版:标题/副标题/来源开启且落在纸张中心,注记/手动地名/地图地名关闭', () => {
     const layout = makeScene();
     const paperCenter = roundToPageDecimals(layout.paper.width_pt / 2);
     for (const role of ['title', 'subtitle', 'source'] as const) {
@@ -1056,7 +1056,7 @@ describe('text item center_h：页面文字左右居中约束', () => {
       expect(item.x).toBe(paperCenter);
       expect(item.anchor).toBe('middle');
     }
-    // 注记是默认排版里唯一的自由摆放页面文字（手动地名/标注要用户新增）
+    // 注记是默认排版里唯一的自由摆放页面文字(手动地名/标注要用户新增)
     expect(pageTextOf(layout, 'note').center_h).toBe(false);
     const mapTexts = layout.items.filter(
       (item): item is TextItem => item.kind === 'text' && item.space === 'map',
@@ -1065,7 +1065,7 @@ describe('text item center_h：页面文字左右居中约束', () => {
     for (const item of mapTexts) expect(item.center_h).toBe(false);
   });
 
-  it('enforceHorizontalCenter：只动 center_h 的页面文字并返回改动条数', () => {
+  it('enforceHorizontalCenter:只动 center_h 的页面文字并返回改动条数', () => {
     const layout = makeScene();
     const title = pageTextOf(layout, 'title');
     title.x = 5;
@@ -1079,7 +1079,7 @@ describe('text item center_h：页面文字左右居中约束', () => {
     expect(enforceHorizontalCenter(layout)).toBe(0);
   });
 
-  it('normalizePage：缺省补 false；页面空间 true 收敛 x/anchor；地图空间残留 true 收敛 false', () => {
+  it('normalizePage:缺省补 false;页面空间 true 收敛 x/anchor;地图空间残留 true 收敛 false', () => {
     const raw = structuredClone(makeScene()) as unknown as Record<string, unknown>;
     const rawItems = raw['items'] as Record<string, unknown>[];
     for (const item of rawItems) {
@@ -1107,7 +1107,7 @@ describe('text item center_h：页面文字左右居中约束', () => {
     expect(normalized.items.length).toBe(rawItems.length);
   });
 
-  it('validatePage：center_h 必须是布尔；地图空间 true 报错；默认排版合法', () => {
+  it('validatePage:center_h 必须是布尔;地图空间 true 报错;默认排版合法', () => {
     const missing = structuredClone(makeScene()) as unknown as Record<string, unknown>;
     const missingItems = missing['items'] as Record<string, unknown>[];
     const pageItem = missingItems.find(

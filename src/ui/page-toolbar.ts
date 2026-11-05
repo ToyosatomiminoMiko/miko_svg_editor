@@ -1,36 +1,36 @@
 /**
- * 出版排版编辑器的顶部工具条。
+ * 出版排版编辑器的顶部工具条.
  *
- * 是什么：文件（打开… / 导出 geo.json / 导出 SVG）、添加（文字 / 标题 / 图例 / 色标）、
- * 样式（样式设置）、视图（适应页面 / 1:1）四组命令按钮；宿主由 `app/page-main.ts` 建好
- * （`.dock.page-topbar`，已带 `role="toolbar"`），本文件只往里填分组。
- * 为什么没有「保存」按钮：页面是纯静态的，导出 geo.json 就是落盘（`Ctrl+S` 走同一入口），
- * 导出 SVG 是另一份独立产物；两者都在浏览器内直接生成文件，不需要任何远端确认，
- * 也就不需要任何按钮禁用态。
- * 为什么要单独的「样式设置」入口：文字样式已改为按分类统一覆盖（`page.text_style`），
- * 单条 item 的侧栏不再放样式字段，所有样式编辑都从这一个按钮拉起独立窗口
- * （`.work/STYLE-SETTINGS-SPEC.md` §7.1）；工具条只负责转发打开动作，窗口状态归 app。
- * 为什么不用草图模式的 `ui/toolbar.ts`：那个工具条绑定约束求解内核（工具/约束/吸附），
- * 与出版排版编辑器无关；这里只保留 miko_ui 的按钮与 `dock` 外观词汇。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 是什么:文件(打开... / 导出 geo.json / 导出 SVG),添加(文字 / 标题 / 图例 / 色标),
+ * 样式(样式设置),视图(适应页面 / 1:1)四组命令按钮;宿主由 `app/page-main.ts` 建好
+ * (`.dock.page-topbar`,已带 `role="toolbar"`),本文件只往里填分组.
+ * 为什么没有「保存」按钮:页面是纯静态的,导出 geo.json 就是落盘(`Ctrl+S` 走同一入口),
+ * 导出 SVG 是另一份独立产物;两者都在浏览器内直接生成文件,不需要任何远端确认,
+ * 也就不需要任何按钮禁用态.
+ * 为什么要单独的「样式设置」入口:文字样式已改为按分类统一覆盖(`page.text_style`),
+ * 单条 item 的侧栏不再放样式字段,所有样式编辑都从这一个按钮拉起独立窗口
+ * (`.work/STYLE-SETTINGS-SPEC.md` §7.1);工具条只负责转发打开动作,窗口状态归 app.
+ * 为什么不用草图模式的 `ui/toolbar.ts`:那个工具条绑定约束求解内核(工具/约束/吸附),
+ * 与出版排版编辑器无关;这里只保留 miko_ui 的按钮与 `dock` 外观词汇.
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import { create_element, createButton, createControlGroup } from 'miko_ui';
 import type { TextStyleCategoryId } from '../config/text-style';
 
-/** 工具条命令的回调集合（全部由 `app/page-editor.ts` 实现） */
+/** 工具条命令的回调集合(全部由 `app/page-editor.ts` 实现) */
 export interface PageToolbarHandlers {
-  /** 「打开…」：换一份底图 + geo（脏时由组合根先确认） */
+  /** 「打开...」:换一份底图 + geo(脏时由组合根先确认) */
   open(): void;
-  /** 导出 `<stem>.geo.json`（Ctrl+S 同此入口） */
+  /** 导出 `<stem>.geo.json`(Ctrl+S 同此入口) */
   exportGeo(): void;
-  /** 导出 final.svg（浏览器内合成） */
+  /** 导出 final.svg(浏览器内合成) */
   exportSvg(): void;
   /** 缩放显示整页 */
   fitPage(): void;
-  /** 1:1（1pt = 1 CSS px） */
+  /** 1:1(1pt = 1 CSS px) */
   actualSize(): void;
-  /** 添加普通文字（annotation） */
+  /** 添加普通文字(annotation) */
   addText(): void;
   /** 标题模板 */
   addTitle(): void;
@@ -39,14 +39,14 @@ export interface PageToolbarHandlers {
   /** 空色标 */
   addColorbar(): void;
   /**
-   * 拉起「样式设置」窗口（按分类统一改字号/颜色/光晕等）。
-   * 工具条没有「当前选中项」概念，所以不带分类：窗口沿用上次选中的分类；
-   * 侧栏的「打开样式设置」按钮会带当前文字的分类（见 `ui/page-fields-text.ts`）。
+   * 拉起「样式设置」窗口(按分类统一改字号/颜色/光晕等).
+   * 工具条没有「当前选中项」概念,所以不带分类:窗口沿用上次选中的分类;
+   * 侧栏的「打开样式设置」按钮会带当前文字的分类(见 `ui/page-fields-text.ts`).
    */
   openStyleSettings(category?: TextStyleCategoryId): void;
 }
 
-/** 一个命令按钮：文案、悬停提示、点击动作 */
+/** 一个命令按钮:文案,悬停提示,点击动作 */
 interface ToolbarAction {
   readonly text: string;
   readonly title: string;
@@ -54,8 +54,8 @@ interface ToolbarAction {
 }
 
 /**
- * 装配工具条；重复调用会整体替换宿主内容，不会叠出第二份。
- * 没有返回值：画面状态全部在编辑器里，工具条不需要被回写（按钮没有禁用态）。
+ * 装配工具条;重复调用会整体替换宿主内容,不会叠出第二份.
+ * 没有返回值:画面状态全部在编辑器里,工具条不需要被回写(按钮没有禁用态).
  */
 export function buildPageToolbar(root: HTMLElement, handlers: PageToolbarHandlers): void {
   const fileRow = create_element({ tag: 'div' }, { class: 'page-button-row' });
@@ -70,13 +70,13 @@ export function buildPageToolbar(root: HTMLElement, handlers: PageToolbarHandler
   };
 
   add(fileRow, {
-    text: '打开…',
-    title: '重新选择底图 base.svg 与 geo.json（当前排版有改动时会先确认）',
+    text: '打开...',
+    title: '重新选择底图 base.svg 与 geo.json(当前排版有改动时会先确认)',
     run: () => handlers.open(),
   });
   add(fileRow, {
     text: '导出 geo.json',
-    title: '下载 geo.json（geo + 排版，可再次打开继续编辑；Ctrl+S）',
+    title: '下载 geo.json(geo + 排版,可再次打开继续编辑;Ctrl+S)',
     run: () => handlers.exportGeo(),
   });
   add(fileRow, {
@@ -87,22 +87,22 @@ export function buildPageToolbar(root: HTMLElement, handlers: PageToolbarHandler
 
   add(addRow, {
     text: '文字',
-    title: '在页面中央添加一条文字（annotation）',
+    title: '在页面中央添加一条文字(annotation)',
     run: () => handlers.addText(),
   });
   add(addRow, {
     text: '标题',
-    title: '添加标题（title）',
+    title: '添加标题(title)',
     run: () => handlers.addTitle(),
   });
   add(addRow, {
     text: '图例',
-    title: '添加图例（默认放在右栏）',
+    title: '添加图例(默认放在右栏)',
     run: () => handlers.addLegend(),
   });
   add(addRow, {
     text: '色标',
-    title: '添加色标（配色与刻度来自 geo.relief）',
+    title: '添加色标(配色与刻度来自 geo.relief)',
     run: () => handlers.addColorbar(),
   });
 

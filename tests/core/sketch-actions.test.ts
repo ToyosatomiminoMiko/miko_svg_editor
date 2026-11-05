@@ -1,8 +1,8 @@
 /**
- * sketch-actions.ts 的原子领域操作（node 环境，无 DOM）。
- * 这些函数只依赖 model/solver/geometry/dimensions：参数槽位与点击状态机已统一到
- * operations.ts，本文件只测「一次操作真正写模型」的部分：
- * 创建图元的退化阈值、删除级联、固定/构造、尺寸创建与回滚、拖拽求解、求解提示翻译。
+ * sketch-actions.ts 的原子领域操作(node 环境,无 DOM).
+ * 这些函数只依赖 model/solver/geometry/dimensions:参数槽位与点击状态机已统一到
+ * operations.ts,本文件只测「一次操作真正写模型」的部分:
+ * 创建图元的退化阈值,删除级联,固定/构造,尺寸创建与回滚,拖拽求解,求解提示翻译.
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -52,7 +52,7 @@ beforeEach(() => {
   resetInteraction();
 });
 
-/** 用 model API 建一条水平线（不自动补约束，便于测约束/尺寸操作） */
+/** 用 model API 建一条水平线(不自动补约束,便于测约束/尺寸操作) */
 function plainLine(): {
   a: ReturnType<typeof addPt>;
   b: ReturnType<typeof addPt>;
@@ -81,7 +81,7 @@ describe('createLine', () => {
     expect([...model.cons.values()][0]?.type).toBe('vertical');
   });
 
-  it('斜线不自动补约束；autoConstrain=false 时也不补', () => {
+  it('斜线不自动补约束;autoConstrain=false 时也不补', () => {
     createLine(addPt(0, 0), addPt(100, 50));
     expect(model.cons.size).toBe(0);
     createLine(addPt(0, 200), addPt(100, 201), false);
@@ -109,7 +109,7 @@ describe('createCircle / createArc', () => {
     expect(model.ents.size).toBe(0);
   });
 
-  it('合法半径创建图元；圆弧的起点/终点成为模型点', () => {
+  it('合法半径创建图元;圆弧的起点/终点成为模型点', () => {
     const c = addPt(0, 0);
     expect(createCircle(c, 10).ok).toBe(true);
     const start = addPt(10, 0);
@@ -126,10 +126,10 @@ describe('createCircle / createArc', () => {
     expect(g?.a1).toBeCloseTo(Math.PI / 2, 12);
   });
 
-  it('终点是本次新建的点：只决定终止角，按起点半径投到圆上', () => {
+  it('终点是本次新建的点:只决定终止角,按起点半径投到圆上', () => {
     const c = addPt(0, 0);
     const start = addPt(10, 0);
-    const end = addPt(0, 5); // 点击半径 5；圆弧半径仍由起点决定
+    const end = addPt(0, 5); // 点击半径 5;圆弧半径仍由起点决定
     const created = new Set([start.id, end.id]);
     expect(createArc(c, start, end, created).ok).toBe(true);
     expect(end.x).toBeCloseTo(0, 12);
@@ -137,14 +137,14 @@ describe('createCircle / createArc', () => {
     expect(model.ents.size).toBe(1);
   });
 
-  it('终点是已有点：复用该点并以它定半径，起点被挪到同一个圆上', () => {
+  it('终点是已有点:复用该点并以它定半径,起点被挪到同一个圆上', () => {
     const c = addPt(0, 0);
     const start = addPt(10, 0); // 本次新建
-    const end = addPt(0, 20); // 已有点：圆弧要接上它
+    const end = addPt(0, 20); // 已有点:圆弧要接上它
 
     expect(createArc(c, start, end, new Set([start.id])).ok).toBe(true);
 
-    // 起点保持极角 0、半径改成 |终点 - 圆心| = 20
+    // 起点保持极角 0,半径改成 |终点 - 圆心| = 20
     expect(start.x).toBeCloseTo(20, 12);
     expect(start.y).toBeCloseTo(0, 12);
     const arc = [...model.ents.values()][0];
@@ -152,7 +152,7 @@ describe('createCircle / createArc', () => {
     expect(curveRadius(arc)).toBeCloseTo(20, 12);
   });
 
-  it('两端都是已有点但不共圆：拒绝创建，不改动既有几何', () => {
+  it('两端都是已有点但不共圆:拒绝创建,不改动既有几何', () => {
     const c = addPt(0, 0);
     const start = addPt(10, 0);
     const end = addPt(0, 20);
@@ -166,7 +166,7 @@ describe('createCircle / createArc', () => {
     expect([start.x, start.y, end.x, end.y]).toEqual(before);
   });
 
-  it('起终点重合按整圆处理：复用起点，不留重合的第二端点', () => {
+  it('起终点重合按整圆处理:复用起点,不留重合的第二端点', () => {
     const c = addPt(0, 0);
     const start = addPt(10, 0);
     const end = addPt(10, 0);
@@ -174,7 +174,7 @@ describe('createCircle / createArc', () => {
 
     expect(createArc(c, start, end, created).ok).toBe(true);
 
-    // 圆心 + 起点；临时终点被丢弃，模型里没有两个重合端点
+    // 圆心 + 起点;临时终点被丢弃,模型里没有两个重合端点
     expect(model.pts.size).toBe(2);
     const arc = [...model.ents.values()][0];
     if (!arc || arc.type !== 'arc') throw new Error('圆弧未创建');
@@ -192,7 +192,7 @@ describe('createRect', () => {
     expect(model.ents.size).toBe(0);
   });
 
-  it('四角优先复用已有点，并生成 4 条边 + 2 水平 2 竖直约束', () => {
+  it('四角优先复用已有点,并生成 4 条边 + 2 水平 2 竖直约束', () => {
     const existing = addPt(10, 0); // 复用 (10,0) 这个角
     const result = createRect({ x: 0, y: 0 }, { x: 10, y: 5 });
     expect(result.ok).toBe(true);
@@ -232,8 +232,8 @@ describe('deleteSelected 级联', () => {
   });
 });
 
-describe('deleteConstraint（已选择行内的约束 ×）', () => {
-  it('只删指定约束：其余约束与几何保留，求解不改动已满足的点', () => {
+describe('deleteConstraint(已选择行内的约束 ×)', () => {
+  it('只删指定约束:其余约束与几何保留,求解不改动已满足的点', () => {
     const { a, b, line } = plainLine();
     const horizontal = addCon('horizontal', { e: line.id });
     const dim = addCon('distancePointPoint', { a: a.id, b: b.id, distance: 100 });
@@ -247,7 +247,7 @@ describe('deleteConstraint（已选择行内的约束 ×）', () => {
     expect(b.x).toBeCloseTo(100, 12);
   });
 
-  it('删除尺寸约束不级联删除点/图元（约束只是附加关系）', () => {
+  it('删除尺寸约束不级联删除点/图元(约束只是附加关系)', () => {
     const center = addPt(0, 0);
     const circle = addCircle(center, 10);
     const radius = addCon('radius', { e: circle.id, radius: 10 });
@@ -260,7 +260,7 @@ describe('deleteConstraint（已选择行内的约束 ×）', () => {
     expect(getEntity(circle.id)).toBe(circle);
   });
 
-  it('找不到的 id 视为已删：幂等且不报错', () => {
+  it('找不到的 id 视为已删:幂等且不报错', () => {
     plainLine();
     expect(deleteConstraint(999).ok).toBe(true);
   });
@@ -288,7 +288,7 @@ describe('toggleFixed / toggleConstruction', () => {
 });
 
 describe('dimForEntity', () => {
-  it('圆/弧创建半径尺寸，放置点决定引线方向；重复点中时返回编辑会话', () => {
+  it('圆/弧创建半径尺寸,放置点决定引线方向;重复点中时返回编辑会话', () => {
     const circle = addCircle(addPt(0, 0), 10);
     const first = dimForEntity(circle, { x: 10, y: 10 });
     expect(first.ok).toBe(true);
@@ -307,7 +307,7 @@ describe('dimForEntity', () => {
     expect(second.con.leaderAngle).toBeCloseTo(Math.PI / 4, 12);
   });
 
-  it('圆弧半径尺寸取派生半径（圆心到起点的距离）', () => {
+  it('圆弧半径尺寸取派生半径(圆心到起点的距离)', () => {
     const arc = addArcByAngles(addPt(0, 0, true), 10, 0, Math.PI / 2);
     const result = dimForEntity(arc, { x: 10, y: 0 });
     expect(result.ok).toBe(true);
@@ -316,7 +316,7 @@ describe('dimForEntity', () => {
     expect(dimValue(result.con)).toBe(10);
   });
 
-  it('直线创建距离尺寸，放置点决定世界 offset', () => {
+  it('直线创建距离尺寸,放置点决定世界 offset', () => {
     const { line } = plainLine();
     const result = dimForEntity(line, { x: 50, y: 25 });
     expect(result.ok).toBe(true);
@@ -326,7 +326,7 @@ describe('dimForEntity', () => {
     expect(result.con.offset).toBeCloseTo(25, 12);
   });
 
-  it('没有放置点时不创建长度/半径尺寸（由操作槽位保证正常流程不会发生）', () => {
+  it('没有放置点时不创建长度/半径尺寸(由操作槽位保证正常流程不会发生)', () => {
     const { line } = plainLine();
     const result = dimForEntity(line);
     expect(result.ok).toBe(false);
@@ -353,15 +353,15 @@ describe('dimForEntity', () => {
   });
 });
 
-describe('dimForLines（角度尺寸）', () => {
-  /** 两条 45° 夹角直线，交点 (0,0) */
+describe('dimForLines(角度尺寸)', () => {
+  /** 两条 45° 夹角直线,交点 (0,0) */
   function angleLines(): { line1: ReturnType<typeof addLine>; line2: ReturnType<typeof addLine> } {
     const line1 = addLine(addPt(0, 0), addPt(100, 0));
     const line2 = addLine(addPt(0, 0), addPt(100, 100));
     return { line1, line2 };
   }
 
-  it('创建角度尺寸：目标角取放置扇形的当前夹角，放置点决定象限与弧半径', () => {
+  it('创建角度尺寸:目标角取放置扇形的当前夹角,放置点决定象限与弧半径', () => {
     const { line1, line2 } = angleLines();
     const result = dimForLines(line1, line2, { x: 20, y: 5 }, 1);
     expect(result.ok).toBe(true);
@@ -397,14 +397,14 @@ describe('dimForLines（角度尺寸）', () => {
     expect(committed.ok).toBe(true);
     const g = angleLineGeometry(line1, line2);
     if (!g) throw new Error('直线求交失败');
-    // 放置象限 0 的夹角（两条线的方向夹角）应为 60°
+    // 放置象限 0 的夹角(两条线的方向夹角)应为 60°
     const d1 = g.d1;
     const d2 = g.d2;
     const cos = (d1.x * d2.x + d1.y * d2.y) / (Math.hypot(d1.x, d1.y) * Math.hypot(d2.x, d2.y));
     expect((Math.acos(cos) * 180) / Math.PI).toBeCloseTo(60, 3);
   });
 
-  it('角度输入超过 180° 被拒绝，目标值不变', () => {
+  it('角度输入超过 180° 被拒绝,目标值不变', () => {
     const { line1, line2 } = angleLines();
     const result = dimForLines(line1, line2, { x: 20, y: 5 }, 1);
     if (!result.ok) throw new Error('尺寸创建失败');
@@ -417,7 +417,7 @@ describe('dimForLines（角度尺寸）', () => {
 });
 
 describe('dimForPoints / rollbackDim', () => {
-  it('两点尺寸记录偏移与新建点标记，重复使用时复用已有尺寸', () => {
+  it('两点尺寸记录偏移与新建点标记,重复使用时复用已有尺寸', () => {
     const a = addPt(0, 0);
     const b = addPt(100, 0);
     const result = dimForPoints(a, b, { x: 50, y: 20 }, true);
@@ -434,7 +434,7 @@ describe('dimForPoints / rollbackDim', () => {
     expect(again.con.id).toBe(result.con.id);
   });
 
-  it('rollbackDim 删约束；带 pointId 时把顺手建的点一起删', () => {
+  it('rollbackDim 删约束;带 pointId 时把顺手建的点一起删', () => {
     const a = addPt(0, 0);
     const b = addPt(100, 0);
     const result = dimForPoints(a, b, { x: 50, y: 20 }, true);
@@ -466,9 +466,9 @@ describe('solve 提示翻译', () => {
     expect(solve(80, { silent: true })).toEqual([]);
   });
 
-  it('无效约束提示错误，冲突约束提示未满足', () => {
+  it('无效约束提示错误,冲突约束提示未满足', () => {
     const circle = addCircle(addPt(0, 0), 10);
-    addCon('horizontal', { e: circle.id }); // 种类不符 → invalid
+    addCon('horizontal', { e: circle.id }); // 种类不符 -> invalid
     const notices = solve(80);
     expect(
       notices.some((n) => n.kind === 'error' && n.message.includes('引用了不存在的对象')),

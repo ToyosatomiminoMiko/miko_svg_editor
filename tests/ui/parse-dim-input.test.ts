@@ -1,8 +1,8 @@
 /**
- * ui/parse-dim-input.ts 的尺寸输入解析（纯函数，node 环境）。
- * 尺寸工具要求「长度/半径」必须是有限正数：
- * 空串/空白、0、负数、非有限、十六进制、带千分位等一律拒绝；
- * 小数与指数写法接受；解析不做任何精度截断（回填 & 提交必须保留全精度，BUG-2）。
+ * ui/parse-dim-input.ts 的尺寸输入解析(纯函数,node 环境).
+ * 尺寸工具要求「长度/半径」必须是有限正数:
+ * 空串/空白,0,负数,非有限,十六进制,带千分位等一律拒绝;
+ * 小数与指数写法接受;解析不做任何精度截断(回填 & 提交必须保留全精度,BUG-2).
  */
 
 import { describe, expect, it } from 'vitest';
@@ -45,14 +45,14 @@ describe('接受合法输入', () => {
     ['1.5e3', 1500],
     ['1E-3', 0.001],
     ['12.345', 12.345],
-  ])('%j → %f', (raw, expected) => {
+  ])('%j -> %f', (raw, expected) => {
     const result = parseDimInput(raw);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).toBe(expected);
   });
 
-  it('保留输入数值的全精度，不做小数位截断', () => {
+  it('保留输入数值的全精度,不做小数位截断', () => {
     const raw = '112.04500000000007';
     const result = parseDimInput(raw);
     expect(result.ok).toBe(true);
@@ -64,7 +64,7 @@ describe('接受合法输入', () => {
 });
 
 describe('错误信息', () => {
-  it('不同失败原因可区分：空白 / 非法格式 / 超范围 / 非正', () => {
+  it('不同失败原因可区分:空白 / 非法格式 / 超范围 / 非正', () => {
     const blank = parseDimInput(' ');
     const format = parseDimInput('abc');
     const range = parseDimInput('1e999');

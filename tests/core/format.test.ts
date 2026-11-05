@@ -1,7 +1,7 @@
 /**
- * config/format.ts 的数字格式化。
- * 显示与回填分开：这里只测显示格式——固定小数位、去尾零、-0 归一、非有限值兜底
- * （非有限值返回 "0"，避免把 NaN / Infinity 写进 SVG 或输入框）。
+ * config/format.ts 的数字格式化.
+ * 显示与回填分开:这里只测显示格式--固定小数位,去尾零,-0 归一,非有限值兜底
+ * (非有限值返回 "0",避免把 NaN / Infinity 写进 SVG 或输入框).
  */
 
 import { describe, expect, it } from 'vitest';
@@ -17,7 +17,7 @@ describe('formatNumber', () => {
     expect(formatNumber(2.5, 0)).toBe('3');
   });
 
-  it('去掉小数末尾多余的 0，也去掉整数后的小数点', () => {
+  it('去掉小数末尾多余的 0,也去掉整数后的小数点', () => {
     expect(formatNumber(2.5, 2)).toBe('2.5');
     expect(formatNumber(0.5, 2)).toBe('0.5');
     expect(formatNumber(2, 2)).toBe('2');
@@ -27,7 +27,7 @@ describe('formatNumber', () => {
 
   it('-0 归一成 0', () => {
     expect(formatNumber(-0, 2)).toBe('0');
-    // 负数四舍五入到 0 时 toFixed 会给出 "-0.00"，必须归一，否则界面上出现 "-0"
+    // 负数四舍五入到 0 时 toFixed 会给出 "-0.00",必须归一,否则界面上出现 "-0"
     expect(formatNumber(-0.001, 2)).toBe('0');
   });
 
@@ -43,7 +43,7 @@ describe('formatNumber', () => {
     expect(formatNumber(12.3, 0)).toBe('12');
   });
 
-  it('结果永远是合法数字字符串（可被 Number 解析且等于原值附近的显示值）', () => {
+  it('结果永远是合法数字字符串(可被 Number 解析且等于原值附近的显示值)', () => {
     const values = [0, 1, -1, 1.23456, -1.23456, 12345.6789, 1e-7, -1e-7];
     for (const value of values) {
       const text = formatNumber(value, DIM_DECIMALS);

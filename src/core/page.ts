@@ -1,17 +1,17 @@
 /**
- * 单文件地图文档（`<stem>.geo.json`）的类型、校验、规范化、序列化与摘要（纯逻辑，不碰 DOM）。
+ * 单文件地图文档(`<stem>.geo.json`)的类型,校验,规范化,序列化与摘要(纯逻辑,不碰 DOM).
  *
- * 是什么：`docs/PAGE-EDITOR.md` §3/§4 的数据契约在 TS 侧的唯一实现——地理块 `Geo`、
- * 排版块 `PageLayout`（纸张/地图摆放/图框/样式/items）、`validateGeo` + `validatePage`（契约约束）、
- * `normalizeGeo` / `normalizePage`（可选块补默认、page 数字 3 位小数）、
- * `serializeMapDocFile`（导出文件文本）、`pageDigest` / `geoDigest`（SHA-256）。
- * 为什么放在 core 且不碰 DOM：预览与成品合成必须对同一份 layout 得出同一份语义；
- * 校验/规范化/摘要都要能在 node 里单测，且浏览器与导出共用同一实现。
- * 为什么 geo 与 page 合成一个文件：用户只需要保存/再次打开一份 geo.json（见 §1 数据流）；
- * 文件身份与底图身份各只有一份（顶层 format/version、geo.base），不再有重复声明。
- * 注意：摘要用纯 TS SHA-256 实现（不依赖 Web Crypto / node:crypto），只用于本地签名与
- * 成品 marker（`render/compose-svg.ts` 的 `makeMarker`）。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 是什么:`docs/PAGE-EDITOR.md` §3/§4 的数据契约在 TS 侧的唯一实现--地理块 `Geo`,
+ * 排版块 `PageLayout`(纸张/地图摆放/图框/样式/items),`validateGeo` + `validatePage`(契约约束),
+ * `normalizeGeo` / `normalizePage`(可选块补默认,page 数字 3 位小数),
+ * `serializeMapDocFile`(导出文件文本),`pageDigest` / `geoDigest`(SHA-256).
+ * 为什么放在 core 且不碰 DOM:预览与成品合成必须对同一份 layout 得出同一份语义;
+ * 校验/规范化/摘要都要能在 node 里单测,且浏览器与导出共用同一实现.
+ * 为什么 geo 与 page 合成一个文件:用户只需要保存/再次打开一份 geo.json(见 §1 数据流);
+ * 文件身份与底图身份各只有一份(顶层 format/version,geo.base),不再有重复声明.
+ * 注意:摘要用纯 TS SHA-256 实现(不依赖 Web Crypto / node:crypto),只用于本地签名与
+ * 成品 marker(`render/compose-svg.ts` 的 `makeMarker`).
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import {
@@ -31,13 +31,13 @@ import type { MapLabelRole, PageTextRole, TextStyleCategoryId } from '../config/
 
 /* =========================== 基础类型 =========================== */
 
-/** 元素所在坐标空间：page = 纸张坐标（pt）；map = 底图坐标（viewBox 坐标） */
+/** 元素所在坐标空间:page = 纸张坐标(pt);map = 底图坐标(viewBox 坐标) */
 export type ItemSpace = 'page' | 'map';
 
 /** 文字锚点 */
 export type TextAnchor = 'start' | 'middle' | 'end';
 
-/** 文字语义角色（与 config/text-style.ts 的页面文字角色同源，只影响默认样式/UI，不参与布局公式） */
+/** 文字语义角色(与 config/text-style.ts 的页面文字角色同源,只影响默认样式/UI,不参与布局公式) */
 export type TextRole = PageTextRole;
 
 /** 图例条目形状 */
@@ -46,20 +46,20 @@ export type LegendShape = 'line' | 'rect' | 'point';
 /** 图例点标记 */
 export type LegendMarker = 'star' | 'square' | 'circle';
 
-/** 文字光晕（先描边后填充） */
+/** 文字光晕(先描边后填充) */
 export interface Halo {
   color: string;
   width_pt: number;
 }
 
-/** 所有元素的公共字段：id 唯一、kind 判别、space 坐标空间 */
+/** 所有元素的公共字段:id 唯一,kind 判别,space 坐标空间 */
 interface ItemBase {
   id: number;
   kind: string;
   space: ItemSpace;
 }
 
-/** 文字元素（契约 §4.1 text） */
+/** 文字元素(契约 §4.1 text) */
 export interface TextItem extends ItemBase {
   kind: 'text';
   role: TextRole;
@@ -74,33 +74,33 @@ export interface TextItem extends ItemBase {
   rotation_deg: number;
   line_height: number;
   italic: boolean;
-  /** 数字字重，100..900 的整数（默认 400；渲染时非 400 才写 font-weight） */
+  /** 数字字重,100..900 的整数(默认 400;渲染时非 400 才写 font-weight) */
   font_weight: number;
-  /** 字距（em，相对字号；默认 0，渲染时非 0 才写 letter-spacing） */
+  /** 字距(em,相对字号;默认 0,渲染时非 0 才写 letter-spacing) */
   letter_spacing_em: number;
   halo: Halo | null;
   /**
-   * 来源 `geo.labels[].id` 的关联（地图地名 item 必填；页面文字恒为 null）。
-   * 用途：判断 item 属于哪个地图地名分类（查 label.role）；分类统一样式时回算底图原始字号
-   * （回「分类默认统一字号」）。没有它就无法确定分类，所以不是可选的兼容字段：
-   * `validatePage` 要求 map 空间必须是非空 id 且在 `geo.labels` 里存在、page 空间必须为 null。
+   * 来源 `geo.labels[].id` 的关联(地图地名 item 必填;页面文字恒为 null).
+   * 用途:判断 item 属于哪个地图地名分类(查 label.role);分类统一样式时回算底图原始字号
+   * (回「分类默认统一字号」).没有它就无法确定分类,所以不是可选的兼容字段:
+   * `validatePage` 要求 map 空间必须是非空 id 且在 `geo.labels` 里存在,page 空间必须为 null.
    */
   geo_label_id: string | null;
   /**
-   * 「左右居中」约束开关（只对 `space === 'page'` 有意义）。
-   * true 时水平锚点恒为纸张中心 `paper.width_pt / 2`、`anchor` 恒为 `'middle'`：
-   * 纸张宽度/方向改变后不需要重新生成排版也能保持标题/来源居中；拖拽只能改 y。
-   * 约束是派生值，`normalizePage` 每次都会把 x/anchor 拉回一致；map 空间必须为 false
-   * （地图地名的位置由底图数据决定，不能被纸张宽度覆盖）。
+   * 「左右居中」约束开关(只对 `space === 'page'` 有意义).
+   * true 时水平锚点恒为纸张中心 `paper.width_pt / 2`,`anchor` 恒为 `'middle'`:
+   * 纸张宽度/方向改变后不需要重新生成排版也能保持标题/来源居中;拖拽只能改 y.
+   * 约束是派生值,`normalizePage` 每次都会把 x/anchor 拉回一致;map 空间必须为 false
+   * (地图地名的位置由底图数据决定,不能被纸张宽度覆盖).
    */
   center_h: boolean;
 }
 
-/** 图例条目（契约 §3 legend.entries / §4.1 legend.entries） */
+/** 图例条目(契约 §3 legend.entries / §4.1 legend.entries) */
 export interface LegendEntry {
   label: string;
   shape: LegendShape;
-  /** null = 不描边（point 标记可能只填充） */
+  /** null = 不描边(point 标记可能只填充) */
   stroke: string | null;
   width_pt: number;
   dash: number[] | null;
@@ -109,7 +109,7 @@ export interface LegendEntry {
   marker: LegendMarker | null;
 }
 
-/** 图例框外观（契约 §4.1 legend.frame） */
+/** 图例框外观(契约 §4.1 legend.frame) */
 export interface LegendFrame {
   show: boolean;
   stroke: string;
@@ -118,10 +118,10 @@ export interface LegendFrame {
   opacity: number;
 }
 
-/** 图例元素：高度由 §5.4 公式派生，不落 layout */
+/** 图例元素:高度由 §5.4 公式派生,不落 layout */
 export interface LegendItem extends ItemBase {
   kind: 'legend';
-  /** 契约把 space 定义为公共字段；page/map 都允许（map 空间由渲染侧缩放尺寸） */
+  /** 契约把 space 定义为公共字段;page/map 都允许(map 空间由渲染侧缩放尺寸) */
   space: ItemSpace;
   x: number;
   y: number;
@@ -137,10 +137,10 @@ export interface LegendItem extends ItemBase {
   frame: LegendFrame;
 }
 
-/** 色标元素：配色/刻度来自 geo.relief，layout 只存摆放与文字 */
+/** 色标元素:配色/刻度来自 geo.relief,layout 只存摆放与文字 */
 export interface ColorbarItem extends ItemBase {
   kind: 'colorbar';
-  /** 同 LegendItem.space：map 空间时成品合成按地图缩放比缩放宽高 */
+  /** 同 LegendItem.space:map 空间时成品合成按地图缩放比缩放宽高 */
   space: ItemSpace;
   x: number;
   y: number;
@@ -156,7 +156,7 @@ export interface ColorbarItem extends ItemBase {
 
 export type PageItem = TextItem | LegendItem | ColorbarItem;
 
-/** 纸张（preset/orientation 只用于 UI 记忆） */
+/** 纸张(preset/orientation 只用于 UI 记忆) */
 export interface PagePaper {
   preset: PaperPresetId;
   orientation: PaperOrientation;
@@ -164,14 +164,14 @@ export interface PagePaper {
   height_pt: number;
 }
 
-/** 地图摆放：高度由宽度 × 底图纵横比派生（§5.1） */
+/** 地图摆放:高度由宽度 × 底图纵横比派生(§5.1) */
 export interface MapPlacement {
   x: number;
   y: number;
   width_pt: number;
 }
 
-/** 图框与刻度（§5.2） */
+/** 图框与刻度(§5.2) */
 export interface PageFrame {
   show: boolean;
   stroke: string;
@@ -191,12 +191,12 @@ export interface PageStyle {
 }
 
 /**
- * 一个文字分类的样式覆盖（`page.text_style[分类]`）。
- * 为什么字段全部可选：覆盖表只存用户显式改过的字段，默认值仍在 `config/text-style.ts`，
- * 不复制进文件（否则改代码默认值对旧文件永远不生效）；`halo: null` 表示显式关光晕，
- * 与「没有该键（用分类默认）」是两种语义。地图分类缺省 `font_size_pt` = 用该分类的默认
- * 统一字号（该分类全部地名原始字号中位数 × 地图缩放）；出现数字 = 用户覆盖的统一字号。
- * 无论哪种情况，同一地图分类下全部 item 的字号都相等（§12.1）。
+ * 一个文字分类的样式覆盖(`page.text_style[分类]`).
+ * 为什么字段全部可选:覆盖表只存用户显式改过的字段,默认值仍在 `config/text-style.ts`,
+ * 不复制进文件(否则改代码默认值对旧文件永远不生效);`halo: null` 表示显式关光晕,
+ * 与「没有该键(用分类默认)」是两种语义.地图分类缺省 `font_size_pt` = 用该分类的默认
+ * 统一字号(该分类全部地名原始字号中位数 × 地图缩放);出现数字 = 用户覆盖的统一字号.
+ * 无论哪种情况,同一地图分类下全部 item 的字号都相等(§12.1).
  */
 export interface TextStyleOverride {
   font_size_pt?: number;
@@ -208,13 +208,13 @@ export interface TextStyleOverride {
   halo?: Halo | null;
 }
 
-/** `page.text_style`：分类 id → 该分类的覆盖；缺省分类 = 全部使用代码默认值 */
+/** `page.text_style`:分类 id -> 该分类的覆盖;缺省分类 = 全部使用代码默认值 */
 export type TextStyleOverrides = Partial<Record<TextStyleCategoryId, TextStyleOverride>>;
 
 /**
- * `geo.json` 的排版块（契约 §4）：纸张、地图摆放、图框/样式、items 与 id 序列。
- * 为什么没有 format/version/figure/base：文件身份与底图身份只在顶层（format/version、geo.base），
- * 同一份底图的排版不会出现第二套声明，也就没有「两份 base 不一致」的分支。
+ * `geo.json` 的排版块(契约 §4):纸张,地图摆放,图框/样式,items 与 id 序列.
+ * 为什么没有 format/version/figure/base:文件身份与底图身份只在顶层(format/version,geo.base),
+ * 同一份底图的排版不会出现第二套声明,也就没有「两份 base 不一致」的分支.
  */
 export interface PageLayout {
   paper: PagePaper;
@@ -222,25 +222,25 @@ export interface PageLayout {
   frame: PageFrame;
   style: PageStyle;
   /**
-   * 分类样式覆盖表（只存用户改过的字段）。
-   * 渲染层仍以 item 上的显式样式字段为准：这里的覆盖由 `core/text-style.ts` 在设置时批量
-   * 写回 item，默认排版（`core/page-layout.ts`）也按它解析初始值。
+   * 分类样式覆盖表(只存用户改过的字段).
+   * 渲染层仍以 item 上的显式样式字段为准:这里的覆盖由 `core/text-style.ts` 在设置时批量
+   * 写回 item,默认排版(`core/page-layout.ts`)也按它解析初始值.
    */
   text_style: TextStyleOverrides;
-  /** 数组序 = 绘制序（z 序） */
+  /** 数组序 = 绘制序(z 序) */
   items: PageItem[];
   /** 必须为正整数且大于所有 item id */
   seq: number;
 }
 
-/* =========================== geo.json 类型（只读） =========================== */
+/* =========================== geo.json 类型(只读) =========================== */
 
 export type GraticuleSide = 'bottom' | 'top' | 'left' | 'right';
 
 export interface GeoTick {
   value: number;
   label: string;
-  /** 底图坐标（viewBox 坐标） */
+  /** 底图坐标(viewBox 坐标) */
   x: number;
   y: number;
   side: GraticuleSide;
@@ -260,20 +260,20 @@ export interface GeoGraticule {
 }
 
 /**
- * 地物/地名标注候选（geo v2，只读；样式由 config/text-style.ts 的 role 表决定）。
- * `x` 是文字块的水平锚点（由 `anchor` 决定是左端/中心/右端）；`y` 是文字块**垂直中心**，
- * 前端用 `MAP_LABEL_STYLE.baseline_ratio` 换算回第一行基线（见 core/page-layout.ts）。
+ * 地物/地名标注候选(geo v2,只读;样式由 config/text-style.ts 的 role 表决定).
+ * `x` 是文字块的水平锚点(由 `anchor` 决定是左端/中心/右端);`y` 是文字块**垂直中心**,
+ * 前端用 `MAP_LABEL_STYLE.baseline_ratio` 换算回第一行基线(见 core/page-layout.ts).
  */
 export interface GeoLabel {
   id: string;
   role: MapLabelRole;
-  /** 原始文字；换行用 "\n"，前端自己 split */
+  /** 原始文字;换行用 "\n",前端自己 split */
   text: string;
   x: number;
   y: number;
   anchor: TextAnchor;
   font_size_pt: number;
-  /** 绘制顺序，整数，原图顺序 */
+  /** 绘制顺序,整数,原图顺序 */
   order: number;
 }
 
@@ -325,7 +325,7 @@ export interface GeoBase {
   height_pt: number;
 }
 
-/** geo.json（§3，只读地理块；Cartopy 直出） */
+/** geo.json(§3,只读地理块;Cartopy 直出) */
 export interface Geo {
   format: typeof PAGE_GEO_FORMAT;
   version: number;
@@ -333,33 +333,33 @@ export interface Geo {
   graticule: GeoGraticule;
   labels: GeoLabel[];
   /**
-   * 高程/水深色标数据；Cartopy 不画色标时整个键缺省，`normalizeGeo` 补成 null。
-   * 为什么允许 null：默认排版与 compose 的 colorbar 都依赖它，缺省时必须能降级
-   * （不生成色标）而不是崩。
+   * 高程/水深色标数据;Cartopy 不画色标时整个键缺省,`normalizeGeo` 补成 null.
+   * 为什么允许 null:默认排版与 compose 的 colorbar 都依赖它,缺省时必须能降级
+   * (不生成色标)而不是崩.
    */
   relief: GeoRelief | null;
   legend: GeoLegend;
   suggestions: GeoSuggestions;
 }
 
-/** 磁盘上排版块的键名（geo.json 顶层；Cartopy 产物没有这个键） */
+/** 磁盘上排版块的键名(geo.json 顶层;Cartopy 产物没有这个键) */
 export const MAP_DOC_PAGE_KEY = 'page';
 
-/** 磁盘上的单文件地图文档形状：geo 块 + 可选的排版块（编辑器导出时一定写 page） */
+/** 磁盘上的单文件地图文档形状:geo 块 + 可选的排版块(编辑器导出时一定写 page) */
 export interface MapDoc extends Geo {
   page?: PageLayout;
 }
 
 /* =========================== 数值与序列化 =========================== */
 
-/** 非有限值（NaN/Infinity）不进 SVG：统一落到 0，避免 NaN 污染字符串 */
+/** 非有限值(NaN/Infinity)不进 SVG:统一落到 0,避免 NaN 污染字符串 */
 const finiteOrZero = (value: number): number => (Number.isFinite(value) ? value : 0);
 
 /**
- * 四舍五入到 `PAGE_DECIMALS` 位小数并归一负零。
+ * 四舍五入到 `PAGE_DECIMALS` 位小数并归一负零.
  *
- * 为什么是 `Math.round(v*1000)/1000`：预览、page 摘要与导出的 final.svg 必须共用同一套
- * 舍入（否则同一 layout 会得到不同字节）；`.xxx5` 边界按 JS `Math.round` 语义处理。
+ * 为什么是 `Math.round(v*1000)/1000`:预览,page 摘要与导出的 final.svg 必须共用同一套
+ * 舍入(否则同一 layout 会得到不同字节);`.xxx5` 边界按 JS `Math.round` 语义处理.
  */
 export function roundToPageDecimals(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -368,7 +368,7 @@ export function roundToPageDecimals(value: number): number {
   return Object.is(rounded, -0) ? 0 : rounded;
 }
 
-/** 递归把对象里的数字规范到 3 位小数；返回新对象，不修改入参 */
+/** 递归把对象里的数字规范到 3 位小数;返回新对象,不修改入参 */
 function roundNumbersDeep<T>(value: T): T {
   if (typeof value === 'number') return roundToPageDecimals(value) as T;
   if (Array.isArray(value)) {
@@ -386,14 +386,14 @@ function roundNumbersDeep<T>(value: T): T {
 }
 
 /**
- * 深拷贝并收敛 `page.text_style`：非对象 → `{}`；未知分类/未知字段丢弃；空覆盖对象丢弃；
- * 地图分类的 `font_size_pt: null`（旧数据兼容）等价于没有该键（= 分类默认统一字号）。
+ * 深拷贝并收敛 `page.text_style`:非对象 -> `{}`;未知分类/未知字段丢弃;空覆盖对象丢弃;
+ * 地图分类的 `font_size_pt: null`(旧数据兼容)等价于没有该键(= 分类默认统一字号).
  *
- * 为什么只做类型收敛、不校验取值范围：`page` 块是编辑器自己的产物，打开时已由
- * `validatePage` 严格校验；`normalizePage` 只保证「text_style 一定存在且形状可安全消费」，
- * 与 `normalizeGeo` 的宽松补齐口径不同（见规格 §1.1）。
- * 为什么页面对拍的外壳也要走它：`defaultPageLayout` 需要把传入的覆盖深拷贝进结果，
- * 避免调用方与 layout 共享可变的覆盖对象（覆盖表只有这一份写入实现）。
+ * 为什么只做类型收敛,不校验取值范围:`page` 块是编辑器自己的产物,打开时已由
+ * `validatePage` 严格校验;`normalizePage` 只保证「text_style 一定存在且形状可安全消费」,
+ * 与 `normalizeGeo` 的宽松补齐口径不同(见规格 §1.1).
+ * 为什么页面对拍的外壳也要走它:`defaultPageLayout` 需要把传入的覆盖深拷贝进结果,
+ * 避免调用方与 layout 共享可变的覆盖对象(覆盖表只有这一份写入实现).
  */
 export function cloneTextStyleOverrides(value: unknown): TextStyleOverrides {
   const out: TextStyleOverrides = {};
@@ -421,20 +421,20 @@ export function cloneTextStyleOverrides(value: unknown): TextStyleOverrides {
   return out;
 }
 
-/** 归一化 text item 的 `geo_label_id`：非空字符串原样保留，其余（缺省/坏值）落 null */
+/** 归一化 text item 的 `geo_label_id`:非空字符串原样保留,其余(缺省/坏值)落 null */
 function normalizeGeoLabelId(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
 /**
- * 执行「左右居中」约束：把 `center_h === true` 的页面文字 item 拉回纸张中心并强制
- * `anchor = 'middle'`，返回被改动的条数。
+ * 执行「左右居中」约束:把 `center_h === true` 的页面文字 item 拉回纸张中心并强制
+ * `anchor = 'middle'`,返回被改动的条数.
  *
- * 为什么做成可重复调用的纯函数而不是只在打开时做一次：纸张宽度/方向被侧栏改动后，
- * 约束必须立刻重新贴合（用户预期开关=持续约束，而不是「点一次居中」）；导出前
- * `normalizePage` 也会再调一次，保证落盘的 x 与 paper 宽度永远一致。
- * 为什么 map 空间 item 不参与：地图地名位置是底图数据（geo.labels），纸张变宽不应改变
- * 地名在地图上的相对位置；`validatePage` 也禁止 map 空间开启该开关。
+ * 为什么做成可重复调用的纯函数而不是只在打开时做一次:纸张宽度/方向被侧栏改动后,
+ * 约束必须立刻重新贴合(用户预期开关=持续约束,而不是「点一次居中」);导出前
+ * `normalizePage` 也会再调一次,保证落盘的 x 与 paper 宽度永远一致.
+ * 为什么 map 空间 item 不参与:地图地名位置是底图数据(geo.labels),纸张变宽不应改变
+ * 地名在地图上的相对位置;`validatePage` 也禁止 map 空间开启该开关.
  */
 export function enforceHorizontalCenter(layout: PageLayout): number {
   const centerX = roundToPageDecimals(layout.paper.width_pt / 2);
@@ -450,10 +450,10 @@ export function enforceHorizontalCenter(layout: PageLayout): number {
 }
 
 /**
- * 规范化 layout（3 位小数、新对象）；保存前与摘要前都走它。
- * 除数字口径外还补三处兜底：`text_style` 缺省/坏结构 → `{}`，text item 的 `geo_label_id`
- * 坏值 → `null`，text item 的 `center_h` 缺省/坏值 → `false`；随后执行一次居中约束，
- * 保证 x/anchor 与 center_h 自洽（下游一律按「字段一定存在」消费）。
+ * 规范化 layout(3 位小数,新对象);保存前与摘要前都走它.
+ * 除数字口径外还补三处兜底:`text_style` 缺省/坏结构 -> `{}`,text item 的 `geo_label_id`
+ * 坏值 -> `null`,text item 的 `center_h` 缺省/坏值 -> `false`;随后执行一次居中约束,
+ * 保证 x/anchor 与 center_h 自洽(下游一律按「字段一定存在」消费).
  */
 export function normalizePage(layout: PageLayout): PageLayout {
   const rounded = roundNumbersDeep(layout);
@@ -465,7 +465,7 @@ export function normalizePage(layout: PageLayout): PageLayout {
         ? {
             ...item,
             geo_label_id: normalizeGeoLabelId(item.geo_label_id),
-            // 居中只对纸张空间有意义；地图 item 上残留的 true 一律收敛成 false
+            // 居中只对纸张空间有意义;地图 item 上残留的 true 一律收敛成 false
             center_h: item.space === 'page' && item.center_h === true,
           }
         : item,
@@ -475,7 +475,7 @@ export function normalizePage(layout: PageLayout): PageLayout {
   return normalized;
 }
 
-/** 把值变成键排序、无空白、数字 3 位小数的 JSON 结构（递归） */
+/** 把值变成键排序,无空白,数字 3 位小数的 JSON 结构(递归) */
 function canonicalValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((entry) => canonicalValue(entry));
   if (typeof value === 'object' && value !== null) {
@@ -489,26 +489,26 @@ function canonicalValue(value: unknown): unknown {
 }
 
 /**
- * 任意值 → 键排序、无空白、数字 3 位小数的 canonical JSON 串（geo digest / marker 用）。
- * 复用 layout 的 `canonicalValue`，保证 layout 与 geo 两种文档只有一套规范化口径。
+ * 任意值 -> 键排序,无空白,数字 3 位小数的 canonical JSON 串(geo digest / marker 用).
+ * 复用 layout 的 `canonicalValue`,保证 layout 与 geo 两种文档只有一套规范化口径.
  */
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalValue(value)) ?? 'null';
 }
 
 /**
- * 规范化 layout → 键排序、无空白的 JSON 串。
- * 签名/摘要用它做「打开后是否改过」的比较，因此必须确定性（键序、数字精度都固定）。
+ * 规范化 layout -> 键排序,无空白的 JSON 串.
+ * 签名/摘要用它做「打开后是否改过」的比较,因此必须确定性(键序,数字精度都固定).
  */
 export function serializePage(layout: PageLayout): string {
   return JSON.stringify(canonicalValue(normalizePage(layout)));
 }
 
 /**
- * 任意值 → 键排序、无空白、**保留数字精度**的 JSON 结构（只把非有限值落 0）。
- * 为什么单独一份：导出文件的 geo 块必须保持 Cartopy 原精度（`base.view_box` 可能有 6 位小数），
- * 否则导出后再被 Cartopy 侧的一致性校验判成「与底图根标签不一致」；page 块已先 normalizePage
- * 统一到 3 位小数，所以复用同一套键排序即可。
+ * 任意值 -> 键排序,无空白,**保留数字精度**的 JSON 结构(只把非有限值落 0).
+ * 为什么单独一份:导出文件的 geo 块必须保持 Cartopy 原精度(`base.view_box` 可能有 6 位小数),
+ * 否则导出后再被 Cartopy 侧的一致性校验判成「与底图根标签不一致」;page 块已先 normalizePage
+ * 统一到 3 位小数,所以复用同一套键排序即可.
  */
 function canonicalValueExact(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((entry) => canonicalValueExact(entry));
@@ -523,30 +523,30 @@ function canonicalValueExact(value: unknown): unknown {
 }
 
 /**
- * 导出单文件地图文档（`<stem>.geo.json`）的文本：geo 全字段 + `page` 排版块。
+ * 导出单文件地图文档(`<stem>.geo.json`)的文本:geo 全字段 + `page` 排版块.
  *
- * 文件即「可再次编辑的地图」：重新打开时 `page` 块恢复排版，geo 块仍作为只读地理输入。
- * 键排序 + 2 空格缩进 + 末尾一个换行（可 diff、可版本化）；同一输入字节稳定，
- * 且「导出 → 重新打开 → 再导出」必须字节一致（幂等，geo 精度与 page 舍入都不漂移）。
+ * 文件即「可再次编辑的地图」:重新打开时 `page` 块恢复排版,geo 块仍作为只读地理输入.
+ * 键排序 + 2 空格缩进 + 末尾一个换行(可 diff,可版本化);同一输入字节稳定,
+ * 且「导出 -> 重新打开 -> 再导出」必须字节一致(幂等,geo 精度与 page 舍入都不漂移).
  */
 export function serializeMapDocFile(geo: Geo, layout: PageLayout): string {
   const doc: MapDoc = { ...geo, [MAP_DOC_PAGE_KEY]: normalizePage(layout) };
   return `${JSON.stringify(canonicalValueExact(doc), null, 2)}\n`;
 }
 
-/** layout 签名：摘要用 3 位小数规范化后的 canonical JSON */
+/** layout 签名:摘要用 3 位小数规范化后的 canonical JSON */
 export function pageDigest(layout: PageLayout): string {
   return sha256Hex(serializePage(layout));
 }
 
-/** geo 签名（写进 final marker 的 "geo" 字段）：规范化 geo 的 canonical JSON 的 sha256 */
+/** geo 签名(写进 final marker 的 "geo" 字段):规范化 geo 的 canonical JSON 的 sha256 */
 export function geoDigest(geo: Geo): string {
   return sha256Hex(canonicalJson(geo));
 }
 
-/* =========================== SHA-256（纯 TS） =========================== */
+/* =========================== SHA-256(纯 TS) =========================== */
 
-/** SHA-256 轮常量（FIPS 180-4） */
+/** SHA-256 轮常量(FIPS 180-4) */
 const SHA256_K: readonly number[] = [
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
   0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -567,20 +567,20 @@ const SHA256_H: readonly number[] = [
 const rotr = (value: number, bits: number): number =>
   ((value >>> bits) | (value << (32 - bits))) >>> 0;
 
-/** 无符号 32 位加法（JS 数字是 double，位运算自动回绕） */
+/** 无符号 32 位加法(JS 数字是 double,位运算自动回绕) */
 const add32 = (...values: readonly number[]): number => {
   let sum = 0;
   for (const value of values) sum = (sum + (value >>> 0)) | 0;
   return sum >>> 0;
 };
 
-/** 取定长数组的一项，越界回退 0（满足 noUncheckedIndexedAccess） */
+/** 取定长数组的一项,越界回退 0(满足 noUncheckedIndexedAccess) */
 const at = (values: readonly number[], index: number): number => values[index] ?? 0;
 
 /**
- * bytes 的 SHA-256（十六进制小写）。
- * 为什么自己写：core 不能依赖 DOM（Web Crypto 是异步且部分环境不可用），
- * 也不能依赖 node:crypto（浏览器包里不存在）；这个实现只服务本地签名比较。
+ * bytes 的 SHA-256(十六进制小写).
+ * 为什么自己写:core 不能依赖 DOM(Web Crypto 是异步且部分环境不可用),
+ * 也不能依赖 node:crypto(浏览器包里不存在);这个实现只服务本地签名比较.
  */
 export function sha256OfBytes(bytes: Uint8Array): string {
   const bitLength = bytes.length * 8;
@@ -643,14 +643,14 @@ export function sha256OfBytes(bytes: Uint8Array): string {
   return hash.map((word) => (word >>> 0).toString(16).padStart(8, '0')).join('');
 }
 
-/** UTF-8 文本的 SHA-256（十六进制小写）；对底图原文/规范化 JSON 求摘要都走这里 */
+/** UTF-8 文本的 SHA-256(十六进制小写);对底图原文/规范化 JSON 求摘要都走这里 */
 export function sha256Hex(text: string): string {
   return sha256OfBytes(new TextEncoder().encode(text));
 }
 
 /* =========================== 校验 =========================== */
 
-/** 校验结果：ok 分支的 layout 已通过结构检查（未规范化） */
+/** 校验结果:ok 分支的 layout 已通过结构检查(未规范化) */
 export type PageValidation =
   | { readonly ok: true; readonly layout: PageLayout; readonly warnings: readonly string[] }
   | {
@@ -680,7 +680,7 @@ const isTextAnchor = (value: unknown): value is TextAnchor =>
 
 const isItemSpace = (value: unknown): value is ItemSpace => value === 'page' || value === 'map';
 
-/** 页面文字角色：键集来自 config/text-style.ts 的 PAGE_TEXT_STYLES（单一真源） */
+/** 页面文字角色:键集来自 config/text-style.ts 的 PAGE_TEXT_STYLES(单一真源) */
 const isTextRole = (value: unknown): value is TextRole =>
   typeof value === 'string' && Object.hasOwn(PAGE_TEXT_STYLES, value);
 
@@ -698,17 +698,17 @@ const GRATICULE_SIDES: readonly GraticuleSide[] = ['bottom', 'top', 'left', 'rig
 const isGraticuleSide = (value: unknown): value is GraticuleSide =>
   typeof value === 'string' && GRATICULE_SIDES.includes(value as GraticuleSide);
 
-/** 可选颜色：null 或 #rrggbb */
+/** 可选颜色:null 或 #rrggbb */
 const nullableColor = (value: unknown): boolean => value === null || isColor(value);
 
-/** 可选虚线：null 或 2 个正数 */
+/** 可选虚线:null 或 2 个正数 */
 const nullableDash = (value: unknown): boolean =>
   value === null ||
   (Array.isArray(value) &&
     value.length === 2 &&
     value.every((entry) => isFiniteNumber(entry) && entry > 0));
 
-/** 可选光晕：null 或 {color,width_pt} */
+/** 可选光晕:null 或 {color,width_pt} */
 function checkHalo(value: unknown, path: string, errors: string[]): void {
   if (value === null) return;
   if (!isObject(value)) {
@@ -722,9 +722,9 @@ function checkHalo(value: unknown, path: string, errors: string[]): void {
 }
 
 /**
- * 校验分类覆盖里的 `halo`（§1.1）：null 或 `{ color: #rrggbb, width_pt: 0..20 }`。
- * 与 item 的 halo 口径不同：覆盖允许 `width_pt: 0`（显式关光晕但保留颜色），
- * 因为覆盖的 null 另有语义（删除覆盖回到默认），0 宽是「有光晕配置但不可见」。
+ * 校验分类覆盖里的 `halo`(§1.1):null 或 `{ color: #rrggbb, width_pt: 0..20 }`.
+ * 与 item 的 halo 口径不同:覆盖允许 `width_pt: 0`(显式关光晕但保留颜色),
+ * 因为覆盖的 null 另有语义(删除覆盖回到默认),0 宽是「有光晕配置但不可见」.
  */
 function validateTextStyleHalo(value: unknown, path: string, errors: string[]): void {
   if (value === null) return;
@@ -743,15 +743,15 @@ function validateTextStyleHalo(value: unknown, path: string, errors: string[]): 
       errors.push(`${path}.${field}: 未知字段`);
     }
   }
-  // halo 只要出现对象就必须两个字段齐全（与 item halo 同一口径）
+  // halo 只要出现对象就必须两个字段齐全(与 item halo 同一口径)
   if (!Object.hasOwn(value, 'color')) errors.push(`${path}.color: 缺少字段`);
   if (!Object.hasOwn(value, 'width_pt')) errors.push(`${path}.width_pt: 缺少字段`);
 }
 
 /**
- * 校验一个分类的样式覆盖（§1.1）：字段名只允许 7 个已知键，取值范围固定。
- * `font_size_pt` 只接受 1..500 的数字（页面分类与地图分类同一口径）：字号恒为绝对值，
- * 不再是「null = 跟随旧数据」的可选字段。
+ * 校验一个分类的样式覆盖(§1.1):字段名只允许 7 个已知键,取值范围固定.
+ * `font_size_pt` 只接受 1..500 的数字(页面分类与地图分类同一口径):字号恒为绝对值,
+ * 不再是「null = 跟随旧数据」的可选字段.
  */
 function validateTextStyleOverride(value: unknown, path: string, errors: string[]): void {
   if (!isObject(value)) {
@@ -796,7 +796,7 @@ function validateTextStyleOverride(value: unknown, path: string, errors: string[
   }
 }
 
-/** 校验 layout.items 里的一个元素；`geo` 用于核对地图地名的来源 id */
+/** 校验 layout.items 里的一个元素;`geo` 用于核对地图地名的来源 id */
 function validateItem(value: unknown, index: number, errors: string[], geo?: Geo | null): void {
   const path = `items[${index}]`;
   if (!isObject(value)) {
@@ -847,7 +847,7 @@ function validateTextItem(
     errors.push(`${path}.line_height: 必须是正数`);
   }
   if (!isBoolean(item.italic)) errors.push(`${path}.italic: 必须是布尔值`);
-  // center_h：纸张空间可开关；地图地名位置属于底图数据，禁止用纸张宽度覆盖。
+  // center_h:纸张空间可开关;地图地名位置属于底图数据,禁止用纸张宽度覆盖.
   if (!isBoolean(item.center_h)) {
     errors.push(`${path}.center_h: 必须是布尔值`);
   } else if (item.space === 'map' && item.center_h) {
@@ -869,8 +869,8 @@ function validateTextItem(
     errors.push(`${path}.letter_spacing_em: 必须是 -1..2 的有限数字`);
   }
   checkHalo(item.halo, `${path}.halo`, errors);
-  // geo_label_id 是分类真值，不是可选兼容字段：map 空间必须有 id（提供 geo 时还要能查到），
-  // page 空间必须为 null。缺字段的旧 page 块不走迁移，直接判不合法 → 回退默认排版。
+  // geo_label_id 是分类真值,不是可选兼容字段:map 空间必须有 id(提供 geo 时还要能查到),
+  // page 空间必须为 null.缺字段的旧 page 块不走迁移,直接判不合法 -> 回退默认排版.
   if (item.space === 'map') {
     if (typeof item.geo_label_id !== 'string' || item.geo_label_id.length === 0) {
       errors.push(`${path}.geo_label_id: 地图地名必须是非空来源 id`);
@@ -975,10 +975,10 @@ function validateColorbarItem(item: Record<string, unknown>, path: string, error
 }
 
 /**
- * 校验 `page` 块（结构与取值范围，按契约 §4）。
+ * 校验 `page` 块(结构与取值范围,按契约 §4).
  *
- * @param value 来自上传文件里的 `page` 键（未知 JSON）
- * @param geo 可选：提供时补一条「地图是否完整落在纸张内」的告警（越界只告警不报错）
+ * @param value 来自上传文件里的 `page` 键(未知 JSON)
+ * @param geo 可选:提供时补一条「地图是否完整落在纸张内」的告警(越界只告警不报错)
  */
 export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
   const errors: string[] = [];
@@ -1046,8 +1046,8 @@ export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
     }
   }
 
-  // page.text_style：可选（旧文件没有）；出现时键必须 ∈ 分类表、值只能是 §1.1 的 7 个字段。
-  // 未知字段/未知分类一律报错（与 page 块其它字段同一严格口径），不做静默纠正。
+  // page.text_style:可选(旧文件没有);出现时键必须 ∈ 分类表,值只能是 §1.1 的 7 个字段.
+  // 未知字段/未知分类一律报错(与 page 块其它字段同一严格口径),不做静默纠正.
   const textStyle = value.text_style;
   if (textStyle !== undefined) {
     if (!isObject(textStyle)) {
@@ -1068,7 +1068,7 @@ export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
     errors.push('items: 必须是数组');
   } else {
     if (items.length > PAGE_MAX_ITEMS) {
-      errors.push(`items: 最多 ${PAGE_MAX_ITEMS} 个（当前 ${items.length}）`);
+      errors.push(`items: 最多 ${PAGE_MAX_ITEMS} 个(当前 ${items.length})`);
     }
     const seen = new Set<number>();
     let maxId = 0;
@@ -1083,11 +1083,11 @@ export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
     if (!isPositiveInteger(value.seq)) {
       errors.push('seq: 必须是正整数');
     } else if (value.seq <= maxId) {
-      errors.push(`seq: 必须大于所有 item id（当前 ${value.seq}，最大 id ${maxId}）`);
+      errors.push(`seq: 必须大于所有 item id(当前 ${value.seq},最大 id ${maxId})`);
     }
   }
 
-  // 越界只告警：契约 §4「map.x/y 有限即可（越界只告警）」
+  // 越界只告警:契约 §4「map.x/y 有限即可(越界只告警)」
   if (
     isObject(paper) &&
     isFiniteNumber(paper.width_pt) &&
@@ -1108,7 +1108,7 @@ export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
       map.x + map.width_pt > paper.width_pt ||
       map.y + mapHeight > paper.height_pt
     ) {
-      warnings.push('地图超出纸张范围（预览会显示在纸外，成品会被裁掉）');
+      warnings.push('地图超出纸张范围(预览会显示在纸外,成品会被裁掉)');
     }
   }
 
@@ -1117,8 +1117,8 @@ export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
 }
 
 /**
- * 校验 geo v2 的一条地名标注（结构 + 取值范围，按契约 §1）。
- * 不校验样式字段：v2 的样式完全由 `config/text-style.ts` 的 role 表决定，产物里不应出现。
+ * 校验 geo v2 的一条地名标注(结构 + 取值范围,按契约 §1).
+ * 不校验样式字段:v2 的样式完全由 `config/text-style.ts` 的 role 表决定,产物里不应出现.
  */
 function validateGeoLabel(value: unknown, path: string, seen: Set<string>, errors: string[]): void {
   if (!isObject(value)) {
@@ -1147,10 +1147,10 @@ function validateGeoLabel(value: unknown, path: string, seen: Set<string>, error
 }
 
 /**
- * 轻量校验 geo：只查前端渲染默认排版必需的字段，返回错误清单（空 = 可用）。
- * relief/legend/suggestions 是可选块（Cartopy 不画就没有对应的键）：缺省合法，
- * 存在时只做基础结构检查；归一化默认值由 `normalizeGeo` 负责。
- * 注意：这里也负责文件身份（format/version）；`page` 块不在这里校验（见 `validatePage`）。
+ * 轻量校验 geo:只查前端渲染默认排版必需的字段,返回错误清单(空 = 可用).
+ * relief/legend/suggestions 是可选块(Cartopy 不画就没有对应的键):缺省合法,
+ * 存在时只做基础结构检查;归一化默认值由 `normalizeGeo` 负责.
+ * 注意:这里也负责文件身份(format/version);`page` 块不在这里校验(见 `validatePage`).
  */
 export function validateGeo(value: unknown): string[] {
   const errors: string[] = [];
@@ -1158,7 +1158,7 @@ export function validateGeo(value: unknown): string[] {
   if (value.format !== PAGE_GEO_FORMAT) errors.push(`geo.format: 必须是 "${PAGE_GEO_FORMAT}"`);
   if (value.version !== PAGE_GEO_VERSION) {
     if (value.version === 1) {
-      errors.push('geo.version: 旧 v1 契约，请用更新后的 Cartopy 重新生成');
+      errors.push('geo.version: 旧 v1 契约,请用更新后的 Cartopy 重新生成');
     } else {
       errors.push(`geo.version: 必须是 ${PAGE_GEO_VERSION}`);
     }
@@ -1204,7 +1204,7 @@ export function validateGeo(value: unknown): string[] {
         }
       });
     }
-    // graticule.style 允许缺省（Cartopy 未来可能不写）；存在但类型不对才算错误。
+    // graticule.style 允许缺省(Cartopy 未来可能不写);存在但类型不对才算错误.
     if (graticule.style !== undefined && graticule.style !== null && !isObject(graticule.style)) {
       errors.push('geo.graticule.style: 必须是对象或 null');
     }
@@ -1218,9 +1218,9 @@ export function validateGeo(value: unknown): string[] {
     );
   }
 
-  // relief / legend / suggestions 是 Cartopy 的可选块：整块缺省合法；块内字段也可能缺省
-  // （Cartopy 的 set_suggestions 只写调用方给出的字段，notes/area_annotation 等可能根本没有键），
-  // 所以这里只校验「存在但类型不对」的字段，缺省交给 normalizeGeo 补默认值。
+  // relief / legend / suggestions 是 Cartopy 的可选块:整块缺省合法;块内字段也可能缺省
+  // (Cartopy 的 set_suggestions 只写调用方给出的字段,notes/area_annotation 等可能根本没有键),
+  // 所以这里只校验「存在但类型不对」的字段,缺省交给 normalizeGeo 补默认值.
   const relief = value.relief;
   if (relief !== undefined && relief !== null) {
     if (!isObject(relief)) {
@@ -1282,9 +1282,9 @@ export function validateGeo(value: unknown): string[] {
   return errors;
 }
 
-/* =========================== geo 归一化（可选块补默认） =========================== */
+/* =========================== geo 归一化(可选块补默认) =========================== */
 
-/** 空 suggestions：Cartopy 没有默认文案时的全空块（defaultPageLayout 据此不生成标题/注记/来源） */
+/** 空 suggestions:Cartopy 没有默认文案时的全空块(defaultPageLayout 据此不生成标题/注记/来源) */
 function emptySuggestions(): GeoSuggestions {
   return {
     title: '',
@@ -1297,27 +1297,27 @@ function emptySuggestions(): GeoSuggestions {
   };
 }
 
-/** 字符串字段兜底：类型不对就当空串（normalizeGeo 只补齐，不修改合法值） */
+/** 字符串字段兜底:类型不对就当空串(normalizeGeo 只补齐,不修改合法值) */
 function stringOr(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback;
 }
 
-/** 字符串数组兜底：非数组当空数组；元素不是字符串时转成字符串（避免下游 .split 崩） */
+/** 字符串数组兜底:非数组当空数组;元素不是字符串时转成字符串(避免下游 .split 崩) */
 function stringList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.map((entry) => (typeof entry === 'string' ? entry : String(entry)));
 }
 
 /**
- * graticule 线型的中性默认值。
- * 为什么需要：`geo.graticule.style` 是 Cartopy 可能不写的可选字段（validateGeo 允许缺省）；
- * 当前渲染并不读取它，但 `Geo` 类型要求字段完整，缺省时补中性值避免下游拿到 undefined。
+ * graticule 线型的中性默认值.
+ * 为什么需要:`geo.graticule.style` 是 Cartopy 可能不写的可选字段(validateGeo 允许缺省);
+ * 当前渲染并不读取它,但 `Geo` 类型要求字段完整,缺省时补中性值避免下游拿到 undefined.
  */
 function neutralGraticuleStyle(): GraticuleStyle {
   return { stroke: '#808080', width_pt: 0.5, dash: [0.5, 0.825], opacity: 1 };
 }
 
-/** 归一化 graticule：刻度数组原样保留，只补可能缺省的 style（lon/lat 由 validateGeo 保证） */
+/** 归一化 graticule:刻度数组原样保留,只补可能缺省的 style(lon/lat 由 validateGeo 保证) */
 function normalizeGraticule(raw: GeoGraticule): GeoGraticule {
   const source: Record<string, unknown> = isObject(raw) ? raw : {};
   const style = isObject(source['style'])
@@ -1331,9 +1331,9 @@ function normalizeGraticule(raw: GeoGraticule): GeoGraticule {
 }
 
 /**
- * 归一化 relief：结构不完整一律 null。
- * 为什么坏结构不保留：色标依赖 vmax>vmin、stops 至少一条、数值有限；缺任何一项都无法
- * 画出有意义的色标，不如让默认排版不生成色标、让 layout 里的 colorbar 给出明确错误。
+ * 归一化 relief:结构不完整一律 null.
+ * 为什么坏结构不保留:色标依赖 vmax>vmin,stops 至少一条,数值有限;缺任何一项都无法
+ * 画出有意义的色标,不如让默认排版不生成色标,让 layout 里的 colorbar 给出明确错误.
  */
 function normalizeRelief(raw: unknown): GeoRelief | null {
   if (!isObject(raw)) return null;
@@ -1357,7 +1357,7 @@ function normalizeRelief(raw: unknown): GeoRelief | null {
   return { title, unit, vmin, vmax, stops: normalizedStops, ticks };
 }
 
-/** 归一化 legend：缺省/结构坏 → 空图例（标题固定「图例」，defaultPageLayout 不会生图例框） */
+/** 归一化 legend:缺省/结构坏 -> 空图例(标题固定「图例」,defaultPageLayout 不会生图例框) */
 function normalizeLegend(raw: unknown): GeoLegend {
   if (!isObject(raw) || !Array.isArray(raw.entries)) return { title: '图例', entries: [] };
   if (!raw.entries.every(isObject)) return { title: '图例', entries: [] };
@@ -1367,7 +1367,7 @@ function normalizeLegend(raw: unknown): GeoLegend {
   };
 }
 
-/** 归一化 suggestions：逐字段兜底（部分字段坏只影响那一项，不整块丢弃） */
+/** 归一化 suggestions:逐字段兜底(部分字段坏只影响那一项,不整块丢弃) */
 function normalizeSuggestions(raw: unknown): GeoSuggestions {
   if (!isObject(raw)) return emptySuggestions();
   return {
@@ -1382,15 +1382,15 @@ function normalizeSuggestions(raw: unknown): GeoSuggestions {
 }
 
 /**
- * 把上传的 geo 收敛成前端可安全消费的形状：可选块补默认值，返回新对象。
+ * 把上传的 geo 收敛成前端可安全消费的形状:可选块补默认值,返回新对象.
  *
- * - legend 缺省/结构坏 → `{title:'图例', entries: []}`（defaultPageLayout 因此不生成空图例框）；
- * - suggestions 缺省/结构坏 → 全空（defaultPageLayout 因此不生成标题/注记/来源）；
- * - relief 缺省/结构坏 → null（defaultPageLayout 因此不生成色标）；
- * - graticule 的 lon/lat 原样保留，style 缺省时补中性值；
- * - base/labels 不补：validateGeo 已要求，缺了属于调用方漏校验。
- * 为什么返回新对象：`PageDocument.geo` 是打开后共享的只读真值，不能与用户上传的原始
- * JSON 共享可变引用。
+ * - legend 缺省/结构坏 -> `{title:'图例', entries: []}`(defaultPageLayout 因此不生成空图例框);
+ * - suggestions 缺省/结构坏 -> 全空(defaultPageLayout 因此不生成标题/注记/来源);
+ * - relief 缺省/结构坏 -> null(defaultPageLayout 因此不生成色标);
+ * - graticule 的 lon/lat 原样保留,style 缺省时补中性值;
+ * - base/labels 不补:validateGeo 已要求,缺了属于调用方漏校验.
+ * 为什么返回新对象:`PageDocument.geo` 是打开后共享的只读真值,不能与用户上传的原始
+ * JSON 共享可变引用.
  */
 export function normalizeGeo(raw: Geo): Geo {
   const source: Partial<Geo> = isObject(raw) ? raw : {};
@@ -1413,7 +1413,7 @@ export function itemById(layout: PageLayout, id: number): PageItem | null {
   return layout.items.find((item) => item.id === id) ?? null;
 }
 
-/** 删除元素（按 id），返回是否删到；不处理选中态 */
+/** 删除元素(按 id),返回是否删到;不处理选中态 */
 export function removeItem(layout: PageLayout, id: number): boolean {
   const index = layout.items.findIndex((item) => item.id === id);
   if (index < 0) return false;
@@ -1421,19 +1421,19 @@ export function removeItem(layout: PageLayout, id: number): boolean {
   return true;
 }
 
-/** 分配一个新的元素 id 并推进 seq（调用方负责把元素插进 items） */
+/** 分配一个新的元素 id 并推进 seq(调用方负责把元素插进 items) */
 export function allocateItemId(layout: PageLayout): number {
   const id = layout.seq;
   layout.seq += 1;
   return id;
 }
 
-/** 走查元素数量（状态栏/标题用） */
+/** 走查元素数量(状态栏/标题用) */
 export function countItems(layout: PageLayout): number {
   return layout.items.length;
 }
 
-/** 元素类型的中文名（UI 列表与状态提示共用） */
+/** 元素类型的中文名(UI 列表与状态提示共用) */
 export function itemKindLabel(item: PageItem): string {
   switch (item.kind) {
     case 'text':
@@ -1446,14 +1446,14 @@ export function itemKindLabel(item: PageItem): string {
 }
 
 /**
- * 元素的一行摘要（元素列表用）。
- * 为什么放宽到 18 字：侧栏宽度有限，长文本只显示开头，完整内容在属性面板里。
+ * 元素的一行摘要(元素列表用).
+ * 为什么放宽到 18 字:侧栏宽度有限,长文本只显示开头,完整内容在属性面板里.
  */
 export function itemSummary(item: PageItem): string {
   switch (item.kind) {
     case 'text': {
       const text = item.lines.join(' ').replace(/\s+/g, ' ').trim();
-      return text.length > 18 ? `${text.slice(0, 18)}…` : text || '（空文字）';
+      return text.length > 18 ? `${text.slice(0, 18)}...` : text || '(空文字)';
     }
     case 'legend':
       return `${item.title || '图例'} · ${item.entries.length} 条`;

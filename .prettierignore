@@ -2,18 +2,18 @@
 dist/
 node_modules/
 
-# 审计报告（本地文档，不参与格式化）
+# 审计报告(本地文档,不参与格式化)
 audit/
 
-# 依赖锁文件由 npm 生成，格式化没有意义
+# 依赖锁文件由 npm 生成,格式化没有意义
 package-lock.json
 
-# 本机 npm 缓存（~/.npm 不可写时用工作区缓存）
+# 本机 npm 缓存(~/.npm 不可写时用工作区缓存)
 .npm-cache/
 
 # 测试覆盖率产物
 coverage/
 
-# 运行期工作区：浏览器 profile/日志（有头浏览器验收用）、脚本生成的 demo 产物
+# 运行期工作区:浏览器 profile/日志(有头浏览器验收用),脚本生成的 demo 产物
 .work/
 demo/

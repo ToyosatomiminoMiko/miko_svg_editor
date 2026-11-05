@@ -1,12 +1,12 @@
 /**
  * `core/page.ts` 的 geo 归一化/摘要/序列化增量与 `core/page-layout.ts` 的 defaultPageLayout
- * 可选块降级（无 legend / 无 relief / 无 suggestions）单测。
+ * 可选块降级(无 legend / 无 relief / 无 suggestions)单测.
  *
- * 为什么要有这些用例：Cartopy 直出的 geo.json 允许缺 legend/relief/suggestions 整块
- * （例如没有图例的图），默认排版必须按「实际存在哪些块」决定右栏/横向一排，既不生成
- * 空图例框、不画没有数据的色标，也不能让地图/注记/色标重叠；同时「有 legend」的版式
- * 数值必须保持既有 A4 横向结果（回归 demo）。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 为什么要有这些用例:Cartopy 直出的 geo.json 允许缺 legend/relief/suggestions 整块
+ * (例如没有图例的图),默认排版必须按「实际存在哪些块」决定右栏/横向一排,既不生成
+ * 空图例框,不画没有数据的色标,也不能让地图/注记/色标重叠;同时「有 legend」的版式
+ * 数值必须保持既有 A4 横向结果(回归 demo).
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -34,7 +34,7 @@ import {
   withoutBlocks,
 } from '../fixtures/page-fixtures';
 
-/** 用 geo 生成一份默认排版（打开流程：normalizeGeo → defaultPageLayout） */
+/** 用 geo 生成一份默认排版(打开流程:normalizeGeo -> defaultPageLayout) */
 function layoutOf(geo: Geo): PageLayout {
   return defaultPageLayout(makeDocument(geo).geo);
 }
@@ -61,7 +61,7 @@ describe('sha256OfBytes / sha256Hex', () => {
 });
 
 describe('canonicalJson', () => {
-  it('键排序、无空白、数字 3 位小数、非有限值落 0', () => {
+  it('键排序,无空白,数字 3 位小数,非有限值落 0', () => {
     expect(canonicalJson({ b: 1.23456, a: [1, { d: '中' }] })).toBe(
       '{"a":[1,{"d":"中"}],"b":1.235}',
     );
@@ -70,7 +70,7 @@ describe('canonicalJson', () => {
     );
   });
 
-  it('对 geo 得到稳定串（顶层键按字典序）', () => {
+  it('对 geo 得到稳定串(顶层键按字典序)', () => {
     const textValue = canonicalJson(makeGeo());
     expect(textValue.startsWith('{"base":')).toBe(true);
     expect(textValue).toContain('"format":"mapdoc-geo"');
@@ -80,7 +80,7 @@ describe('canonicalJson', () => {
 });
 
 describe('geoDigest', () => {
-  it('64 位小写 sha256、稳定、对改动敏感', () => {
+  it('64 位小写 sha256,稳定,对改动敏感', () => {
     const geo = makeGeo();
     const digest = geoDigest(geo);
     expect(digest).toMatch(/^[0-9a-f]{64}$/);
@@ -90,8 +90,8 @@ describe('geoDigest', () => {
   });
 });
 
-describe('serializeMapDocFile（导出单文件 geo.json）', () => {
-  it('顶层是 geo 全字段 + page 块；2 空格缩进、键排序、末尾一个换行、可解析且确定', () => {
+describe('serializeMapDocFile(导出单文件 geo.json)', () => {
+  it('顶层是 geo 全字段 + page 块;2 空格缩进,键排序,末尾一个换行,可解析且确定', () => {
     const geo = makeGeo();
     const layout = layoutOf(geo);
     const textValue = serializeMapDocFile(geo, layout);
@@ -104,13 +104,13 @@ describe('serializeMapDocFile（导出单文件 geo.json）', () => {
     expect(keys).toEqual([...keys].sort());
     expect(parsed['format']).toBe('mapdoc-geo');
     expect(parsed['version']).toBe(2);
-    // page 数字规范化到 3 位小数：A4 横向 841.889764 → 841.89
+    // page 数字规范化到 3 位小数:A4 横向 841.889764 -> 841.89
     const page = parsed['page'] as { paper: Record<string, number> };
     expect(page.paper['width_pt']).toBe(841.89);
     expect(serializeMapDocFile(geo, layout)).toBe(textValue);
   });
 
-  it('geo 数字保留 Cartopy 原精度（导出后再被 Cartopy 校验也不会漂移）', () => {
+  it('geo 数字保留 Cartopy 原精度(导出后再被 Cartopy 校验也不会漂移)', () => {
     const geo = makeGeo();
     geo.base.view_box = [0, 0, 200.123456, 100.654321];
     geo.base.width_pt = 200.123456;
@@ -122,7 +122,7 @@ describe('serializeMapDocFile（导出单文件 geo.json）', () => {
     expect(parsed.base.view_box).toEqual([0, 0, 200.123456, 100.654321]);
   });
 
-  it('导出文件可以再次导入：geo/page 分别通过校验，且再导出字节一致（幂等）', () => {
+  it('导出文件可以再次导入:geo/page 分别通过校验,且再导出字节一致(幂等)', () => {
     const geo = makeGeo();
     const layout = layoutOf(geo);
     const textValue = serializeMapDocFile(geo, layout);
@@ -134,11 +134,11 @@ describe('serializeMapDocFile（导出单文件 geo.json）', () => {
     expect(pageResult.ok).toBe(true);
     if (!pageResult.ok) return;
     const reopened = normalizePage(pageResult.layout);
-    // 重新打开 → 再导出：字节完全一致
+    // 重新打开 -> 再导出:字节完全一致
     expect(serializeMapDocFile(normalizedGeo, reopened)).toBe(textValue);
   });
 
-  it('不修改入参（geo/layout 都不被打上舍入结果）', () => {
+  it('不修改入参(geo/layout 都不被打上舍入结果)', () => {
     const geo = makeGeo();
     const layout = layoutOf(geo);
     const beforeGeo = structuredClone(geo);
@@ -149,7 +149,7 @@ describe('serializeMapDocFile（导出单文件 geo.json）', () => {
   });
 });
 
-describe('validateGeo：可选块缺省/存在时的基础结构检查', () => {
+describe('validateGeo:可选块缺省/存在时的基础结构检查', () => {
   it('完整 geo 通过', () => {
     expect(validateGeo(makeGeo())).toEqual([]);
   });
@@ -163,9 +163,9 @@ describe('validateGeo：可选块缺省/存在时的基础结构检查', () => {
     expect(validateGeo(raw)).toEqual([]);
   });
 
-  it('块存在但字段缺省也合法（Cartopy 的 set_suggestions 只写调用方给出的字段）', () => {
+  it('块存在但字段缺省也合法(Cartopy 的 set_suggestions 只写调用方给出的字段)', () => {
     const raw = mutableGeo(makeGeo());
-    // 真实 myanmar 产物：suggestions 只有部分字段、没有 notes/area_annotation
+    // 真实 myanmar 产物:suggestions 只有部分字段,没有 notes/area_annotation
     raw['suggestions'] = { title: '缅甸地形图', subtitle: '副标题', colorbar_title: '高程' };
     raw['legend'] = { entries: [] }; // 缺 title
     delete (raw['relief'] as Record<string, unknown>)['ticks'];
@@ -208,8 +208,8 @@ describe('validateGeo：可选块缺省/存在时的基础结构检查', () => {
   });
 });
 
-describe('normalizeGeo：可选块补默认（返回新对象）', () => {
-  it('三块全缺省 → 空图例、全空 suggestions、relief null', () => {
+describe('normalizeGeo:可选块补默认(返回新对象)', () => {
+  it('三块全缺省 -> 空图例,全空 suggestions,relief null', () => {
     const geo = withoutBlocks(makeGeo(), ['legend', 'relief', 'suggestions']);
     const normalized = normalizeGeo(geo);
     expect(normalized).not.toBe(geo);
@@ -224,13 +224,13 @@ describe('normalizeGeo：可选块补默认（返回新对象）', () => {
       legend_title: '',
       colorbar_title: '',
     } satisfies GeoSuggestions);
-    // 必需块原样保留（graticule 会克隆一层以便补 style 缺省）
+    // 必需块原样保留(graticule 会克隆一层以便补 style 缺省)
     expect(normalized.base).toEqual(geo.base);
     expect(normalized.graticule).toEqual(geo.graticule);
     expect(normalized.labels).toBe(geo.labels);
   });
 
-  it('graticule.style 缺省时补中性默认，validateGeo 仍通过', () => {
+  it('graticule.style 缺省时补中性默认,validateGeo 仍通过', () => {
     const raw = mutableGeo(makeGeo());
     const graticule = raw['graticule'] as Record<string, unknown>;
     delete graticule['style'];
@@ -247,9 +247,9 @@ describe('normalizeGeo：可选块补默认（返回新对象）', () => {
     expect(normalized.graticule.lat).toEqual(makeGeo().graticule.lat);
   });
 
-  it('真实 myanmar 型 geo（无 legend、suggestions 只有 4 键）全链路合法', () => {
-    // 与 Cartopy 真实产出的 myanmar 型 geo 同形：只有 relief/suggestions，
-    // 且 suggestions 只写 {title,subtitle,source,colorbar_title}（Cartopy 只写调用方给的键）。
+  it('真实 myanmar 型 geo(无 legend,suggestions 只有 4 键)全链路合法', () => {
+    // 与 Cartopy 真实产出的 myanmar 型 geo 同形:只有 relief/suggestions,
+    // 且 suggestions 只写 {title,subtitle,source,colorbar_title}(Cartopy 只写调用方给的键).
     const raw = mutableGeo(makeGeo());
     delete raw['legend'];
     raw['suggestions'] = {
@@ -270,14 +270,14 @@ describe('normalizeGeo：可选块补默认（返回新对象）', () => {
     expect(normalized.suggestions.source).toBe('地形: NOAA NCEI ETOPO 2022');
 
     const layout = layoutOf(raw as unknown as Geo);
-    // 无图例、无注记；标题/来源/色标仍在，layout 合法且不抛错
+    // 无图例,无注记;标题/来源/色标仍在,layout 合法且不抛错
     expect(layout.items.some((item) => item.kind === 'legend')).toBe(false);
     expect(layout.items.some((item) => item.kind === 'text' && item.role === 'note')).toBe(false);
     expect(layout.items.some((item) => item.kind === 'text' && item.role === 'title')).toBe(true);
     expect(layout.items.some((item) => item.kind === 'text' && item.role === 'source')).toBe(true);
     expect(layout.items.some((item) => item.kind === 'colorbar')).toBe(true);
     expect(validatePage(layout, normalized).ok).toBe(true);
-    // 没有图例时地图不再让出图例列宽（右栏只留窄列/无列）
+    // 没有图例时地图不再让出图例列宽(右栏只留窄列/无列)
     expect(layout.map.width_pt).toBeGreaterThan(841.889764 - 56 - 16 - 150);
   });
 
@@ -292,7 +292,7 @@ describe('normalizeGeo：可选块补默认（返回新对象）', () => {
     expect(normalized.suggestions.notes).toEqual([]);
   });
 
-  it('结构坏块被替换为默认值，部分坏的 suggestions 逐字段兜底', () => {
+  it('结构坏块被替换为默认值,部分坏的 suggestions 逐字段兜底', () => {
     const raw = mutableGeo(makeGeo());
     raw['legend'] = { title: '坏图例', entries: 'x' };
     raw['relief'] = { title: '高程', unit: 'm', vmin: 1, vmax: 1, stops: [], ticks: [] };
@@ -306,7 +306,7 @@ describe('normalizeGeo：可选块补默认（返回新对象）', () => {
     expect(normalized.suggestions.title).toBe('');
   });
 
-  it('合法块保留语义但克隆 stops/ticks（不与上传对象共享可变引用）', () => {
+  it('合法块保留语义但克隆 stops/ticks(不与上传对象共享可变引用)', () => {
     const geo = makeGeo();
     const normalized = normalizeGeo(geo);
     expect(normalized.relief).toEqual(geo.relief);
@@ -316,7 +316,7 @@ describe('normalizeGeo：可选块补默认（返回新对象）', () => {
     expect(normalized.suggestions).toEqual(geo.suggestions);
   });
 
-  it('不改写入参（缺失块不会被打上默认值）', () => {
+  it('不改写入参(缺失块不会被打上默认值)', () => {
     const geo = withoutBlocks(makeGeo(), ['legend', 'relief', 'suggestions']);
     normalizeGeo(geo);
     expect('legend' in geo).toBe(false);
@@ -325,11 +325,11 @@ describe('normalizeGeo：可选块补默认（返回新对象）', () => {
   });
 });
 
-describe('defaultPageLayout：有图例时保持 A4 横向既有数值（回归）', () => {
+describe('defaultPageLayout:有图例时保持 A4 横向既有数值(回归)', () => {
   it('地图/右栏/字号与降级前一致', () => {
     const geo = normalizeGeo(makeGeo());
     const layout = layoutOf(geo);
-    // 内容宽 = 841.889764 - 56；地图宽 = 内容宽 - 栏间距 16 - 图例列 150
+    // 内容宽 = 841.889764 - 56;地图宽 = 内容宽 - 栏间距 16 - 图例列 150
     const contentWidth = 841.889764 - 56;
     expect(layout.map.x).toBe(28);
     expect(layout.map.y).toBe(72);
@@ -349,8 +349,8 @@ describe('defaultPageLayout：有图例时保持 A4 横向既有数值（回归�
   });
 });
 
-describe('defaultPageLayout：无 legend 降级（不生成空图例框）', () => {
-  it('只有注记+色标时地图变宽、右栏从栏顶开始且不重叠', () => {
+describe('defaultPageLayout:无 legend 降级(不生成空图例框)', () => {
+  it('只有注记+色标时地图变宽,右栏从栏顶开始且不重叠', () => {
     const geo = normalizeGeo(withoutBlocks(makeGeo(), ['legend']));
     const layout = layoutOf(geo);
     expect(layout.items.some((item) => item.kind === 'legend')).toBe(false);
@@ -362,19 +362,19 @@ describe('defaultPageLayout：无 legend 降级（不生成空图例框）', () 
     if (note?.kind !== 'text' || colorbar?.kind !== 'colorbar') return;
 
     const contentWidth = 841.889764 - 56;
-    const compactRightWidth = 150 * 0.7; // compactRightColumnWidth：0.7 × 右栏最小宽
+    const compactRightWidth = 150 * 0.7; // compactRightColumnWidth:0.7 × 右栏最小宽
     expect(layout.map.width_pt).toBeCloseTo(contentWidth - 16 - compactRightWidth, 9);
-    // 右栏紧贴地图右侧，注记从栏顶（地图顶）开始
+    // 右栏紧贴地图右侧,注记从栏顶(地图顶)开始
     expect(note.x).toBeCloseTo(layout.map.x + layout.map.width_pt + 16, 9);
     expect(note.y).toBeCloseTo(72, 9);
-    // 注记/色标都在纸内，且色标不压注记（色标在注记块下方）
+    // 注记/色标都在纸内,且色标不压注记(色标在注记块下方)
     const noteBottom = note.y + note.lines.length * note.font_size_pt * note.line_height;
     expect(colorbar.y).toBeGreaterThanOrEqual(noteBottom);
     expect(colorbar.x + colorbar.width_pt).toBeLessThanOrEqual(841.889764 - 28 + 1e-6);
     expect(validatePage(layout, geo).ok).toBe(true);
   });
 
-  it('无 legend 也无注记（myanmar 型：只有 relief + 标题）也能合法渲染', () => {
+  it('无 legend 也无注记(myanmar 型:只有 relief + 标题)也能合法渲染', () => {
     const raw = mutableGeo(makeGeo());
     delete raw['legend'];
     const suggestions = raw['suggestions'] as Record<string, unknown>;
@@ -391,8 +391,8 @@ describe('defaultPageLayout：无 legend 降级（不生成空图例框）', () 
   });
 });
 
-describe('defaultPageLayout：无 relief / 无 suggestions 降级', () => {
-  it('relief 为 null 时不生成色标，其余图例/注记保留', () => {
+describe('defaultPageLayout:无 relief / 无 suggestions 降级', () => {
+  it('relief 为 null 时不生成色标,其余图例/注记保留', () => {
     const geo = normalizeGeo(withoutBlocks(makeGeo(), ['relief']));
     const layout = layoutOf(geo);
     expect(layout.items.some((item) => item.kind === 'colorbar')).toBe(false);
@@ -400,7 +400,7 @@ describe('defaultPageLayout：无 relief / 无 suggestions 降级', () => {
     expect(validatePage(layout, geo).ok).toBe(true);
   });
 
-  it('suggestions 全空时不生成标题/副标题/注记/来源，只留图例与色标', () => {
+  it('suggestions 全空时不生成标题/副标题/注记/来源,只留图例与色标', () => {
     const geo = normalizeGeo(withoutBlocks(makeGeo(), ['suggestions']));
     const layout = layoutOf(geo);
     const pageTextRoles = layout.items
@@ -412,7 +412,7 @@ describe('defaultPageLayout：无 relief / 无 suggestions 降级', () => {
     expect(validatePage(layout, geo).ok).toBe(true);
   });
 
-  it('三块全空：地图用满内容宽、只剩地名，layout 仍合法', () => {
+  it('三块全空:地图用满内容宽,只剩地名,layout 仍合法', () => {
     const geo = normalizeGeo(withoutBlocks(makeGeo(), ['legend', 'relief', 'suggestions']));
     const layout = layoutOf(geo);
     const contentWidth = 841.889764 - 56;
@@ -425,8 +425,8 @@ describe('defaultPageLayout：无 relief / 无 suggestions 降级', () => {
   });
 });
 
-describe('defaultPageLayout：纵向版式降级', () => {
-  it('A5 纵向且三块全空时不生成下方一排，地图仍用满内容宽', () => {
+describe('defaultPageLayout:纵向版式降级', () => {
+  it('A5 纵向且三块全空时不生成下方一排,地图仍用满内容宽', () => {
     const paper = {
       preset: 'A5' as const,
       orientation: 'portrait' as const,
@@ -441,7 +441,7 @@ describe('defaultPageLayout：纵向版式降级', () => {
     expect(validatePage(layout, geo).ok).toBe(true);
   });
 
-  it('A5 纵向且只有注记+色标时不生成图例，一排内互不重叠', () => {
+  it('A5 纵向且只有注记+色标时不生成图例,一排内互不重叠', () => {
     const paper = {
       preset: 'A5' as const,
       orientation: 'portrait' as const,
@@ -456,7 +456,7 @@ describe('defaultPageLayout：纵向版式降级', () => {
     expect(note?.kind).toBe('text');
     expect(colorbar?.kind).toBe('colorbar');
     if (note?.kind !== 'text' || colorbar?.kind !== 'colorbar') return;
-    // 注记从左边距开始（图例列不存在），色标仍贴右边距
+    // 注记从左边距开始(图例列不存在),色标仍贴右边距
     expect(note.x).toBeCloseTo(28, 9);
     expect(colorbar.x + colorbar.width_pt).toBeCloseTo(paper.width_pt - 28, 9);
     expect(note.x + 40).toBeLessThanOrEqual(colorbar.x + 1e-6);

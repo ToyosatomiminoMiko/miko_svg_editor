@@ -1,13 +1,13 @@
 /**
- * 点图元（PointEntity）的生命周期、几何/拾取、导出、选择与工具行为。
- * 点图元不是新的求解自由度：坐标仍在被引用的 Point 上，点图元只把「这个点是图元」
- * 这件事放进模型，因此本文件重点钉住它进入其它模块后必须保持一致的三条边界：
- * 1) 同一个点只能有一个身份：被点图元拥有时按 ent 选中（pickPoint 跳过、框选不重复、
- *    渲染交给 drawEntity），未被拥有时仍按 pt 选中；
- * 2) 删除级联沿用「共享端点保留」的原则：删线不能删掉被点图元拥有的端点，
- *    删点图元也不能删掉仍被直线使用的点；
- * 3) 导出/包围盒工具（dim）把点图元当零尺寸图元处理，不能因为退化矩形而消失或算出 NaN。
- * 每个用例先 clearModel()/resetInteraction()，避免单例模型与交互状态在测试间污染。
+ * 点图元(PointEntity)的生命周期,几何/拾取,导出,选择与工具行为.
+ * 点图元不是新的求解自由度:坐标仍在被引用的 Point 上,点图元只把「这个点是图元」
+ * 这件事放进模型,因此本文件重点钉住它进入其它模块后必须保持一致的三条边界:
+ * 1) 同一个点只能有一个身份:被点图元拥有时按 ent 选中(pickPoint 跳过,框选不重复,
+ *    渲染交给 drawEntity),未被拥有时仍按 pt 选中;
+ * 2) 删除级联沿用「共享端点保留」的原则:删线不能删掉被点图元拥有的端点,
+ *    删点图元也不能删掉仍被直线使用的点;
+ * 3) 导出/包围盒工具(dim)把点图元当零尺寸图元处理,不能因为退化矩形而消失或算出 NaN.
+ * 每个用例先 clearModel()/resetInteraction(),避免单例模型与交互状态在测试间污染.
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -80,7 +80,7 @@ const gridSnap = (x: number, y: number): Snap => ({
   pri: SNAP_PRIORITY.grid,
 });
 
-/** operations 命令引擎的点击上下文（node 里不需要真实画布） */
+/** operations 命令引擎的点击上下文(node 里不需要真实画布) */
 const click = (w: Vec, snap: Snap | null = null): ClickInput => ({
   w,
   zoom: 1,
@@ -95,7 +95,7 @@ const entIds = (): number[] =>
 const ptIds = (): number[] =>
   state.selection.items.filter((item) => item.kind === 'pt').map((item) => item.id);
 
-/** 世界矩形 [-50,50]² 对应的窗口框选（屏幕 800×600、zoom=1、原点居中） */
+/** 世界矩形 [-50,50]² 对应的窗口框选(屏幕 800×600,zoom=1,原点居中) */
 const windowMarquee: Marquee = {
   s0: { x: 350, y: 250 },
   currentS: { x: 450, y: 350 },
@@ -115,7 +115,7 @@ beforeEach(() => {
 });
 
 describe('点图元生命周期', () => {
-  it('addPointEntity 把已有点包成点图元，pointEntityOf / ownedPointIds 可反查', () => {
+  it('addPointEntity 把已有点包成点图元,pointEntityOf / ownedPointIds 可反查', () => {
     const p = addPt(3, 4);
     const e = addPointEntity(p);
 
@@ -128,7 +128,7 @@ describe('点图元生命周期', () => {
     expect(ownedPointIds()).toEqual(new Set([p.id]));
   });
 
-  it('删点图元：级联删掉它的点与引用该点的约束；只被约束引用的点也被清掉', () => {
+  it('删点图元:级联删掉它的点与引用该点的约束;只被约束引用的点也被清掉', () => {
     const p = addPt(0, 0);
     const q = addPt(10, 0);
     const e = addPointEntity(p);
@@ -140,12 +140,12 @@ describe('点图元生命周期', () => {
     expect(model.ents.size).toBe(0);
     expect(getPoint(p.id)).toBeUndefined();
     expect(model.cons.has(con.id)).toBe(false);
-    // q 只被这条约束引用，删约束后成为孤立点，由 pruneOrphanPoints 兜底清掉
+    // q 只被这条约束引用,删约束后成为孤立点,由 pruneOrphanPoints 兜底清掉
     expect(getPoint(q.id)).toBeUndefined();
     expect(model.pts.size).toBe(0);
   });
 
-  it('删点图元但点被直线共享：保留点与引用该点的约束，只删图元身份', () => {
+  it('删点图元但点被直线共享:保留点与引用该点的约束,只删图元身份', () => {
     const p = addPt(0, 0);
     const q = addPt(100, 0);
     const line = addLine(p, q);
@@ -162,7 +162,7 @@ describe('点图元生命周期', () => {
     expect(model.cons.has(con.id)).toBe(true);
   });
 
-  it('删线：被点图元拥有的端点保留，另一端点随线删除', () => {
+  it('删线:被点图元拥有的端点保留,另一端点随线删除', () => {
     const a = addPt(0, 0);
     const b = addPt(100, 0);
     const line = addLine(a, b);
@@ -179,7 +179,7 @@ describe('点图元生命周期', () => {
     expect(pointEntityOf(a.id)).toBe(e);
   });
 
-  it('pruneOrphanPoints 保留被点图元拥有的点，只清真正孤立的点', () => {
+  it('pruneOrphanPoints 保留被点图元拥有的点,只清真正孤立的点', () => {
     const owned = addPt(0, 0);
     addPointEntity(owned);
     const orphan = addPt(10, 10);
@@ -190,7 +190,7 @@ describe('点图元生命周期', () => {
     expect(getPoint(orphan.id)).toBeUndefined();
   });
 
-  it('removePoint：递归删掉拥有它的点图元以及引用它的直线', () => {
+  it('removePoint:递归删掉拥有它的点图元以及引用它的直线', () => {
     const p = addPt(0, 0);
     const q = addPt(100, 0);
     const e = addPointEntity(p);
@@ -204,7 +204,7 @@ describe('点图元生命周期', () => {
     expect(model.pts.size).toBe(0);
   });
 
-  it('删除工具点中点图元：按图元身份级联删除点本身', () => {
+  it('删除工具点中点图元:按图元身份级联删除点本身', () => {
     const p = addPt(0, 0);
     const e = addPointEntity(p);
     const session = createSession('erase');
@@ -225,12 +225,12 @@ describe('点图元的几何与拾取', () => {
 
     expect(pickPoint({ x: 0, y: 0 }, 1)).toBeNull();
 
-    // 放一个更远的普通点：拾取应命中它而不是距离 0 的已拥有点
+    // 放一个更远的普通点:拾取应命中它而不是距离 0 的已拥有点
     const plain = addPt(2, 0);
     expect(pickPoint({ x: 0, y: 0 }, 1)).toBe(plain);
   });
 
-  it('pickEntity 命中点图元，容差用点拾取容差', () => {
+  it('pickEntity 命中点图元,容差用点拾取容差', () => {
     const p = addPt(0, 0);
     const e = addPointEntity(p);
 
@@ -248,7 +248,7 @@ describe('点图元的几何与拾取', () => {
     expect(pickEntity({ x: 50, y: 0 }, 1)).not.toBe(line);
   });
 
-  it('sketchBounds：点图元退化为零尺寸矩形，仍按最小留白给出包围盒', () => {
+  it('sketchBounds:点图元退化为零尺寸矩形,仍按最小留白给出包围盒', () => {
     addPointEntity(addPt(5, 5));
     const pad = BBOX_PAD_MIN;
 
@@ -262,7 +262,7 @@ describe('点图元的几何与拾取', () => {
     });
   });
 
-  it('sketchBounds：远处点图元参与多图元包围盒并集', () => {
+  it('sketchBounds:远处点图元参与多图元包围盒并集', () => {
     addLine(addPt(0, 0), addPt(10, 0));
     addPointEntity(addPt(200, 200));
 
@@ -272,7 +272,7 @@ describe('点图元的几何与拾取', () => {
     expect(bb?.maxy).toBeGreaterThan(200);
   });
 
-  it('点图元的框选命中：窗口要求点在框内，交叉只要点与框重叠', () => {
+  it('点图元的框选命中:窗口要求点在框内,交叉只要点与框重叠', () => {
     const e = addPointEntity(addPt(0, 0));
     const inside = { minx: -10, miny: -10, maxx: 10, maxy: 10 };
     const outside = { minx: 20, miny: 20, maxx: 30, maxy: 30 };
@@ -295,14 +295,14 @@ describe('点图元的几何与拾取', () => {
 });
 
 describe('点图元的 SVG 导出', () => {
-  it('普通点图元导出为实心小圆；只有点时也能导出', () => {
+  it('普通点图元导出为实心小圆;只有点时也能导出', () => {
     addPointEntity(addPt(5, 5));
 
     const svg = buildSVG();
     expect(svg).not.toBeNull();
-    // 单点包围盒 bw=2 → 线宽取最小值 0.2；点半径 = 0.2 × 1.6 = 0.32
+    // 单点包围盒 bw=2 -> 线宽取最小值 0.2;点半径 = 0.2 × 1.6 = 0.32
     expect(svg).toContain('<circle cx="5" cy="5" r="0.32" fill="#111" stroke="none"/>');
-    // 点 (5,5) 的紧包围盒为 0×0，加 BBOX_PAD_MIN=1 留白
+    // 点 (5,5) 的紧包围盒为 0×0,加 BBOX_PAD_MIN=1 留白
     expect(svg).toContain('viewBox="4 4 2 2"');
     expect(svg).toContain('width="2"');
     expect(svg).toContain('height="2"');
@@ -317,14 +317,14 @@ describe('点图元的 SVG 导出', () => {
     );
   });
 
-  it('普通 addPt 没有图元身份，不产生可导出内容', () => {
+  it('普通 addPt 没有图元身份,不产生可导出内容', () => {
     addPt(0, 0);
     expect(buildSVG()).toBeNull();
   });
 });
 
 describe('点图元的选择语义', () => {
-  it('clickSelect 把点图元按 ent 选中，拖拽点是它引用的点', () => {
+  it('clickSelect 把点图元按 ent 选中,拖拽点是它引用的点', () => {
     const p = addPt(0, 0);
     const e = addPointEntity(p);
 
@@ -372,7 +372,7 @@ describe('点图元的选择语义', () => {
     expect(entIds()).toEqual([e.id]);
   });
 
-  it('selectedEntities / selectedPoints 按选择顺序分开给出，拖拽点合并去重', () => {
+  it('selectedEntities / selectedPoints 按选择顺序分开给出,拖拽点合并去重', () => {
     const owned = addPt(0, 0);
     const e = addPointEntity(owned);
     const plain = addPt(50, 50);
@@ -387,7 +387,7 @@ describe('点图元的选择语义', () => {
     ]);
   });
 
-  it('点图元的行内约束从它引用的点取（点才是约束引用的对象）', () => {
+  it('点图元的行内约束从它引用的点取(点才是约束引用的对象)', () => {
     const owned = addPt(0, 0);
     const e = addPointEntity(owned);
     const other = addPt(50, 0);
@@ -404,7 +404,7 @@ describe('点图元的选择语义', () => {
     ]);
   });
 
-  it('选中点图元时，它的点算隐含选中（与渲染高亮共用同一判定）', () => {
+  it('选中点图元时,它的点算隐含选中(与渲染高亮共用同一判定)', () => {
     const p = addPt(0, 0);
     const e = addPointEntity(p);
     selectOnly([entItem(e.id)]);
@@ -413,8 +413,8 @@ describe('点图元的选择语义', () => {
   });
 });
 
-describe('点工具（统一命令引擎）', () => {
-  it('空白点击建点，执行后成为点图元', () => {
+describe('点工具(统一命令引擎)', () => {
+  it('空白点击建点,执行后成为点图元', () => {
     const session = createSession('point');
     expect(clickCommand(session, click({ x: 3, y: 4 })).filled).toBe(true);
     expect(model.pts.size).toBe(1);
@@ -432,7 +432,7 @@ describe('点工具（统一命令引擎）', () => {
     }
   });
 
-  it('吸附到已有点时复用该点并把它提升为点图元，不新建点', () => {
+  it('吸附到已有点时复用该点并把它提升为点图元,不新建点', () => {
     const a = addPt(0, 0);
     addLine(a, addPt(100, 0));
     const session = createSession('point');
@@ -449,7 +449,7 @@ describe('点工具（统一命令引擎）', () => {
     expect(pointEntityOf(a.id)).toBeDefined();
   });
 
-  it('吸附到圆弧端点时同样复用该点并提升为点图元（圆弧端点就是普通点）', () => {
+  it('吸附到圆弧端点时同样复用该点并提升为点图元(圆弧端点就是普通点)', () => {
     const center = addPt(0, 0);
     const arc = addArcByAngles(center, 10, 0, Math.PI / 2);
     const g = arcGeometry(arc);
@@ -462,10 +462,10 @@ describe('点工具（统一命令引擎）', () => {
     const outcome = executeCommand(session, 1);
     expect(outcome.kind).toBe('action');
     expect(pointEntityOf(g.start.id)).toBeDefined();
-    expect(arc.a).toBe(g.start.id); // 圆弧仍引用同一个点：图元身份变了，几何没变
+    expect(arc.a).toBe(g.start.id); // 圆弧仍引用同一个点:图元身份变了,几何没变
   });
 
-  it('已有点图元再次创建：返回 info 提示且不重复创建', () => {
+  it('已有点图元再次创建:返回 info 提示且不重复创建', () => {
     const a = addPt(0, 0);
     const original = addPointEntity(a);
     const session = createSession('point');
@@ -480,7 +480,7 @@ describe('点工具（统一命令引擎）', () => {
     expect(pointEntityOf(a.id)).toBe(original);
   });
 
-  it('吸附位置（snap.pos）优先于原始指针位置', () => {
+  it('吸附位置(snap.pos)优先于原始指针位置', () => {
     const session = createSession('point');
     clickCommand(session, click({ x: 999, y: 999 }, gridSnap(10, 20)));
     const outcome = executeCommand(session, 1);
@@ -491,7 +491,7 @@ describe('点工具（统一命令引擎）', () => {
     if (e?.type === 'point') expect(getPoint(e.p)).toMatchObject({ x: 10, y: 20 });
   });
 
-  it('取消命令（Esc）会删掉还没并入图元的点', () => {
+  it('取消命令(Esc)会删掉还没并入图元的点', () => {
     const session = createSession('point');
     clickCommand(session, click({ x: 5, y: 5 }));
     expect(model.pts.size).toBe(1);
@@ -503,7 +503,7 @@ describe('点工具（统一命令引擎）', () => {
 });
 
 describe('点图元的尺寸行为', () => {
-  it('两个点图元可建 distancePointPoint，且不新建点', () => {
+  it('两个点图元可建 distancePointPoint,且不新建点', () => {
     const p1 = addPt(0, 0);
     addPointEntity(p1);
     const p2 = addPt(100, 0);
@@ -512,7 +512,7 @@ describe('点图元的尺寸行为', () => {
     const session = createSession('dim');
     expect(clickCommand(session, click({ x: 0, y: 0 })).filled).toBe(true);
     expect(clickCommand(session, click({ x: 100, y: 0 })).filled).toBe(true);
-    // Smart Dimension：目标点选完后还需要点一下放置
+    // Smart Dimension:目标点选完后还需要点一下放置
     expect(clickCommand(session, click({ x: 50, y: 20 })).filled).toBe(true);
 
     const outcome = executeCommand(session, 1);
@@ -538,7 +538,7 @@ describe('点图元的尺寸行为', () => {
     const first = executeCommand(firstSession, 1);
     if (first.kind !== 'dim' || !first.result.ok) throw new Error('尺寸创建失败');
 
-    // 已有尺寸：两点就填满，不再要求放置，直接进入编辑
+    // 已有尺寸:两点就填满,不再要求放置,直接进入编辑
     const secondSession = createSession('dim');
     clickCommand(secondSession, click({ x: 0, y: 0 }));
     clickCommand(secondSession, click({ x: 100, y: 0 }));
@@ -551,7 +551,7 @@ describe('点图元的尺寸行为', () => {
     expect(model.cons.size).toBe(1);
   });
 
-  it('dimForEntity(点图元) 失败：点图元只能作为两点距离的一端', () => {
+  it('dimForEntity(点图元) 失败:点图元只能作为两点距离的一端', () => {
     const e = addPointEntity(addPt(0, 0));
 
     const result = dimForEntity(e);

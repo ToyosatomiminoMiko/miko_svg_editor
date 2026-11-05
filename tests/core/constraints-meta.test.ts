@@ -1,11 +1,11 @@
 /**
- * config/constraints-meta.ts 的约束元数据与 operations.ts 约束操作的对应关系。
- * 三件事必须同时成立，否则「元数据 ↔ 槽位/执行」的单一来源会漏：
- * 1) 15 种 ConstraintKind 都有元数据与引用字段（Record 穷尽在运行时也要有测试兜底）；
- * 2) 引用字段推导与去重键只由元数据决定，反序选择落到同一个键；
+ * config/constraints-meta.ts 的约束元数据与 operations.ts 约束操作的对应关系.
+ * 三件事必须同时成立,否则「元数据 ↔ 槽位/执行」的单一来源会漏:
+ * 1) 15 种 ConstraintKind 都有元数据与引用字段(Record 穷尽在运行时也要有测试兜底);
+ * 2) 引用字段推导与去重键只由元数据决定,反序选择落到同一个键;
  * 3) operations.ts 的 10 个约束操作都能生成元数据表里的合法 kind
- *    （重合/相切是多态操作，一个按钮会落到多个 kind）。
- * 槽位填充/上下文排除/状态栏等行为见 tests/operations.test.ts 与 tests/coincident.test.ts。
+ *    (重合/相切是多态操作,一个按钮会落到多个 kind).
+ * 槽位填充/上下文排除/状态栏等行为见 tests/operations.test.ts 与 tests/coincident.test.ts.
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -26,7 +26,7 @@ import {
 import { resetInteraction } from '../../src/core/state';
 import type { ConstraintKind } from '../../src/core/types';
 
-/** 16 种约束种类，显式列出：元数据表增删时测试需要人跟着改，防止悄悄漂移 */
+/** 16 种约束种类,显式列出:元数据表增删时测试需要人跟着改,防止悄悄漂移 */
 const ALL_KINDS: readonly ConstraintKind[] = [
   'coincident',
   'horizontal',
@@ -78,7 +78,7 @@ describe('CONSTRAINT_META', () => {
     }
   });
 
-  it('图元引用声明可接受的图元种类，点引用不声明', () => {
+  it('图元引用声明可接受的图元种类,点引用不声明', () => {
     const entityKinds = new Set(['line', 'circle', 'arc']);
     for (const kind of ALL_KINDS) {
       for (const ref of CONSTRAINT_META[kind].refs) {
@@ -115,7 +115,7 @@ describe('引用字段推导', () => {
 });
 
 describe('约束操作与元数据一致', () => {
-  it('10 个约束操作：id/label 不重复，槽位与 execute 都是函数', () => {
+  it('10 个约束操作:id/label 不重复,槽位与 execute 都是函数', () => {
     expect(CONSTRAINT_OPERATIONS).toHaveLength(10);
     const ids = CONSTRAINT_OPERATIONS.map((op) => op.id);
     expect(new Set(ids).size).toBe(ids.length);
@@ -229,14 +229,14 @@ describe('约束操作与元数据一致', () => {
       const added = [...model.cons.values()];
       expect(added.length, opId).toBeGreaterThan(0);
       for (const con of added) {
-        expect(ALL_KINDS, `${opId} → ${con.type}`).toContain(con.type);
+        expect(ALL_KINDS, `${opId} -> ${con.type}`).toContain(con.type);
       }
     }
   });
 });
 
 describe('constraintRefKey', () => {
-  it('同一 kind 同一组引用得到同一个键（可去重）', () => {
+  it('同一 kind 同一组引用得到同一个键(可去重)', () => {
     expect(constraintRefKey('horizontal', { e: 1 })).toBe(constraintRefKey('horizontal', { e: 1 }));
     expect(constraintRefKey('parallel', { e1: 1, e2: 2 })).toBe(
       constraintRefKey('parallel', { e1: 1, e2: 2 }),
@@ -246,28 +246,28 @@ describe('constraintRefKey', () => {
     );
   });
 
-  it('引用不同 → 键不同', () => {
+  it('引用不同 -> 键不同', () => {
     expect(constraintRefKey('horizontal', { e: 1 })).not.toBe(
       constraintRefKey('horizontal', { e: 2 }),
     );
     expect(constraintRefKey('parallel', { e1: 1, e2: 2 })).not.toBe(
       constraintRefKey('parallel', { e1: 1, e2: 3 }),
     );
-    // 无序引用（coincident 的 a/b、parallel 的 e1/e2）交换引用仍是同一约束；
-    // 有序引用的种类（如 tangentLineCircle 的 line/circ）顺序仍然参与键。
+    // 无序引用(coincident 的 a/b,parallel 的 e1/e2)交换引用仍是同一约束;
+    // 有序引用的种类(如 tangentLineCircle 的 line/circ)顺序仍然参与键.
     expect(constraintRefKey('tangentLineCircle', { line: 1, circ: 2 })).not.toBe(
       constraintRefKey('tangentLineCircle', { line: 2, circ: 1 }),
     );
   });
 
-  it('kind 参与前缀：引用相同但种类不同 → 键不同', () => {
+  it('kind 参与前缀:引用相同但种类不同 -> 键不同', () => {
     expect(constraintRefKey('horizontal', { e: 1 })).not.toBe(
       constraintRefKey('vertical', { e: 1 }),
     );
   });
 
-  it('非引用字段（distance / radius / offset）不参与去重键', () => {
-    // 去重只针对「哪几个图元/点」，同组引用即使目标值不同也视为同一约束
+  it('非引用字段(distance / radius / offset)不参与去重键', () => {
+    // 去重只针对「哪几个图元/点」,同组引用即使目标值不同也视为同一约束
     expect(constraintRefKey('radius', { e: 1, radius: 5 })).toBe(
       constraintRefKey('radius', { e: 1, radius: 6 }),
     );
@@ -284,7 +284,7 @@ describe('constraintRefKey', () => {
   });
 });
 
-describe('constraintRefKey：无序引用去重（BUG-3 反序选择）', () => {
+describe('constraintRefKey:无序引用去重(BUG-3 反序选择)', () => {
   it('对称引用种类反序选择得到同一键', () => {
     expect(constraintRefKey('parallel', { e1: 1, e2: 2 })).toBe(
       constraintRefKey('parallel', { e1: 2, e2: 1 }),
@@ -295,7 +295,7 @@ describe('constraintRefKey：无序引用去重（BUG-3 反序选择）', () => 
     expect(constraintRefKey('equalLength', { e1: 1, e2: 2 })).toBe(
       constraintRefKey('equalLength', { e1: 2, e2: 1 }),
     );
-    // 共线：两条直线谁作基准都可以，交换引用仍是同一条约束
+    // 共线:两条直线谁作基准都可以,交换引用仍是同一条约束
     expect(constraintRefKey('collinear', { e1: 1, e2: 2 })).toBe(
       constraintRefKey('collinear', { e1: 2, e2: 1 }),
     );
@@ -314,7 +314,7 @@ describe('constraintRefKey：无序引用去重（BUG-3 反序选择）', () => 
     expect(constraintRefKey('coincident', { a: 1, b: 2 })).toBe(
       constraintRefKey('coincident', { a: 2, b: 1 }),
     );
-    // 角度尺寸：两条直线谁作 e1/e2 都是同一个夹角
+    // 角度尺寸:两条直线谁作 e1/e2 都是同一个夹角
     expect(constraintRefKey('angleLineLine', { e1: 1, e2: 2 })).toBe(
       constraintRefKey('angleLineLine', { e1: 2, e2: 1 }),
     );

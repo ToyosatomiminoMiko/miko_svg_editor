@@ -1,7 +1,7 @@
 /**
- * 交互层覆盖物：命令预览、框选矩形、吸附标记。
- * 预览几何用虚线画在实体层，尺寸落位预览用正式标注的画法 + 预览色，跟在指针后面；
- * 这些绘制都在 save/restore 的局部状态里，描边/虚线/透明度不能泄漏给后续绘制。
+ * 交互层覆盖物:命令预览,框选矩形,吸附标记.
+ * 预览几何用虚线画在实体层,尺寸落位预览用正式标注的画法 + 预览色,跟在指针后面;
+ * 这些绘制都在 save/restore 的局部状态里,描边/虚线/透明度不能泄漏给后续绘制.
  */
 
 import { w2s } from '../core/camera';
@@ -15,8 +15,8 @@ import { drawDimLayout } from './draw-dimensions';
 import { strokePrimitive } from './draw-primitives';
 
 /**
- * 命令预览：几何基元用虚线画在实体层（strokePrimitive），尺寸落位用正式标注的画法 +
- * 预览色，跟在指针后面——目标选好后用户看到的就是「按下会得到的那条尺寸」。
+ * 命令预览:几何基元用虚线画在实体层(strokePrimitive),尺寸落位用正式标注的画法 +
+ * 预览色,跟在指针后面--目标选好后用户看到的就是「按下会得到的那条尺寸」.
  */
 export function drawPreview(
   ctx: CanvasRenderingContext2D,
@@ -42,7 +42,7 @@ export function drawPreview(
   if (dim) drawDimLayout(ctx, theme, dim, theme.preview);
 }
 
-/** 框选矩形：方向判定与命中判定共用 selection.isCrossing（下→上交叉 / 上→下窗口） */
+/** 框选矩形:方向判定与命中判定共用 selection.isCrossing(下->上交叉 / 上->下窗口) */
 export function drawMarquee(
   ctx: CanvasRenderingContext2D,
   theme: Theme,

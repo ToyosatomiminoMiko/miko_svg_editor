@@ -1,7 +1,7 @@
 /**
- * config/angle.ts 的扫角与角度归一化约定。
- * 关键不变量：sweepOf 的返回值范围是 (0, TAU]，起点终点同角 → 整圆（TAU）而不是 0；
- * 整圆弧在预览、渲染、拾取、导出四处必须只有一种解释，所以这里把边界情况全钉住。
+ * config/angle.ts 的扫角与角度归一化约定.
+ * 关键不变量:sweepOf 的返回值范围是 (0, TAU],起点终点同角 -> 整圆(TAU)而不是 0;
+ * 整圆弧在预览,渲染,拾取,导出四处必须只有一种解释,所以这里把边界情况全钉住.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -26,7 +26,7 @@ describe('normalizeAngle', () => {
     expect(normalizeAngle(3 * Math.PI)).toBeCloseTo(Math.PI, 12);
   });
 
-  it('对任意角度，结果都落在 [0, TAU)', () => {
+  it('对任意角度,结果都落在 [0, TAU)', () => {
     const angles = [-10, -TAU, -TAU / 3, -1e-12, 0, 1e-12, Math.PI, TAU - 1e-12, 10, 123.456];
     for (const angle of angles) {
       const normalized = normalizeAngle(angle);
@@ -44,7 +44,7 @@ describe('sweepOf', () => {
   });
 
   it('终点在起点逆时针方向时的跨界扫角为正', () => {
-    // 从 3π/2 到 π/2 是逆时针 180°，不是 -180°
+    // 从 3π/2 到 π/2 是逆时针 180°,不是 -180°
     expect(sweepOf((3 * Math.PI) / 2, Math.PI / 2)).toBeCloseTo(Math.PI, 12);
     // 从 0 到 -π/2 等价于正向 270°
     expect(sweepOf(0, -Math.PI / 2)).toBeCloseTo((3 * Math.PI) / 2, 12);
@@ -52,22 +52,22 @@ describe('sweepOf', () => {
     expect(sweepOf(Math.PI / 2, 0)).toBeCloseTo((3 * Math.PI) / 2, 12);
   });
 
-  it('起点终点同角（含浮点误差）返回整圈 TAU', () => {
+  it('起点终点同角(含浮点误差)返回整圈 TAU', () => {
     expect(sweepOf(0, 0)).toBe(TAU);
     expect(sweepOf(Math.PI, Math.PI)).toBe(TAU);
     expect(sweepOf(0, TAU)).toBe(TAU);
     expect(sweepOf(TAU, 0)).toBe(TAU);
     expect(sweepOf(-Math.PI / 3, -Math.PI / 3)).toBe(TAU);
-    // 差值小于 SWEEP_EPS 视为重合（正负两个方向都要归一成整圆）
+    // 差值小于 SWEEP_EPS 视为重合(正负两个方向都要归一成整圆)
     expect(sweepOf(0, SWEEP_EPS / 2)).toBe(TAU);
     expect(sweepOf(0, -SWEEP_EPS / 2)).toBe(TAU);
   });
 
-  it('差值大于 SWEEP_EPS 时正常返回，不被当成整圆', () => {
+  it('差值大于 SWEEP_EPS 时正常返回,不被当成整圆', () => {
     expect(sweepOf(0, SWEEP_EPS * 10)).toBeCloseTo(SWEEP_EPS * 10, 15);
   });
 
-  it('对任意起终点，结果都在 (0, TAU]', () => {
+  it('对任意起终点,结果都在 (0, TAU]', () => {
     const angles = [-TAU, -Math.PI, -1e-12, 0, 1e-12, Math.PI / 2, Math.PI, TAU];
     for (const a0 of angles) {
       for (const a1 of angles) {
@@ -93,7 +93,7 @@ describe('isFullSweep', () => {
 });
 
 describe('arcSegments', () => {
-  it('整圈用 ARC_SEGMENTS_PER_TURN 段，半圈折半', () => {
+  it('整圈用 ARC_SEGMENTS_PER_TURN 段,半圈折半', () => {
     expect(arcSegments(TAU)).toBe(ARC_SEGMENTS_PER_TURN);
     expect(arcSegments(TAU / 2)).toBe(ARC_SEGMENTS_PER_TURN / 2);
     expect(arcSegments(TAU / 4)).toBe(ARC_SEGMENTS_PER_TURN / 4);

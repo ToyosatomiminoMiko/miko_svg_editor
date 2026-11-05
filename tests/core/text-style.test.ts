@@ -1,15 +1,15 @@
 /**
- * 文字样式单一真源（`config/text-style.ts`）、geo v2 样式/坐标换算与分类样式数据层
- * （`core/text-style.ts` + `page.text_style`）的单测。
+ * 文字样式单一真源(`config/text-style.ts`),geo v2 样式/坐标换算与分类样式数据层
+ * (`core/text-style.ts` + `page.text_style`)的单测.
  *
- * 为什么要有这些用例：geo v2 把样式从生成端搬到前端后，颜色/斜体必须按 role 查表，
- * 字重/字距/行高/描边必须是全局常量；同时地名 `y` 的语义是「文字块垂直中心」，
- * 前端换算必须与生成端一致。样式统一在「样式设置」窗口按分类配置（覆盖落
- * `page.text_style`），所以「默认值真源、覆盖解析、批量应用、地图字号统一、旧文件还原」都要
- * 逐条钉住，否则窗口显示值与 item 实际值会漂移。
- * 地图分类字号恒统一：默认值取该分类地名原始字号的中位数 × 地图缩放；同一分类全部 item
- * 字号严格相等。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 为什么要有这些用例:geo v2 把样式从生成端搬到前端后,颜色/斜体必须按 role 查表,
+ * 字重/字距/行高/描边必须是全局常量;同时地名 `y` 的语义是「文字块垂直中心」,
+ * 前端换算必须与生成端一致.样式统一在「样式设置」窗口按分类配置(覆盖落
+ * `page.text_style`),所以「默认值真源,覆盖解析,批量应用,地图字号统一,旧文件还原」都要
+ * 逐条钉住,否则窗口显示值与 item 实际值会漂移.
+ * 地图分类字号恒统一:默认值取该分类地名原始字号的中位数 × 地图缩放;同一分类全部 item
+ * 字号严格相等.
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -54,12 +54,12 @@ import {
 } from '../../src/core/text-style';
 import { makeDocument, makeGeo } from '../fixtures/page-fixtures';
 
-/** 用 geo 生成默认排版（打开流程：normalizeGeo → defaultPageLayout） */
+/** 用 geo 生成默认排版(打开流程:normalizeGeo -> defaultPageLayout) */
 function layoutOf(geo: Geo): PageLayout {
   return defaultPageLayout(makeDocument(geo).geo);
 }
 
-/** 默认排版里的 map 空间文字（地名标注），保持 geo.labels 的 order 顺序 */
+/** 默认排版里的 map 空间文字(地名标注),保持 geo.labels 的 order 顺序 */
 function mapLabels(layout: PageLayout): TextItem[] {
   return layout.items.filter(
     (item): item is TextItem => item.kind === 'text' && item.space === 'map',
@@ -71,8 +71,8 @@ function mutableGeo(geo: Geo): Record<string, unknown> {
   return structuredClone(geo) as unknown as Record<string, unknown>;
 }
 
-describe('MAP_LABEL_ROLE_STYLES：§2 角色表', () => {
-  it('14 个 role，颜色/斜体与规格逐字一致', () => {
+describe('MAP_LABEL_ROLE_STYLES:§2 角色表', () => {
+  it('14 个 role,颜色/斜体与规格逐字一致', () => {
     const expected: Record<MapLabelRole, { color: string; italic: boolean }> = {
       country: { color: '#3a3a3a', italic: false },
       'country-name': { color: '#8b0000', italic: false },
@@ -128,8 +128,8 @@ describe('MAP_LABEL_ROLE_STYLES：§2 角色表', () => {
   });
 });
 
-describe('MAP_LABEL_STYLE：全局标注常量', () => {
-  it('字重/字距/行高/描边宽度全部来自 MAP_LABEL_STYLE，旋转固定 0', () => {
+describe('MAP_LABEL_STYLE:全局标注常量', () => {
+  it('字重/字距/行高/描边宽度全部来自 MAP_LABEL_STYLE,旋转固定 0', () => {
     for (const item of mapLabels(layoutOf(makeGeo()))) {
       expect(item.font_weight).toBe(MAP_LABEL_STYLE.font_weight);
       expect(item.letter_spacing_em).toBe(MAP_LABEL_STYLE.letter_spacing_em);
@@ -142,7 +142,7 @@ describe('MAP_LABEL_STYLE：全局标注常量', () => {
     }
   });
 
-  it('常量取值与规格一致（400 / 0 / 1.2 / #ffffff / 2 / 0.36）', () => {
+  it('常量取值与规格一致(400 / 0 / 1.2 / #ffffff / 2 / 0.36)', () => {
     expect(MAP_LABEL_STYLE).toEqual({
       font_weight: 400,
       letter_spacing_em: 0,
@@ -154,8 +154,8 @@ describe('MAP_LABEL_STYLE：全局标注常量', () => {
   });
 });
 
-describe('geo v2：文字块垂直中心 → 第一行基线', () => {
-  it('单行：基线 = 中心 + baseline_ratio × 字号（换算回 map 坐标）', () => {
+describe('geo v2:文字块垂直中心 -> 第一行基线', () => {
+  it('单行:基线 = 中心 + baseline_ratio × 字号(换算回 map 坐标)', () => {
     const geo = makeGeo();
     const layout = layoutOf(geo);
     const scale = layout.map.width_pt / geo.base.width_pt;
@@ -163,7 +163,7 @@ describe('geo v2：文字块垂直中心 → 第一行基线', () => {
     const label = geo.labels[0]!;
 
     expect(item.lines).toEqual(['甲国']);
-    // 纸面坐标：基线 = 中心 + 0.36 × size
+    // 纸面坐标:基线 = 中心 + 0.36 × size
     expect((item.y - label.y) * scale).toBeCloseTo(
       MAP_LABEL_STYLE.baseline_ratio * item.font_size_pt,
       9,
@@ -174,7 +174,7 @@ describe('geo v2：文字块垂直中心 → 第一行基线', () => {
     );
   });
 
-  it('多行：整块中心到第一行基线再减 (行数-1)×step/2', () => {
+  it('多行:整块中心到第一行基线再减 (行数-1)×step/2', () => {
     const geo = makeGeo();
     const layout = layoutOf(geo);
     const scale = layout.map.width_pt / geo.base.width_pt;
@@ -189,7 +189,7 @@ describe('geo v2：文字块垂直中心 → 第一行基线', () => {
     expect(item.y).toBeCloseTo(label.y + offsetPaper / scale, 9);
   });
 
-  it('字号 = 分类中位数 × 地图缩放 s，夹 4..40 并保留 1 位小数', () => {
+  it('字号 = 分类中位数 × 地图缩放 s,夹 4..40 并保留 1 位小数', () => {
     const geo = makeGeo();
     const layout = layoutOf(geo);
     const scale = layout.map.width_pt / geo.base.width_pt;
@@ -197,20 +197,20 @@ describe('geo v2：文字块垂直中心 → 第一行基线', () => {
       expect(item.font_size_pt).toBeGreaterThanOrEqual(4);
       expect(item.font_size_pt).toBeLessThanOrEqual(40);
     }
-    // fixture：country / river 各只有一条地名 → 中位数就是那条的原始字号
+    // fixture:country / river 各只有一条地名 -> 中位数就是那条的原始字号
     expect(mapLabels(layout)[0]!.font_size_pt).toBe(
       mapCategoryDefaultFontSizePt('country', geo, scale),
     );
     expect(mapLabels(layout)[1]!.font_size_pt).toBe(
       mapCategoryDefaultFontSizePt('river', geo, scale),
     );
-    // 保留 1 位小数（中位数换算后不是任意长浮点）
+    // 保留 1 位小数(中位数换算后不是任意长浮点)
     const size = mapLabels(layout)[0]!.font_size_pt;
     expect(size).toBe(Math.round(size * 10) / 10);
   });
 });
 
-describe('PAGE_TEXT_STYLES / TEXT_HALO：页面文字默认样式', () => {
+describe('PAGE_TEXT_STYLES / TEXT_HALO:页面文字默认样式', () => {
   it('六个角色全部 400/0/1.35/无光晕/#111111', () => {
     const roles = ['title', 'subtitle', 'label', 'annotation', 'note', 'source'] as const;
     for (const role of roles) {
@@ -226,7 +226,7 @@ describe('PAGE_TEXT_STYLES / TEXT_HALO：页面文字默认样式', () => {
     expect(TEXT_HALO).toEqual({ color: '#ffffff', width_pt: 2 });
   });
 
-  it('默认排版的页面文字 item 用角色样式，注记/来源块高用对应行高', () => {
+  it('默认排版的页面文字 item 用角色样式,注记/来源块高用对应行高', () => {
     const layout = layoutOf(makeGeo());
     const pageTexts = layout.items.filter(
       (item): item is TextItem => item.kind === 'text' && item.space === 'page',
@@ -248,12 +248,12 @@ describe('PAGE_TEXT_STYLES / TEXT_HALO：页面文字默认样式', () => {
   });
 });
 
-describe('fontShorthand / textBlockWidth：字重与字距口径', () => {
-  it('400 保持旧串，非 400 前置字重（仍能被字号解析）', () => {
+describe('fontShorthand / textBlockWidth:字重与字距口径', () => {
+  it('400 保持旧串,非 400 前置字重(仍能被字号解析)', () => {
     expect(fontShorthand(12, 'sans-serif')).toBe('12px sans-serif');
     expect(fontShorthand(12, 'sans-serif', 400)).toBe('12px sans-serif');
     expect(fontShorthand(12, 'sans-serif', 700)).toBe('700 12px sans-serif');
-    // 无 DOM 估算器从简写里取字号：不能被字重数字骗到
+    // 无 DOM 估算器从简写里取字号:不能被字重数字骗到
     expect(fallbackTextMeasure.width('甲', fontShorthand(10, 'sans-serif', 700))).toBeCloseTo(
       10,
       9,
@@ -277,18 +277,18 @@ describe('fontShorthand / textBlockWidth：字重与字距口径', () => {
     };
     // 3 个 CJK 字符 × 10pt = 30pt
     expect(textBlockWidth(item, fallbackTextMeasure.width, 'sans-serif')).toBeCloseTo(30, 9);
-    // 字距 0.5em：+ 0.5 × 10 × (3-1) = +10pt
+    // 字距 0.5em:+ 0.5 × 10 × (3-1) = +10pt
     expect(
       textBlockWidth({ ...item, letter_spacing_em: 0.5 }, fallbackTextMeasure.width, 'sans-serif'),
     ).toBeCloseTo(40, 9);
-    // 负字距同样只作用在字符之间（不会把宽度算成负数）
+    // 负字距同样只作用在字符之间(不会把宽度算成负数)
     expect(
       textBlockWidth({ ...item, letter_spacing_em: -0.1 }, fallbackTextMeasure.width, 'sans-serif'),
     ).toBeCloseTo(28, 9);
   });
 });
 
-describe('validateGeo：v2 契约与 labels 逐条校验', () => {
+describe('validateGeo:v2 契约与 labels 逐条校验', () => {
   it('完整 v2 geo 通过', () => {
     expect(validateGeo(makeGeo())).toEqual([]);
   });
@@ -296,7 +296,7 @@ describe('validateGeo：v2 契约与 labels 逐条校验', () => {
   it('拒绝 v1 并给出重新生成文案', () => {
     const geo = mutableGeo(makeGeo());
     geo['version'] = 1;
-    expect(validateGeo(geo)).toContain('geo.version: 旧 v1 契约，请用更新后的 Cartopy 重新生成');
+    expect(validateGeo(geo)).toContain('geo.version: 旧 v1 契约,请用更新后的 Cartopy 重新生成');
   });
 
   it('拒绝未知 role', () => {
@@ -345,10 +345,10 @@ describe('validateGeo：v2 契约与 labels 逐条校验', () => {
 });
 
 /* ======================================================================
- * 分类样式数据层（core/text-style.ts）与默认排版的覆盖解析
+ * 分类样式数据层(core/text-style.ts)与默认排版的覆盖解析
  * ====================================================================== */
 
-/** 构造只含指定地图角色的 geo：每条角色一个 label，text 用「role-序号」保证唯一 */
+/** 构造只含指定地图角色的 geo:每条角色一个 label,text 用「role-序号」保证唯一 */
 function geoWithMapLabels(roles: readonly MapLabelRole[]): Geo {
   const geo = makeGeo();
   geo.labels = roles.map((role, index) => ({
@@ -364,7 +364,7 @@ function geoWithMapLabels(roles: readonly MapLabelRole[]): Geo {
   return geo;
 }
 
-/** 构造只含指定（role, 原始字号）地名的 geo：用来验证中位数默认统一字号 */
+/** 构造只含指定(role, 原始字号)地名的 geo:用来验证中位数默认统一字号 */
 function geoWithLabelSizes(entries: readonly { role: MapLabelRole; font_size_pt: number }[]): Geo {
   const geo = makeGeo();
   geo.labels = entries.map((entry, index) => ({
@@ -380,7 +380,7 @@ function geoWithLabelSizes(entries: readonly { role: MapLabelRole; font_size_pt:
   return geo;
 }
 
-/** 期望的「分类默认统一字号」（按 §12.1 独立复算：中位数 × s，夹 4..40，1 位小数） */
+/** 期望的「分类默认统一字号」(按 §12.1 独立复算:中位数 × s,夹 4..40,1 位小数) */
 function expectedDefaultSize(category: MapLabelRole, geo: Geo, mapScale: number): number {
   const sizes = geo.labels
     .filter((label) => label.role === category)
@@ -396,14 +396,14 @@ function expectedDefaultSize(category: MapLabelRole, geo: Geo, mapScale: number)
   return Math.round(Math.min(40, Math.max(4, median * mapScale)) * 10) / 10;
 }
 
-/** 地名「垂直中心 → 第一行基线」的纸面偏移（与 core/page-layout.makeLabelItem 同公式） */
+/** 地名「垂直中心 -> 第一行基线」的纸面偏移(与 core/page-layout.makeLabelItem 同公式) */
 function labelOffsetPaper(lineCount: number, fontSizePt: number, lineHeight: number): number {
   return (
     MAP_LABEL_STYLE.baseline_ratio * fontSizePt - ((lineCount - 1) * fontSizePt * lineHeight) / 2
   );
 }
 
-describe('mapCategoryDefaultFontSizePt：中位数默认统一字号（§12.1）', () => {
+describe('mapCategoryDefaultFontSizePt:中位数默认统一字号(§12.1)', () => {
   it('奇数个取中间值 × s', () => {
     const geo = geoWithLabelSizes([
       { role: 'city', font_size_pt: 8 },
@@ -425,19 +425,19 @@ describe('mapCategoryDefaultFontSizePt：中位数默认统一字号（§12.1）
     expect(mapCategoryDefaultFontSizePt('city', geo, 0.5)).toBe(5);
   });
 
-  it('夹到 4..40，结果保留 1 位小数', () => {
-    // 中位数 7.5 × 0.98 = 7.35 → 7.4
+  it('夹到 4..40,结果保留 1 位小数', () => {
+    // 中位数 7.5 × 0.98 = 7.35 -> 7.4
     const geo = geoWithLabelSizes([
       { role: 'city', font_size_pt: 7 },
       { role: 'city', font_size_pt: 8 },
     ]);
     expect(mapCategoryDefaultFontSizePt('city', geo, 0.98)).toBe(7.4);
-    // 缩得太小 → 4；放得太大 → 40
+    // 缩得太小 -> 4;放得太大 -> 40
     expect(mapCategoryDefaultFontSizePt('city', geo, 0.1)).toBe(4);
     expect(mapCategoryDefaultFontSizePt('city', geo, 100)).toBe(40);
   });
 
-  it('该分类没有地名/字号全非法 → MAP_LABEL_DEFAULT_FONT_SIZE_PT', () => {
+  it('该分类没有地名/字号全非法 -> MAP_LABEL_DEFAULT_FONT_SIZE_PT', () => {
     const otherRole = geoWithLabelSizes([{ role: 'river', font_size_pt: 9 }]);
     expect(mapCategoryDefaultFontSizePt('city', otherRole, 3)).toBe(MAP_LABEL_DEFAULT_FONT_SIZE_PT);
     const invalid = geoWithLabelSizes([
@@ -447,7 +447,7 @@ describe('mapCategoryDefaultFontSizePt：中位数默认统一字号（§12.1）
     expect(mapCategoryDefaultFontSizePt('city', invalid, 3)).toBe(MAP_LABEL_DEFAULT_FONT_SIZE_PT);
   });
 
-  it('非法 mapScale 回退 1（不产生 NaN）', () => {
+  it('非法 mapScale 回退 1(不产生 NaN)', () => {
     const geo = geoWithLabelSizes([{ role: 'city', font_size_pt: 10 }]);
     expect(mapCategoryDefaultFontSizePt('city', geo, Number.NaN)).toBe(10);
     expect(mapCategoryDefaultFontSizePt('city', geo, 0)).toBe(10);
@@ -468,8 +468,8 @@ describe('mapCategoryDefaultFontSizePt：中位数默认统一字号（§12.1）
   });
 });
 
-describe('分类映射：textCategoryOfItem / itemsOfTextCategory', () => {
-  it('页面文字 item → 自己的角色分类，geo_label_id 恒为 null', () => {
+describe('分类映射:textCategoryOfItem / itemsOfTextCategory', () => {
+  it('页面文字 item -> 自己的角色分类,geo_label_id 恒为 null', () => {
     const geo = makeGeo();
     const layout = defaultPageLayout(geo);
     const pageItems = layout.items.filter(
@@ -482,7 +482,7 @@ describe('分类映射：textCategoryOfItem / itemsOfTextCategory', () => {
     }
   });
 
-  it('14 个地图角色：item 用 geo_label_id 查 label.role 得到各自分类', () => {
+  it('14 个地图角色:item 用 geo_label_id 查 label.role 得到各自分类', () => {
     const geo = geoWithMapLabels(MAP_LABEL_ROLES);
     const layout = defaultPageLayout(geo);
     const labels = [...geo.labels].sort((a, b) => a.order - b.order);
@@ -498,7 +498,7 @@ describe('分类映射：textCategoryOfItem / itemsOfTextCategory', () => {
     });
   });
 
-  it('查不到 label 时回退 item.role；非 text item 返回 null', () => {
+  it('查不到 label 时回退 item.role;非 text item 返回 null', () => {
     const geo = geoWithMapLabels(['city']);
     const layout = defaultPageLayout(geo);
     const item = mapLabels(layout)[0]!;
@@ -509,25 +509,25 @@ describe('分类映射：textCategoryOfItem / itemsOfTextCategory', () => {
   });
 });
 
-describe('默认排版按分类覆盖解析（§5.2）', () => {
-  it('text_style 深拷贝回写，空覆盖对象被清理', () => {
+describe('默认排版按分类覆盖解析(§5.2)', () => {
+  it('text_style 深拷贝回写,空覆盖对象被清理', () => {
     const override: TextStyleOverrides = { title: { color: '#ff0000', font_size_pt: 22 } };
     const layout = defaultPageLayout(makeGeo(), { text_style: override });
     expect(layout.text_style).toEqual(override);
     expect(layout.text_style).not.toBe(override);
     expect(layout.text_style.title).not.toBe(override.title);
-    // 改入参不能影响 layout（深拷贝）
+    // 改入参不能影响 layout(深拷贝)
     override.title!.color = '#000000';
     expect(layout.text_style.title?.color).toBe('#ff0000');
-    // 空覆盖对象 = 没有覆盖：不落盘空壳
+    // 空覆盖对象 = 没有覆盖:不落盘空壳
     expect(defaultPageLayout(makeGeo(), { text_style: { city: {} } }).text_style).toEqual({});
   });
 
-  it('无覆盖时两次生成逐字段一致（显式 {} 等于不传）', () => {
+  it('无覆盖时两次生成逐字段一致(显式 {} 等于不传)', () => {
     expect(defaultPageLayout(makeGeo(), { text_style: {} })).toEqual(defaultPageLayout(makeGeo()));
   });
 
-  it('页面文字覆盖：颜色/字号/行高/光晕生效，注记/来源折行与块高用解析值', () => {
+  it('页面文字覆盖:颜色/字号/行高/光晕生效,注记/来源折行与块高用解析值', () => {
     const geo = makeGeo();
     const plain = defaultPageLayout(geo);
     const layout = defaultPageLayout(geo, {
@@ -564,7 +564,7 @@ describe('默认排版按分类覆盖解析（§5.2）', () => {
     )!;
     expect(note.font_size_pt).toBe(12);
     expect(note.line_height).toBe(1.6);
-    // 覆盖字号后按新字号折行：行数比默认（7.5pt×k）多
+    // 覆盖字号后按新字号折行:行数比默认(7.5pt×k)多
     expect(note.lines.length).toBeGreaterThan(plainNote.lines.length);
 
     const source = layout.items.find(
@@ -572,7 +572,7 @@ describe('默认排版按分类覆盖解析（§5.2）', () => {
     )!;
     expect(source.font_size_pt).toBe(9);
     expect(source.line_height).toBe(1.5);
-    // 多行来源的最后一行基线贴住页边距：块高必须用解析后的行高
+    // 多行来源的最后一行基线贴住页边距:块高必须用解析后的行高
     const expectedFirstY =
       layout.paper.height_pt - 28 - (source.lines.length - 1) * source.font_size_pt * 1.5;
     expect(source.y).toBeCloseTo(expectedFirstY, 9);
@@ -592,7 +592,7 @@ describe('默认排版按分类覆盖解析（§5.2）', () => {
     });
   });
 
-  it('地图地名覆盖：统一字号/颜色/行高/halo null 参与 y 换算，未覆盖角色不变', () => {
+  it('地图地名覆盖:统一字号/颜色/行高/halo null 参与 y 换算,未覆盖角色不变', () => {
     const geo = geoWithMapLabels(['city', 'sea']);
     const plain = defaultPageLayout(geo);
     const scale = plain.map.width_pt / geo.base.width_pt;
@@ -612,7 +612,7 @@ describe('默认排版按分类覆盖解析（§5.2）', () => {
       9,
     );
 
-    // 未覆盖的 sea 角色：逐字段等于默认（与 plain 同位置同值）
+    // 未覆盖的 sea 角色:逐字段等于默认(与 plain 同位置同值)
     const sea = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.geo_label_id === 'label-sea-1',
     )!;
@@ -622,14 +622,14 @@ describe('默认排版按分类覆盖解析（§5.2）', () => {
     expect(sea).toEqual(plainSea);
   });
 
-  it('页面分类 halo 覆盖 null = 关光晕；地图分类 halo null 与缺省含义不同', () => {
+  it('页面分类 halo 覆盖 null = 关光晕;地图分类 halo null 与缺省含义不同', () => {
     const geo = geoWithMapLabels(['city']);
     const pageHaloOff = defaultPageLayout(geo, { text_style: { title: { halo: null } } });
     const title = pageHaloOff.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'title',
     )!;
     expect(title.halo).toBeNull();
-    // 页面文字默认本就无光晕；覆盖 halo 对象则打开
+    // 页面文字默认本就无光晕;覆盖 halo 对象则打开
     const pageHaloOn = defaultPageLayout(geo, {
       text_style: { title: { halo: { color: '#123456', width_pt: 3 } } },
     });
@@ -640,14 +640,14 @@ describe('默认排版按分类覆盖解析（§5.2）', () => {
   });
 });
 
-describe('applyTextStyle：分类批量应用（§3）', () => {
-  it('页面分类：改覆盖并同步该分类全部 item，删除键回默认', () => {
+describe('applyTextStyle:分类批量应用(§3)', () => {
+  it('页面分类:改覆盖并同步该分类全部 item,删除键回默认', () => {
     const geo = makeGeo();
     const layout = defaultPageLayout(geo);
     const title = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'title',
     )!;
-    // 人为加第二条标题，验证「分类批量」而不是只改第一条
+    // 人为加第二条标题,验证「分类批量」而不是只改第一条
     const second: TextItem = { ...title, id: layout.seq++, y: title.y + 30 };
     layout.items.push(second);
 
@@ -668,7 +668,7 @@ describe('applyTextStyle：分类批量应用（§3）', () => {
       halo: { color: '#00ff00', width_pt: 1.5 },
     });
 
-    // 只删颜色覆盖：字号/光晕覆盖保留，颜色回角色默认
+    // 只删颜色覆盖:字号/光晕覆盖保留,颜色回角色默认
     const reverted = applyTextStyle(layout, geo, 'title', { color: undefined });
     expect(reverted).toBe(2);
     for (const item of [title, second]) expect(item.color).toBe('#111111');
@@ -678,7 +678,7 @@ describe('applyTextStyle：分类批量应用（§3）', () => {
     });
   });
 
-  it('地图分类统一字号：全部 item 一致，按「文字块垂直中心」修正 y', () => {
+  it('地图分类统一字号:全部 item 一致,按「文字块垂直中心」修正 y', () => {
     const geo = geoWithMapLabels(['city', 'city', 'area']);
     const layout = defaultPageLayout(geo);
     const scale = layout.map.width_pt / geo.base.width_pt;
@@ -702,7 +702,7 @@ describe('applyTextStyle：分类批量应用（§3）', () => {
         labelOffsetPaper(snapshot.lineCount, snapshot.size, snapshot.lineHeight);
       expect(item.y).toBeCloseTo(snapshot.y + deltaPaper / scale, 9);
     }
-    // 未覆盖的 area 仍是「分类默认统一字号」（同一分类全部相等）
+    // 未覆盖的 area 仍是「分类默认统一字号」(同一分类全部相等)
     const areaSize = mapCategoryDefaultFontSizePt('area', geo, scale);
     for (const item of itemsOfTextCategory(layout, geo, 'area')) {
       expect(item.font_size_pt).toBe(areaSize);
@@ -710,7 +710,7 @@ describe('applyTextStyle：分类批量应用（§3）', () => {
     expect(hasFontSizeOverride(layout, 'city')).toBe(true);
   });
 
-  it('只改颜色也会把该分类字号统一（旧文件逐条不同 → 收敛到默认统一字号）', () => {
+  it('只改颜色也会把该分类字号统一(旧文件逐条不同 -> 收敛到默认统一字号)', () => {
     const geo = geoWithLabelSizes([
       { role: 'city', font_size_pt: 8 },
       { role: 'city', font_size_pt: 12 },
@@ -720,7 +720,7 @@ describe('applyTextStyle：分类批量应用（§3）', () => {
     const scale = layout.map.width_pt / geo.base.width_pt;
     const expected = mapCategoryDefaultFontSizePt('city', geo, scale);
     const items = itemsOfTextCategory(layout, geo, 'city');
-    // 模拟旧 page 块：同一分类的字号逐条不同
+    // 模拟旧 page 块:同一分类的字号逐条不同
     items[0]!.font_size_pt = 5;
     items[1]!.font_size_pt = 17;
     items[2]!.font_size_pt = 9;
@@ -733,7 +733,7 @@ describe('applyTextStyle：分类批量应用（§3）', () => {
     }
   });
 
-  it('手动拖过的地名在改字号后保持位置（y 差公式）', () => {
+  it('手动拖过的地名在改字号后保持位置(y 差公式)', () => {
     const geo = geoWithMapLabels(['city']);
     const layout = defaultPageLayout(geo);
     const item = itemsOfTextCategory(layout, geo, 'city')[0]!;
@@ -750,7 +750,7 @@ describe('applyTextStyle：分类批量应用（§3）', () => {
     expect(item.y).toBeCloseTo(movedY + deltaPaper / scale, 9);
   });
 
-  it('其它样式字段批量应用（颜色/斜体/字重/字距/行高/光晕关闭）', () => {
+  it('其它样式字段批量应用(颜色/斜体/字重/字距/行高/光晕关闭)', () => {
     const geo = geoWithMapLabels(['river', 'river']);
     const layout = defaultPageLayout(geo);
     const changed = applyTextStyle(layout, geo, 'river', {
@@ -772,7 +772,7 @@ describe('applyTextStyle：分类批量应用（§3）', () => {
     }
   });
 
-  it('applyCategoryStyleToItem：单条切角色后套新分类样式（字号排除自己）', () => {
+  it('applyCategoryStyleToItem:单条切角色后套新分类样式(字号排除自己)', () => {
     const geo = makeGeo();
     const layout = defaultPageLayout(geo);
     const title = layout.items.find(
@@ -781,7 +781,7 @@ describe('applyTextStyle：分类批量应用（§3）', () => {
     const note = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'note',
     )!;
-    // 把标题改成注记角色：字号/颜色应变成 note 分类的有效值，而不是保留标题的 18pt
+    // 把标题改成注记角色:字号/颜色应变成 note 分类的有效值,而不是保留标题的 18pt
     const switched: TextItem = { ...title, role: 'note' };
     applyCategoryStyleToItem(layout, geo, switched);
     expect(switched.font_size_pt).toBeCloseTo(note.font_size_pt, 9);
@@ -796,7 +796,7 @@ describe('applyTextStyle：分类批量应用（§3）', () => {
     expect(another.font_size_pt).toBe(11);
   });
 
-  it('applyCategoryStyleToItem：地图 item 也按分类统一字号写回', () => {
+  it('applyCategoryStyleToItem:地图 item 也按分类统一字号写回', () => {
     const geo = geoWithLabelSizes([
       { role: 'city', font_size_pt: 8 },
       { role: 'city', font_size_pt: 12 },
@@ -812,8 +812,8 @@ describe('applyTextStyle：分类批量应用（§3）', () => {
   });
 });
 
-describe('resetTextStyle：恢复代码默认（§3）', () => {
-  it('页面分类：恢复默认颜色/字号/行高/光晕并删掉覆盖条目', () => {
+describe('resetTextStyle:恢复代码默认(§3)', () => {
+  it('页面分类:恢复默认颜色/字号/行高/光晕并删掉覆盖条目', () => {
     const geo = makeGeo();
     const layout = defaultPageLayout(geo);
     applyTextStyle(layout, geo, 'title', {
@@ -836,7 +836,7 @@ describe('resetTextStyle：恢复代码默认（§3）', () => {
     expect(layout.text_style.title).toBeUndefined();
   });
 
-  it('地图分类：字号回分类默认统一字号、y 回默认位置、颜色回角色表', () => {
+  it('地图分类:字号回分类默认统一字号,y 回默认位置,颜色回角色表', () => {
     const geo = geoWithMapLabels(['city', 'city']);
     const plain = defaultPageLayout(geo);
     const plainItems = itemsOfTextCategory(plain, geo, 'city');
@@ -866,8 +866,8 @@ describe('resetTextStyle：恢复代码默认（§3）', () => {
   });
 });
 
-describe('resetTextStyleField：单字段恢复默认（样式窗口每个数值控件旁的 reset）', () => {
-  it('页面分类字号：只删字号覆盖，其它覆盖保留，item 写回固定默认字号', () => {
+describe('resetTextStyleField:单字段恢复默认(样式窗口每个数值控件旁的 reset)', () => {
+  it('页面分类字号:只删字号覆盖,其它覆盖保留,item 写回固定默认字号', () => {
     const geo = makeGeo();
     const layout = defaultPageLayout(geo);
     applyTextStyle(layout, geo, 'title', { color: '#ff0000', font_size_pt: 24, line_height: 2 });
@@ -884,13 +884,13 @@ describe('resetTextStyleField：单字段恢复默认（样式窗口每个数值
     expect(layout.text_style.title).toEqual({ color: '#ff0000', line_height: 2 });
   });
 
-  it('页面分类字号没有覆盖但 item 是旧排版值（排版值）：reset 也写回固定默认', () => {
+  it('页面分类字号没有覆盖但 item 是旧排版值(排版值):reset 也写回固定默认', () => {
     const geo = makeGeo();
     const layout = defaultPageLayout(geo);
     const title = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'title',
     )!;
-    // 模拟旧文件：item 保留早先的纸面字号，分类没有覆盖（窗口状态 = 排版值）
+    // 模拟旧文件:item 保留早先的纸面字号,分类没有覆盖(窗口状态 = 排版值)
     title.font_size_pt = 12;
     expect(layout.text_style.title).toBeUndefined();
 
@@ -901,7 +901,7 @@ describe('resetTextStyleField：单字段恢复默认（样式窗口每个数值
     expect(layout.text_style.title).toBeUndefined();
   });
 
-  it('页面分类行高/字距：各自只删自己的键，值为代码默认', () => {
+  it('页面分类行高/字距:各自只删自己的键,值为代码默认', () => {
     const geo = makeGeo();
     const layout = defaultPageLayout(geo);
     applyTextStyle(layout, geo, 'note', { line_height: 2, letter_spacing_em: 0.2 });
@@ -915,11 +915,11 @@ describe('resetTextStyleField：单字段恢复默认（样式窗口每个数值
 
     expect(resetTextStyleField(layout, geo, 'note', 'letter_spacing_em')).toBe(1);
     expect(note.letter_spacing_em).toBe(PAGE_TEXT_STYLES.note.letter_spacing_em);
-    // 覆盖全部回到默认后整条删除，不留空壳
+    // 覆盖全部回到默认后整条删除,不留空壳
     expect(layout.text_style.note).toBeUndefined();
   });
 
-  it('地图分类字号：删覆盖后回到「分类默认统一字号」，同一分类仍严格相等', () => {
+  it('地图分类字号:删覆盖后回到「分类默认统一字号」,同一分类仍严格相等', () => {
     const geo = geoWithLabelSizes([
       { role: 'city', font_size_pt: 8 },
       { role: 'city', font_size_pt: 12 },
@@ -939,12 +939,12 @@ describe('resetTextStyleField：单字段恢复默认（样式窗口每个数值
     expect(layout.text_style.city).toBeUndefined();
   });
 
-  it('地图分类光晕宽度：颜色覆盖保留、宽度回默认；与默认完全相同时删掉 halo 键', () => {
+  it('地图分类光晕宽度:颜色覆盖保留,宽度回默认;与默认完全相同时删掉 halo 键', () => {
     const geo = geoWithMapLabels(['river']);
     const layout = defaultPageLayout(geo);
     const river = itemsOfTextCategory(layout, geo, 'river')[0]!;
 
-    // 只改宽度：reset 后与默认光晕完全一致，halo 键不该留（覆盖表不留冗余）
+    // 只改宽度:reset 后与默认光晕完全一致,halo 键不该留(覆盖表不留冗余)
     applyTextStyle(layout, geo, 'river', {
       halo: { color: MAP_LABEL_STYLE.halo_color, width_pt: 8 },
     });
@@ -955,7 +955,7 @@ describe('resetTextStyleField：单字段恢复默认（样式窗口每个数值
     });
     expect(layout.text_style.river).toBeUndefined();
 
-    // 颜色也被覆盖：reset 宽度只动宽度，颜色覆盖保留
+    // 颜色也被覆盖:reset 宽度只动宽度,颜色覆盖保留
     applyTextStyle(layout, geo, 'river', {
       halo: { color: '#123456', width_pt: 8 },
     });
@@ -966,7 +966,7 @@ describe('resetTextStyleField：单字段恢复默认（样式窗口每个数值
     });
   });
 
-  it('页面分类光晕宽度：页面默认无光晕，reset 只把宽度回 TEXT_HALO，颜色覆盖保留', () => {
+  it('页面分类光晕宽度:页面默认无光晕,reset 只把宽度回 TEXT_HALO,颜色覆盖保留', () => {
     const geo = makeGeo();
     const layout = defaultPageLayout(geo);
     const title = layout.items.find(
@@ -982,14 +982,14 @@ describe('resetTextStyleField：单字段恢复默认（样式窗口每个数值
   });
 });
 
-describe('resyncTextStyles：打开后按分类重建 item 样式（唯一真源）', () => {
-  it('干净排版重建 0 条（默认排版与分类一致）', () => {
+describe('resyncTextStyles:打开后按分类重建 item 样式(唯一真源)', () => {
+  it('干净排版重建 0 条(默认排版与分类一致)', () => {
     const geo = geoWithMapLabels(['city', 'river']);
     const layout = defaultPageLayout(geo);
     expect(resyncTextStyles(layout, geo)).toBe(0);
   });
 
-  it('item 上被改过的字号/颜色/行高被分类样式覆盖，返回改动条数', () => {
+  it('item 上被改过的字号/颜色/行高被分类样式覆盖,返回改动条数', () => {
     const geo = geoWithMapLabels(['city', 'city', 'river']);
     const layout = defaultPageLayout(geo);
     const texts = layout.items.filter((item): item is TextItem => item.kind === 'text');
@@ -1001,8 +1001,8 @@ describe('resyncTextStyles：打开后按分类重建 item 样式（唯一真源
     }
     expect(resyncTextStyles(layout, geo)).toBe(texts.length);
 
-    // 重建结果：地图分类完全回到默认（字号也统一）；页面分类的颜色/行高回到分类样式，
-    // 但字号保留 item 里的值——页面默认字号随纸张 k 缩放，resync 不能把旧纸面的字号改掉。
+    // 重建结果:地图分类完全回到默认(字号也统一);页面分类的颜色/行高回到分类样式,
+    // 但字号保留 item 里的值--页面默认字号随纸张 k 缩放,resync 不能把旧纸面的字号改掉.
     const fresh = defaultPageLayout(geo);
     const freshTexts = fresh.items.filter((item): item is TextItem => item.kind === 'text');
     texts.forEach((item, index) => {
@@ -1015,11 +1015,11 @@ describe('resyncTextStyles：打开后按分类重建 item 样式（唯一真源
       expect(item.color).toBe(expected.color);
       expect(item.line_height).toBe(expected.line_height);
     });
-    // 幂等：再跑一遍没有可改的
+    // 幂等:再跑一遍没有可改的
     expect(resyncTextStyles(layout, geo)).toBe(0);
   });
 
-  it('页面文字按角色分类重建；覆盖表优先于默认值', () => {
+  it('页面文字按角色分类重建;覆盖表优先于默认值', () => {
     const geo = makeGeo();
     const layout = defaultPageLayout(geo);
     layout.text_style = { title: { color: '#abcdef', font_size_pt: 26 } };
@@ -1033,13 +1033,13 @@ describe('resyncTextStyles：打开后按分类重建 item 样式（唯一真源
     expect(title.font_size_pt).toBe(26);
   });
 
-  it('纸张宽/方向改变但未重排：resync 不改页面字号（导出→打开幂等）', () => {
+  it('纸张宽/方向改变但未重排:resync 不改页面字号(导出->打开幂等)', () => {
     const geo = geoWithMapLabels(['city']);
     const layout = defaultPageLayout(geo);
     const before = layout.items
       .filter((item): item is TextItem => item.kind === 'text')
       .map((item) => ({ id: item.id, size: item.font_size_pt, color: item.color }));
-    // 模拟侧栏改纸张宽度：只改 paper，不重新 defaultPageLayout
+    // 模拟侧栏改纸张宽度:只改 paper,不重新 defaultPageLayout
     layout.paper.width_pt = 600;
     expect(resyncTextStyles(layout, geo)).toBe(0);
     const after = layout.items
@@ -1048,7 +1048,7 @@ describe('resyncTextStyles：打开后按分类重建 item 样式（唯一真源
     expect(after).toEqual(before);
   });
 
-  it('地图地名改名后（geo_label_id 指向的 label 文字已变）仍按分类统一，不动内容', () => {
+  it('地图地名改名后(geo_label_id 指向的 label 文字已变)仍按分类统一,不动内容', () => {
     const geo = geoWithMapLabels(['city']);
     const layout = defaultPageLayout(geo);
     const item = mapLabels(layout)[0]!;
@@ -1059,7 +1059,7 @@ describe('resyncTextStyles：打开后按分类重建 item 样式（唯一真源
   });
 });
 
-describe('分类默认样式：与 config 真源一致（§2/§3）', () => {
+describe('分类默认样式:与 config 真源一致(§2/§3)', () => {
   it('20 个分类的默认样式逐字段来自 config/text-style.ts', () => {
     const geo = makeGeo();
     const layout = defaultPageLayout(geo);
@@ -1089,7 +1089,7 @@ describe('分类默认样式：与 config 真源一致（§2/§3）', () => {
     }
   });
 
-  it('defaultTextFontSizePt：页面分类为固定默认字号（不随纸张缩放），地图分类为兜底字号', () => {
+  it('defaultTextFontSizePt:页面分类为固定默认字号(不随纸张缩放),地图分类为兜底字号', () => {
     const geo = makeGeo();
     const a5 = {
       preset: 'A5' as const,
@@ -1105,7 +1105,7 @@ describe('分类默认样式：与 config 真源一致（§2/§3）', () => {
     for (const role of ['annotation', 'label'] as const) {
       expect(defaultTextFontSizePt(role, a5Layout)).toBe(PAGE_TEXT_DEFAULT_FONT_SIZE_PT[role]);
     }
-    // A4 横向与 A5 横向的页面默认字号一致（取消「随纸张大小缩放」）
+    // A4 横向与 A5 横向的页面默认字号一致(取消「随纸张大小缩放」)
     const a4Layout = defaultPageLayout(geo);
     for (const role of ['title', 'subtitle', 'note', 'source'] as const) {
       expect(defaultTextFontSizePt(role, a4Layout)).toBe(defaultTextFontSizePt(role, a5Layout));
@@ -1117,7 +1117,7 @@ describe('分类默认样式：与 config 真源一致（§2/§3）', () => {
     }
   });
 
-  it('readTextCategoryStyle 字号：地图分类恒为「覆盖 ?? 分类默认统一字号」', () => {
+  it('readTextCategoryStyle 字号:地图分类恒为「覆盖 ?? 分类默认统一字号」', () => {
     const geo = geoWithLabelSizes([
       { role: 'city', font_size_pt: 8 },
       { role: 'city', font_size_pt: 12 },
@@ -1126,15 +1126,15 @@ describe('分类默认样式：与 config 真源一致（§2/§3）', () => {
     const scale = layout.map.width_pt / geo.base.width_pt;
     const expected = mapCategoryDefaultFontSizePt('city', geo, scale);
 
-    // 1) 没写覆盖：显示分类默认统一字号，不读第一条 item 的实际字号（否则旧文件会与写回值不一致）
+    // 1) 没写覆盖:显示分类默认统一字号,不读第一条 item 的实际字号(否则旧文件会与写回值不一致)
     const cityItems = itemsOfTextCategory(layout, geo, 'city');
     cityItems[0]!.font_size_pt = 5; // 模拟旧 page 块逐条不同的字号
     expect(readTextCategoryStyle(layout, geo, 'city').font_size_pt).toBe(expected);
-    // 该分类没有地名（area 没有 label）：回退 MAP_LABEL_DEFAULT_FONT_SIZE_PT
+    // 该分类没有地名(area 没有 label):回退 MAP_LABEL_DEFAULT_FONT_SIZE_PT
     expect(readTextCategoryStyle(layout, geo, 'area').font_size_pt).toBe(
       MAP_LABEL_DEFAULT_FONT_SIZE_PT,
     );
-    // 2) 写覆盖后优先覆盖（改任意字段都会把 item 统一到该口径）
+    // 2) 写覆盖后优先覆盖(改任意字段都会把 item 统一到该口径)
     applyTextStyle(layout, geo, 'city', { color: '#123456' });
     expect(readTextCategoryStyle(layout, geo, 'city').font_size_pt).toBe(expected);
     for (const item of itemsOfTextCategory(layout, geo, 'city')) {
@@ -1143,8 +1143,8 @@ describe('分类默认样式：与 config 真源一致（§2/§3）', () => {
     applyTextStyle(layout, geo, 'city', { font_size_pt: 7 });
     expect(readTextCategoryStyle(layout, geo, 'city').font_size_pt).toBe(7);
 
-    // 页面分类：覆盖 ?? 该分类现有 item 的字号 ?? 默认字号。纸张缩放变化时 item 里
-    // 保存的是旧纸面的字号，窗口必须显示它（否则导出→打开会被 resync 改字号并误标脏）
+    // 页面分类:覆盖 ?? 该分类现有 item 的字号 ?? 默认字号.纸张缩放变化时 item 里
+    // 保存的是旧纸面的字号,窗口必须显示它(否则导出->打开会被 resync 改字号并误标脏)
     const title = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'title',
     )!;

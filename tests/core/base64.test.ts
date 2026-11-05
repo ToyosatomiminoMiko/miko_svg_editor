@@ -1,9 +1,9 @@
 /**
- * `core/base64.ts`（成品 SVG 内嵌源用的 UTF-8 base64 编解码）的单测。
+ * `core/base64.ts`(成品 SVG 内嵌源用的 UTF-8 base64 编解码)的单测.
  *
- * 为什么单独测：内嵌源是「可再编辑的真值」，编解码必须能往返中文/emoji、能拒绝坏数据；
- * 这里同时锁定已知编码结果（标准字母表 + padding），避免以后换成非标准变体。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 为什么单独测:内嵌源是「可再编辑的真值」,编解码必须能往返中文/emoji,能拒绝坏数据;
+ * 这里同时锁定已知编码结果(标准字母表 + padding),避免以后换成非标准变体.
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -14,7 +14,7 @@ import {
   encodeBase64Utf8,
 } from '../../src/core/base64';
 
-describe('encodeBase64Utf8 / decodeBase64Utf8：UTF-8 往返', () => {
+describe('encodeBase64Utf8 / decodeBase64Utf8:UTF-8 往返', () => {
   it.each([
     ['', ''],
     ['a', 'YQ=='],
@@ -34,7 +34,7 @@ describe('encodeBase64Utf8 / decodeBase64Utf8：UTF-8 往返', () => {
   });
 });
 
-describe('decodeBase64：坏数据必须报错', () => {
+describe('decodeBase64:坏数据必须报错', () => {
   it('长度不是 4 的倍数', () => {
     expect(() => decodeBase64Utf8('YWJ')).toThrow('长度必须是 4 的倍数');
   });
@@ -47,14 +47,14 @@ describe('decodeBase64：坏数据必须报错', () => {
     expect(() => decodeBase64Utf8('YQ==YQ==')).toThrow("不该出现的 '='");
   });
 
-  it('按字节解码时不校验 UTF-8（交给 decodeBase64Utf8）', () => {
-    // 0xff 是非法 UTF-8 起始字节：bytes 层照常返回，UTF-8 层必须拒绝。
+  it('按字节解码时不校验 UTF-8(交给 decodeBase64Utf8)', () => {
+    // 0xff 是非法 UTF-8 起始字节:bytes 层照常返回,UTF-8 层必须拒绝.
     const bytes = decodeBase64Bytes('/w==');
     expect([...bytes]).toEqual([0xff]);
     expect(() => decodeBase64Utf8('/w==')).toThrow('不是合法的 UTF-8');
   });
 
-  it('容忍换行/空白（内嵌源可能被格式化工具折行）', () => {
+  it('容忍换行/空白(内嵌源可能被格式化工具折行)', () => {
     expect(decodeBase64Utf8('5Lit\n5paH')).toBe('中文');
   });
 

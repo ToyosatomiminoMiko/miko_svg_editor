@@ -1,16 +1,16 @@
 /**
- * 出版排版编辑器的状态机：选择/拖拽/缩放/平移/脏标记/导出。
+ * 出版排版编辑器的状态机:选择/拖拽/缩放/平移/脏标记/导出.
  *
- * 是什么：持有当前 `PageLayout`（唯一真值）与打开时的 `PageDocument`（底图字节 + geo），把画布
- * 指针/键盘手势翻译成对 layout 的修改，组织预览重绘与侧栏同步；导出两个文件——
- * `exportGeo()` 把 geo + page 写成 `<stem>.geo.json`（再次打开即可继续编辑），
- * `exportFinal()` 调 `render/compose-svg.ts` 在浏览器内合成 `<stem>.svg` 后下载。
- * 本文件不认识任何 HTTP 接口。
- * 为什么拖拽/缩放只改 layout 而不改底图：地理层只读（契约 §1），map 空间 item 的位置
- * 写回底图坐标；预览与成品共用 `core/page-layout.ts` 的同一套 §5 公式。
- * 缩放/平移通过根 `<svg>` 的 `viewBox` 实现；指针坐标转换统一走 `getScreenCTM().inverse()`，
- * 这样 letterbox（preserveAspectRatio）与设备像素比都不需要自己算。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 是什么:持有当前 `PageLayout`(唯一真值)与打开时的 `PageDocument`(底图字节 + geo),把画布
+ * 指针/键盘手势翻译成对 layout 的修改,组织预览重绘与侧栏同步;导出两个文件--
+ * `exportGeo()` 把 geo + page 写成 `<stem>.geo.json`(再次打开即可继续编辑),
+ * `exportFinal()` 调 `render/compose-svg.ts` 在浏览器内合成 `<stem>.svg` 后下载.
+ * 本文件不认识任何 HTTP 接口.
+ * 为什么拖拽/缩放只改 layout 而不改底图:地理层只读(契约 §1),map 空间 item 的位置
+ * 写回底图坐标;预览与成品共用 `core/page-layout.ts` 的同一套 §5 公式.
+ * 缩放/平移通过根 `<svg>` 的 `viewBox` 实现;指针坐标转换统一走 `getScreenCTM().inverse()`,
+ * 这样 letterbox(preserveAspectRatio)与设备像素比都不需要自己算.
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import {
@@ -64,7 +64,7 @@ import { downloadText } from '../ui/download';
 import { isEditableTarget, type PageSidebar } from '../ui/page-sidebar';
 import type { PageNotifier } from '../ui/page-notify';
 
-/** JSON 导出的 MIME（浏览器据此识别 `<stem>.geo.json`） */
+/** JSON 导出的 MIME(浏览器据此识别 `<stem>.geo.json`) */
 const GEO_MIME = 'application/json';
 /** SVG 导出的 MIME */
 const SVG_MIME = 'image/svg+xml';
@@ -74,7 +74,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** 视图窗口（根 svg 的 viewBox） */
+/** 视图窗口(根 svg 的 viewBox) */
 interface ViewBox {
   x: number;
   y: number;
@@ -82,7 +82,7 @@ interface ViewBox {
   h: number;
 }
 
-/** 画布手势：平移或拖拽元素 */
+/** 画布手势:平移或拖拽元素 */
 type Gesture =
   | {
       readonly kind: 'pan';
@@ -100,20 +100,20 @@ type Gesture =
       readonly space: 'page' | 'map';
     };
 
-/** 编辑器依赖（全部由 `app/page-main.ts` 注入） */
+/** 编辑器依赖(全部由 `app/page-main.ts` 注入) */
 export interface PageEditorDeps {
-  /** 预览根 `<svg>`（viewBox 由编辑器维护） */
+  /** 预览根 `<svg>`(viewBox 由编辑器维护) */
   readonly svg: SVGSVGElement;
   readonly sidebar: PageSidebar;
   readonly notifier: PageNotifier;
-  /** 文本度量（宽度 + 字体行盒；canvas measureText/fontBoundingBox 适配器） */
+  /** 文本度量(宽度 + 字体行盒;canvas measureText/fontBoundingBox 适配器) */
   readonly measureText: TextMeasure;
-  /** 打开的上传文档（底图字节/契约解析结果/规范化 geo） */
+  /** 打开的上传文档(底图字节/契约解析结果/规范化 geo) */
   readonly document: PageDocument;
-  /** 底图预览的 objectURL（由组合根创建并在关闭时 revoke） */
+  /** 底图预览的 objectURL(由组合根创建并在关闭时 revoke) */
   readonly baseUrl: string;
   readonly layout: PageLayout;
-  /** 初次打开时 layout 是否来自 defaultPageLayout（尚未导出） */
+  /** 初次打开时 layout 是否来自 defaultPageLayout(尚未导出) */
   readonly dirty?: boolean;
 }
 
@@ -150,13 +150,13 @@ export class PageEditor {
     this.svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     this.svg.setAttribute('role', 'img');
     this.svg.setAttribute('aria-label', '出版排版预览画布');
-    // 画布可聚焦：空格平移/方向键微移只在焦点不落在输入控件时生效
+    // 画布可聚焦:空格平移/方向键微移只在焦点不落在输入控件时生效
     this.svg.setAttribute('tabindex', '0');
   }
 
   /* =========================== 生命周期 =========================== */
 
-  /** 首次装配：适应页面、绑事件、渲染 */
+  /** 首次装配:适应页面,绑事件,渲染 */
   start(): void {
     if (this.started) return;
     this.started = true;
@@ -177,9 +177,9 @@ export class PageEditor {
   }
 
   /**
-   * 关闭当前文档：解绑所有 window/画布监听并清空根节点。
-   * 为什么由组合根调用而不是自动：同一份外壳会被下一份上传文档复用，
-   * 组合根要在 revoke 预览 objectURL 前先把编辑器停干净。
+   * 关闭当前文档:解绑所有 window/画布监听并清空根节点.
+   * 为什么由组合根调用而不是自动:同一份外壳会被下一份上传文档复用,
+   * 组合根要在 revoke 预览 objectURL 前先把编辑器停干净.
    */
   destroy(): void {
     if (!this.started) return;
@@ -201,7 +201,7 @@ export class PageEditor {
     this.svg.replaceChildren();
   }
 
-  /** 当前 layout 的只读引用（page-main 装配侧栏需要） */
+  /** 当前 layout 的只读引用(page-main 装配侧栏需要) */
   get currentLayout(): PageLayout {
     return this.layout;
   }
@@ -209,9 +209,9 @@ export class PageEditor {
   /* =========================== 修改入口 =========================== */
 
   /**
-   * 应用一次 layout 修改：mutator 直接改 layout，然后重绘/同步侧栏/记脏。
-   * `center_h` 是派生约束，每次修改后统一贴合（纸张宽度/方向改变、角色切换等都走这里），
-   * 这样「左右居中」是持续约束，而不是只在打开窗口时算一次。
+   * 应用一次 layout 修改:mutator 直接改 layout,然后重绘/同步侧栏/记脏.
+   * `center_h` 是派生约束,每次修改后统一贴合(纸张宽度/方向改变,角色切换等都走这里),
+   * 这样「左右居中」是持续约束,而不是只在打开窗口时算一次.
    */
   applyPageChange(mutate: (layout: PageLayout, geo: Geo) => void): void {
     mutate(this.layout, this.geo);
@@ -221,8 +221,8 @@ export class PageEditor {
   }
 
   /**
-   * 样式设置窗口的一次补丁：写 `page.text_style` 覆盖并批量同步该分类所有文字。
-   * 为什么走 applyPageChange：改的是排版真值，必须记脏、重绘预览并刷新侧栏（选中项的样式说明）。
+   * 样式设置窗口的一次补丁:写 `page.text_style` 覆盖并批量同步该分类所有文字.
+   * 为什么走 applyPageChange:改的是排版真值,必须记脏,重绘预览并刷新侧栏(选中项的样式说明).
    */
   applyTextStyleChange(category: TextStyleCategoryId, patch: TextStylePatch): void {
     this.applyPageChange((layout, geo) => {
@@ -230,21 +230,21 @@ export class PageEditor {
     });
   }
 
-  /** 样式设置窗口的「恢复默认」：删掉该分类覆盖，恢复代码默认样式。 */
+  /** 样式设置窗口的「恢复默认」:删掉该分类覆盖,恢复代码默认样式. */
   resetTextStyleChange(category: TextStyleCategoryId): void {
     this.applyPageChange((layout, geo) => {
       resetTextStyle(layout, geo, category);
     });
   }
 
-  /** 样式设置窗口单字段旁的 reset：只删该字段覆盖并重算该分类全部文字。 */
+  /** 样式设置窗口单字段旁的 reset:只删该字段覆盖并重算该分类全部文字. */
   resetTextStyleFieldChange(category: TextStyleCategoryId, field: TextStyleResetField): void {
     this.applyPageChange((layout, geo) => {
       resetTextStyleField(layout, geo, category, field);
     });
   }
 
-  /** 选中元素（null = 取消选中） */
+  /** 选中元素(null = 取消选中) */
   select(id: number | null): void {
     if (this.selectedId === id) return;
     this.selectedId = id;
@@ -263,9 +263,9 @@ export class PageEditor {
   /* =========================== 导出 =========================== */
 
   /**
-   * 导出 `<stem>.geo.json`（Ctrl+S 的入口）：geo 全字段 + page 排版块，成功即清脏标记。
-   * 为什么先 `normalizePage`：page 的数字口径必须是 3 位小数（与预览/签名一致）；
-   * geo 块保持原精度（Cartopy 的 view_box 可能有 6 位小数），由 `serializeMapDocFile` 分别处理。
+   * 导出 `<stem>.geo.json`(Ctrl+S 的入口):geo 全字段 + page 排版块,成功即清脏标记.
+   * 为什么先 `normalizePage`:page 的数字口径必须是 3 位小数(与预览/签名一致);
+   * geo 块保持原精度(Cartopy 的 view_box 可能有 6 位小数),由 `serializeMapDocFile` 分别处理.
    */
   exportGeo(): boolean {
     const fileName = geoFileNameOf(this.document);
@@ -277,15 +277,15 @@ export class PageEditor {
       this.notifier.info(`已导出 ${fileName}`);
       return true;
     } catch (error) {
-      this.notifier.error(`导出 geo.json 失败：${errorMessage(error)}`);
+      this.notifier.error(`导出 geo.json 失败:${errorMessage(error)}`);
       return false;
     }
   }
 
   /**
-   * 导出 `final.svg`：浏览器内合成后下载，展示合成报告里的告警。
-   * 为什么不清脏标记：导出 SVG 不改变排版数据，geo.json 仍可能没导出；
-   * 是否「干净」以 geo.json 落盘为准。
+   * 导出 `final.svg`:浏览器内合成后下载,展示合成报告里的告警.
+   * 为什么不清脏标记:导出 SVG 不改变排版数据,geo.json 仍可能没导出;
+   * 是否「干净」以 geo.json 落盘为准.
    */
   exportFinal(): void {
     const fileName = finalFileNameOf(this.document);
@@ -293,15 +293,15 @@ export class PageEditor {
       const result = composeFinalSvg(this.document, this.layout);
       downloadText(result.svg, fileName, SVG_MIME);
       this.reportWarnings(result.report);
-      this.notifier.info(`已导出 ${fileName}（${result.report.counts.total} 个元素）`);
+      this.notifier.info(`已导出 ${fileName}(${result.report.counts.total} 个元素)`);
     } catch (error) {
-      this.notifier.error(`导出 SVG 失败：${errorMessage(error)}`);
+      this.notifier.error(`导出 SVG 失败:${errorMessage(error)}`);
     }
   }
 
   /* =========================== 视图 =========================== */
 
-  /** 适应页面：纸张四周留 4% 空白 */
+  /** 适应页面:纸张四周留 4% 空白 */
   fitPage(): void {
     const pad =
       Math.max(this.layout.paper.width_pt, this.layout.paper.height_pt) * PAGE_FIT_PADDING_RATIO;
@@ -314,7 +314,7 @@ export class PageEditor {
     this.applyView();
   }
 
-  /** 1:1：1pt = 1 屏幕像素，以纸张中心为锚点 */
+  /** 1:1:1pt = 1 屏幕像素,以纸张中心为锚点 */
   actualSize(): void {
     const width = this.svg.clientWidth > 0 ? this.svg.clientWidth : this.layout.paper.width_pt;
     const height = this.svg.clientHeight > 0 ? this.svg.clientHeight : this.layout.paper.height_pt;
@@ -329,7 +329,7 @@ export class PageEditor {
 
   /* =========================== 添加元素 =========================== */
 
-  /** 添加文字元素（role 决定默认位置/字号） */
+  /** 添加文字元素(role 决定默认位置/字号) */
   addText(role: TextRole): void {
     let newId = 0;
     this.applyPageChange((layout) => {
@@ -344,7 +344,7 @@ export class PageEditor {
     this.addText('title');
   }
 
-  /** 添加空图例（默认右栏顶部） */
+  /** 添加空图例(默认右栏顶部) */
   addLegend(): void {
     let newId = 0;
     this.applyPageChange((layout) => {
@@ -390,11 +390,11 @@ export class PageEditor {
     this.select(newId);
   }
 
-  /** 添加色标（配色/刻度来自 geo.relief；没有 relief 的 geo 不能加） */
+  /** 添加色标(配色/刻度来自 geo.relief;没有 relief 的 geo 不能加) */
   addColorbar(): void {
     const relief = this.geo.relief;
     if (relief === null) {
-      this.notifier.error('该 geo.json 没有 relief 色标数据，无法添加色标');
+      this.notifier.error('该 geo.json 没有 relief 色标数据,无法添加色标');
       return;
     }
     let newId = 0;
@@ -425,7 +425,7 @@ export class PageEditor {
 
   /* =========================== 渲染与状态 =========================== */
 
-  /** 重绘预览、同步侧栏、更新标题/状态栏 */
+  /** 重绘预览,同步侧栏,更新标题/状态栏 */
   renderAll(): void {
     renderPageSvg(this.svg, this.layout, this.geo, {
       baseUrl: this.baseUrl,
@@ -437,7 +437,7 @@ export class PageEditor {
     this.updateChrome();
   }
 
-  /** 标题与状态栏：文档名用底图文件名；脏标记表示「当前排版还没导出 geo.json」 */
+  /** 标题与状态栏:文档名用底图文件名;脏标记表示「当前排版还没导出 geo.json」 */
   private updateChrome(): void {
     const count = countItems(this.layout);
     document.title = `${this.document.baseFileName} · ${count} 元素${this.dirty ? ' *' : ''}`;
@@ -445,15 +445,15 @@ export class PageEditor {
     this.notifier.setState(`${count} 个元素${selection} · ${this.dirty ? '未导出' : '已导出'}`);
   }
 
-  /** 把合成报告的告警送到消息区（越界元素单独汇总） */
+  /** 把合成报告的告警送到消息区(越界元素单独汇总) */
   private reportWarnings(report: ComposeReport): void {
-    for (const warning of report.warnings) this.notifier.error(`警告：${warning}`);
+    for (const warning of report.warnings) this.notifier.error(`警告:${warning}`);
     if (report.out_of_paper.length > 0) {
-      this.notifier.error(`有 ${report.out_of_paper.length} 个对象落在纸张之外（成品会被裁掉）`);
+      this.notifier.error(`有 ${report.out_of_paper.length} 个对象落在纸张之外(成品会被裁掉)`);
     }
   }
 
-  /** 把 viewBox 写回根 svg（缩放/平移的唯一出口） */
+  /** 把 viewBox 写回根 svg(缩放/平移的唯一出口) */
   private applyView(): void {
     this.svg.setAttribute(
       'viewBox',
@@ -463,7 +463,7 @@ export class PageEditor {
 
   /* =========================== 坐标换算 =========================== */
 
-  /** 屏幕（client）坐标 → 纸张坐标；依赖 getScreenCTM 处理 viewBox/letterbox/DPR */
+  /** 屏幕(client)坐标 -> 纸张坐标;依赖 getScreenCTM 处理 viewBox/letterbox/DPR */
   private clientToPage(clientX: number, clientY: number): { x: number; y: number } | null {
     const matrix = this.svg.getScreenCTM();
     if (!matrix) return null;
@@ -472,7 +472,7 @@ export class PageEditor {
     return { x: point.x, y: point.y };
   }
 
-  /** 当前屏幕像素与纸张单位的比例（min 处理 letterbox；与 preserveAspectRatio=meet 一致） */
+  /** 当前屏幕像素与纸张单位的比例(min 处理 letterbox;与 preserveAspectRatio=meet 一致) */
   private screenScale(): number {
     const width = this.svg.clientWidth;
     const height = this.svg.clientHeight;
@@ -480,7 +480,7 @@ export class PageEditor {
     return Math.min(width / this.view.w, height / this.view.h);
   }
 
-  /** 命中测试：返回被点到的元素 id */
+  /** 命中测试:返回被点到的元素 id */
   private hitTest(target: EventTarget | null): number | null {
     if (!(target instanceof Element)) return null;
     const group = target.closest('[data-page-item]');
@@ -494,9 +494,9 @@ export class PageEditor {
   /* =========================== 指针手势 =========================== */
 
   private readonly onPointerDown = (event: PointerEvent): void => {
-    // 画布获得焦点：否则空格/方向键会被浏览器作用在别的焦点元素上
+    // 画布获得焦点:否则空格/方向键会被浏览器作用在别的焦点元素上
     this.svg.focus({ preventScroll: true });
-    // 中键 / 空格 = 平移；左键 = 选择 + 拖拽
+    // 中键 / 空格 = 平移;左键 = 选择 + 拖拽
     if (event.button === 1 || (event.button === 0 && this.spaceDown)) {
       event.preventDefault();
       this.gesture = {
@@ -555,11 +555,11 @@ export class PageEditor {
     let dx = page.x - gesture.startPageX;
     let dy = page.y - gesture.startPageY;
     if (event.shiftKey) {
-      // Shift：锁定到位移更大的轴，便于把文字对齐到水平/竖直位置
+      // Shift:锁定到位移更大的轴,便于把文字对齐到水平/竖直位置
       if (Math.abs(dx) >= Math.abs(dy)) dy = 0;
       else dx = 0;
     }
-    // 左右居中约束：水平位置由纸张宽度决定，拖拽只改 y（要水平移动先关开关）
+    // 左右居中约束:水平位置由纸张宽度决定,拖拽只改 y(要水平移动先关开关)
     if (item.kind === 'text' && item.space === 'page' && item.center_h) dx = 0;
     if (gesture.space === 'map') {
       const transform = mapTransform(this.geo, this.layout.map);
@@ -583,7 +583,7 @@ export class PageEditor {
   };
 
   private readonly onContextMenu = (event: MouseEvent): void => {
-    // 右键不弹浏览器菜单：画布上右键留给未来的手势（当前只做阻止默认）
+    // 右键不弹浏览器菜单:画布上右键留给未来的手势(当前只做阻止默认)
     event.preventDefault();
   };
 
@@ -605,7 +605,7 @@ export class PageEditor {
     this.zoomAt(factor, anchor);
   };
 
-  /** 以纸张坐标 anchor 为中心缩放（缩放范围见 config PAGE_ZOOM_MIN/MAX） */
+  /** 以纸张坐标 anchor 为中心缩放(缩放范围见 config PAGE_ZOOM_MIN/MAX) */
   private zoomAt(factor: number, anchor: { x: number; y: number }): void {
     const width = this.svg.clientWidth > 0 ? this.svg.clientWidth : this.layout.paper.width_pt;
     const minWidth = width / PAGE_ZOOM_MAX;
@@ -625,14 +625,14 @@ export class PageEditor {
   /* =========================== 键盘 =========================== */
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    // Ctrl+S 优先于「输入框里不响应快捷键」：导出 geo.json 是全局命令
+    // Ctrl+S 优先于「输入框里不响应快捷键」:导出 geo.json 是全局命令
     if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's') {
       event.preventDefault();
       this.exportGeo();
       return;
     }
     if (isEditableTarget(event.target)) return;
-    // 焦点在按钮/分隔条上时不要抢空格/Delete/方向键（那些是控件自己的键盘语义）
+    // 焦点在按钮/分隔条上时不要抢空格/Delete/方向键(那些是控件自己的键盘语义)
     if (
       event.target instanceof HTMLElement &&
       event.target.closest('button, a, [role="button"], [role="separator"]') !== null
@@ -683,7 +683,7 @@ export class PageEditor {
     event.preventDefault();
   };
 
-  /** 方向键微移：page 空间按 pt，map 空间换算回底图坐标；左右居中项忽略水平位移 */
+  /** 方向键微移:page 空间按 pt,map 空间换算回底图坐标;左右居中项忽略水平位移 */
   private moveSelectedBy(dxPage: number, dyPage: number): void {
     const id = this.selectedId;
     if (id === null) return;
@@ -701,9 +701,9 @@ export class PageEditor {
   /* =========================== 新建元素 =========================== */
 
   /**
-   * 文字模板：按 role 给默认位置/文案/对齐，样式（含字号）取该分类的有效样式。
-   * 为什么样式不在这里写死：所有文字样式统一在「样式设置」窗口按分类配置，
-   * 覆盖值落 `page.text_style`；新建文字必须与分类当前样式一致，否则刚加出来就和同类不同步。
+   * 文字模板:按 role 给默认位置/文案/对齐,样式(含字号)取该分类的有效样式.
+   * 为什么样式不在这里写死:所有文字样式统一在「样式设置」窗口按分类配置,
+   * 覆盖值落 `page.text_style`;新建文字必须与分类当前样式一致,否则刚加出来就和同类不同步.
    */
   private newTextItem(layout: PageLayout, id: number, role: TextRole): TextItem {
     const paper = layout.paper;
@@ -727,7 +727,7 @@ export class PageEditor {
       letter_spacing_em: style.letter_spacing_em,
       halo: style.halo ? { ...style.halo } : null,
       geo_label_id: null,
-      // 与默认排版同口径：标题/副标题/来源默认左右居中；其余手动文字自由摆放
+      // 与默认排版同口径:标题/副标题/来源默认左右居中;其余手动文字自由摆放
       center_h: role === 'title' || role === 'subtitle' || role === 'source',
     };
     const placed = this.placeNewText(item, layout, role);
@@ -735,7 +735,7 @@ export class PageEditor {
     return placed;
   }
 
-  /** 新文字的默认位置/文案/对齐（样式由 `newTextItem` 随后按分类统一覆盖） */
+  /** 新文字的默认位置/文案/对齐(样式由 `newTextItem` 随后按分类统一覆盖) */
   private placeNewText(item: TextItem, layout: PageLayout, role: TextRole): TextItem {
     const paper = layout.paper;
     switch (role) {
@@ -754,9 +754,9 @@ export class PageEditor {
     }
   }
 
-  /* =========================== 状态查询（测试/调试） =========================== */
+  /* =========================== 状态查询(测试/调试) =========================== */
 
-  /** 是否未导出（组合根据此决定「打开…」是否先确认） */
+  /** 是否未导出(组合根据此决定「打开...」是否先确认) */
   get isDirty(): boolean {
     return this.dirty;
   }

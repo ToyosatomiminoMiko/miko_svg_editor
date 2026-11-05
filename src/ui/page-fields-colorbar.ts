@@ -1,9 +1,9 @@
 /**
- * 色标元素的属性字段：标题/单位/宽高/字号与「显示标题/显示刻度」开关。
+ * 色标元素的属性字段:标题/单位/宽高/字号与「显示标题/显示刻度」开关.
  *
- * 是什么：选中 colorbar 元素时构建的属性面板片段；配色与刻度来自 geo.relief，不落 layout。
- * 为什么单独成模块：色标字段是一组固定尺寸 + 两个显隐开关，独立后与图例/文字互不影响。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 是什么:选中 colorbar 元素时构建的属性面板片段;配色与刻度来自 geo.relief,不落 layout.
+ * 为什么单独成模块:色标字段是一组固定尺寸 + 两个显隐开关,独立后与图例/文字互不影响.
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import { createControlGroup, create_element } from 'miko_ui';
@@ -11,7 +11,7 @@ import { PAGE_COLORBAR_HEIGHT_PT, PAGE_COLORBAR_WIDTH_PT } from '../config/page'
 import { itemById, type ColorbarItem } from '../core/page';
 import type { SidebarContext } from './page-sidebar-context';
 
-/** 色标属性面板片段（标题/单位/尺寸/字号 + 显示开关） */
+/** 色标属性面板片段(标题/单位/尺寸/字号 + 显示开关) */
 export function buildColorbarFields(ctx: SidebarContext, item: ColorbarItem): HTMLElement[] {
   const fragments: HTMLElement[] = [];
   const basics = create_element({ tag: 'div' }, { class: 'page-field-grid' });
@@ -46,7 +46,7 @@ export function buildColorbarFields(ctx: SidebarContext, item: ColorbarItem): HT
   ctx.controls.addNumberRow(
     basics,
     'prop.cbarWidth',
-    '宽（pt）',
+    '宽(pt)',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
       return target?.kind === 'colorbar' ? target.width_pt : PAGE_COLORBAR_WIDTH_PT;
@@ -61,7 +61,7 @@ export function buildColorbarFields(ctx: SidebarContext, item: ColorbarItem): HT
   ctx.controls.addNumberRow(
     basics,
     'prop.cbarHeight',
-    '高（pt）',
+    '高(pt)',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
       return target?.kind === 'colorbar' ? target.height_pt : PAGE_COLORBAR_HEIGHT_PT;
@@ -136,11 +136,7 @@ export function buildColorbarFields(ctx: SidebarContext, item: ColorbarItem): HT
   );
   fragments.push(createControlGroup('显示', switches));
   fragments.push(
-    create_element(
-      { tag: 'p' },
-      { class: 'page-hint' },
-      '配色与刻度来自 geo.relief，不落 layout。',
-    ),
+    create_element({ tag: 'p' }, { class: 'page-hint' }, '配色与刻度来自 geo.relief,不落 layout.'),
   );
   return fragments;
 }

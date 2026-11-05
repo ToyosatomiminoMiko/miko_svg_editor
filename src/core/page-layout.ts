@@ -1,15 +1,15 @@
 /**
- * 排版布局公式（`docs/PAGE-EDITOR.md` §5）与初始排版 `defaultPageLayout`。
+ * 排版布局公式(`docs/PAGE-EDITOR.md` §5)与初始排版 `defaultPageLayout`.
  *
- * 是什么：底图坐标 → 纸张坐标的变换、图框/刻度位置、text/legend/colorbar 的基线/行位置、
- * 文字折行与文本宽度估算，以及「从 geo 生成默认 A4 横向排版」。
- * 为什么放在 core：预览（`render/page-svg.ts`）与成品合成（`render/compose-svg.ts`）
- * 必须逐字一致；这里只写纯函数，文本测量以参数注入（`MeasureText`），node 单测时用
- * 内置的无 DOM 估算回退，浏览器里注入 canvas measureText。
- * 已知口径：字符宽度估算按「CJK/全角 = 1em，其余 = 0.55em」；只服务没有测量器时的
- * 折行兜底，最终排版以注入的真实测量为准。文字样式（颜色/字重/字距/行高/描边）不在本文件，
- * 全部来自 `config/text-style.ts`；这里只做几何与换算。
- * 元信息：作者 ToyosatomiminoMiko，2026-11-05。
+ * 是什么:底图坐标 -> 纸张坐标的变换,图框/刻度位置,text/legend/colorbar 的基线/行位置,
+ * 文字折行与文本宽度估算,以及「从 geo 生成默认 A4 横向排版」.
+ * 为什么放在 core:预览(`render/page-svg.ts`)与成品合成(`render/compose-svg.ts`)
+ * 必须逐字一致;这里只写纯函数,文本测量以参数注入(`MeasureText`),node 单测时用
+ * 内置的无 DOM 估算回退,浏览器里注入 canvas measureText.
+ * 已知口径:字符宽度估算按「CJK/全角 = 1em,其余 = 0.55em」;只服务没有测量器时的
+ * 折行兜底,最终排版以注入的真实测量为准.文字样式(颜色/字重/字距/行高/描边)不在本文件,
+ * 全部来自 `config/text-style.ts`;这里只做几何与换算.
+ * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import {
@@ -76,28 +76,28 @@ import type {
   TextStyleOverrides,
 } from './page';
 
-/* =========================== 底图 → 纸张（§5.1） =========================== */
+/* =========================== 底图 -> 纸张(§5.1) =========================== */
 
-/** 底图坐标 → 纸张坐标的仿射参数：page = (tx + x*s, ty + y*s) */
+/** 底图坐标 -> 纸张坐标的仿射参数:page = (tx + x*s, ty + y*s) */
 export interface PageTransform {
   readonly s: number;
   readonly tx: number;
   readonly ty: number;
 }
 
-/** 地图像素比：map.height = map.width_pt × base.height_pt / base.width_pt */
+/** 地图像素比:map.height = map.width_pt × base.height_pt / base.width_pt */
 export function mapHeightPt(geo: Geo, map: MapPlacement): number {
   return (map.width_pt * geo.base.height_pt) / geo.base.width_pt;
 }
 
-/** §5.1：s = map.width / base.width；tx/ty 让 map.x/y 对齐到 viewBox 左上角 */
+/** §5.1:s = map.width / base.width;tx/ty 让 map.x/y 对齐到 viewBox 左上角 */
 export function mapTransform(geo: Geo, map: MapPlacement): PageTransform {
   const s = map.width_pt / geo.base.width_pt;
   const [viewX = 0, viewY = 0] = geo.base.view_box;
   return { s, tx: map.x - viewX * s, ty: map.y - viewY * s };
 }
 
-/** 底图坐标点 → 纸张坐标点 */
+/** 底图坐标点 -> 纸张坐标点 */
 export function mapPointToPage(
   transform: PageTransform,
   point: { readonly x: number; readonly y: number },
@@ -105,7 +105,7 @@ export function mapPointToPage(
   return { x: transform.tx + point.x * transform.s, y: transform.ty + point.y * transform.s };
 }
 
-/** 纸张坐标点 → 底图坐标点（拖拽写回 map 空间 item 用） */
+/** 纸张坐标点 -> 底图坐标点(拖拽写回 map 空间 item 用) */
 export function pagePointToMap(
   transform: PageTransform,
   point: { readonly x: number; readonly y: number },
@@ -119,9 +119,9 @@ export function pagePointToMap(
 /* =========================== 文本测量 =========================== */
 
 /**
- * 字体简写：canvas 的 `ctx.font` 与无 DOM 估算器共用同一口径。
- * 为什么 weight 为 400 时省略字重：保持旧串 `"12px family"` 的格式，未改字重的既有写法
- * （canvas 测量、字体串快照）不产生无意义差异；非 400 才写成 `"700 12px family"`（CSS font 语法）。
+ * 字体简写:canvas 的 `ctx.font` 与无 DOM 估算器共用同一口径.
+ * 为什么 weight 为 400 时省略字重:保持旧串 `"12px family"` 的格式,未改字重的既有写法
+ * (canvas 测量,字体串快照)不产生无意义差异;非 400 才写成 `"700 12px family"`(CSS font 语法).
  */
 export function fontShorthand(sizePt: number, fontFamily: string, weight = 400): string {
   const size = Math.max(0, sizePt);
@@ -129,9 +129,9 @@ export function fontShorthand(sizePt: number, fontFamily: string, weight = 400):
 }
 
 /**
- * 从字体简写里取字号；解析失败回退 12px（与 render/theme 的回退字号一致）。
- * 为什么用正则找 `px` 而不是 `parseFloat`：非 400 字重的简写以数字开头（如 `"700 12px …"`），
- * `parseFloat` 会把字重 700 当成字号；这里只认 `<数字>px` 那一段。
+ * 从字体简写里取字号;解析失败回退 12px(与 render/theme 的回退字号一致).
+ * 为什么用正则找 `px` 而不是 `parseFloat`:非 400 字重的简写以数字开头(如 `"700 12px ..."`),
+ * `parseFloat` 会把字重 700 当成字号;这里只认 `<数字>px` 那一段.
  */
 function fontSizeOf(font: string): number {
   const match = /(\d+(?:\.\d+)?)px/.exec(font);
@@ -139,7 +139,7 @@ function fontSizeOf(font: string): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 12;
 }
 
-/** 全角/CJK 判定：按 Unicode 区段粗分，够折行用即可 */
+/** 全角/CJK 判定:按 Unicode 区段粗分,够折行用即可 */
 function isWideCodePoint(code: number): boolean {
   return (
     (code >= 0x1100 && code <= 0x115f) || // Hangul Jamo
@@ -157,8 +157,8 @@ function isWideCodePoint(code: number): boolean {
 }
 
 /**
- * 无 DOM 的文本宽度估算：CJK/全角按 1em，其余按 0.55em。
- * 为什么不是 0.5em：等宽字体里数字/字母约 0.55~0.6em，取中位数让折行偏保守。
+ * 无 DOM 的文本宽度估算:CJK/全角按 1em,其余按 0.55em.
+ * 为什么不是 0.5em:等宽字体里数字/字母约 0.55~0.6em,取中位数让折行偏保守.
  */
 export function estimateTextWidth(text: string, font: string): number {
   const size = fontSizeOf(font);
@@ -170,12 +170,12 @@ export function estimateTextWidth(text: string, font: string): number {
   return width;
 }
 
-/** 没有注入测量器时使用的默认测量（导出给单测与侧栏估算用） */
+/** 没有注入测量器时使用的默认测量(导出给单测与侧栏估算用) */
 export const fallbackMeasureText: MeasureText = (text, font) => estimateTextWidth(text, font);
 
 /**
- * 没有注入测量器时的行盒回退：按 config 的 0.8em / 0.2em 比例（相对字号）。
- * 只有 node 单测与无 canvas 环境会走到；浏览器用 canvas `fontBoundingBox*` 实测字体行盒。
+ * 没有注入测量器时的行盒回退:按 config 的 0.8em / 0.2em 比例(相对字号).
+ * 只有 node 单测与无 canvas 环境会走到;浏览器用 canvas `fontBoundingBox*` 实测字体行盒.
  */
 export const fallbackTextMeasure: TextMeasure = {
   width: fallbackMeasureText,
@@ -183,7 +183,7 @@ export const fallbackTextMeasure: TextMeasure = {
   descent: (font) => fontSizeOf(font) * PAGE_TEXT_FALLBACK_DESCENT_RATIO,
 };
 
-/** 逐词切分：CJK 单字成词，拉丁词按空格断；空白串单独保留（折行时用来定位断点） */
+/** 逐词切分:CJK 单字成词,拉丁词按空格断;空白串单独保留(折行时用来定位断点) */
 function tokenizeForWrap(text: string): string[] {
   const tokens: string[] = [];
   let buffer = '';
@@ -212,8 +212,8 @@ function tokenizeForWrap(text: string): string[] {
 }
 
 /**
- * 按最大宽度折行（不做自动换行：结果要写进 `lines` 数组，契约 §11）。
- * 返回至少一行；超长单词按字符硬切，避免一行溢出右栏。
+ * 按最大宽度折行(不做自动换行:结果要写进 `lines` 数组,契约 §11).
+ * 返回至少一行;超长单词按字符硬切,避免一行溢出右栏.
  */
 export function wrapText(
   text: string,
@@ -226,8 +226,8 @@ export function wrapText(
   const lines: string[] = [];
 
   /**
-   * 超长单词（无空格长串）按字符硬切：返回已落定的行与剩余片段。
-   * 单独成函数是为了「token 位于行首」与「上一行已满后才遇到超长 token」两条路径共用。
+   * 超长单词(无空格长串)按字符硬切:返回已落定的行与剩余片段.
+   * 单独成函数是为了「token 位于行首」与「上一行已满后才遇到超长 token」两条路径共用.
    */
   const splitLongToken = (token: string): { lines: string[]; rest: string } => {
     const produced: string[] = [];
@@ -247,7 +247,7 @@ export function wrapText(
   for (const token of tokenizeForWrap(text)) {
     const spaceOnly = token.trim().length === 0;
     if (spaceOnly) {
-      // 行首空白吞掉；行内空白保留（后续 token 会触发断行）
+      // 行首空白吞掉;行内空白保留(后续 token 会触发断行)
       if (current.length > 0) current += token;
       continue;
     }
@@ -269,7 +269,7 @@ export function wrapText(
   return lines;
 }
 
-/** 多段文字（每段可含换行）折行后压平；行数与每行长度按契约上限截断 */
+/** 多段文字(每段可含换行)折行后压平;行数与每行长度按契约上限截断 */
 export function wrapParagraphs(
   paragraphs: readonly string[],
   font: string,
@@ -292,17 +292,17 @@ export function wrapParagraphs(
   if (lines.length > PAGE_MAX_TEXT_LINES) {
     const lastIndex = limited.length - 1;
     const last = limited[lastIndex] ?? '';
-    limited[lastIndex] = `${last.slice(0, Math.max(0, PAGE_MAX_TEXT_LINE_CHARS - 1))}…`;
+    limited[lastIndex] = `${last.slice(0, Math.max(0, PAGE_MAX_TEXT_LINE_CHARS - 1))}...`;
   }
   return limited;
 }
 
 /**
- * 文字块宽度（多行取最宽）：选中框/命中盒与导出越界估算共用。
- * `fontFamily` 是 `item.font_family` 为空时的回退字体（调用方传 `layout.style.font_family`，
- * 与 §5.3 渲染同一口径）；缺省用默认字体栈，只服务没有 layout 的独立调用。
- * 字距按 SVG/CSS 的前进宽度口径加在每行末尾：`letter_spacing_em × 字号 × max(0, 字符数-1)`
- * （最后一个字符后面不再算字距，与「文字块宽度」的视觉边界一致）。
+ * 文字块宽度(多行取最宽):选中框/命中盒与导出越界估算共用.
+ * `fontFamily` 是 `item.font_family` 为空时的回退字体(调用方传 `layout.style.font_family`,
+ * 与 §5.3 渲染同一口径);缺省用默认字体栈,只服务没有 layout 的独立调用.
+ * 字距按 SVG/CSS 的前进宽度口径加在每行末尾:`letter_spacing_em × 字号 × max(0, 字符数-1)`
+ * (最后一个字符后面不再算字距,与「文字块宽度」的视觉边界一致).
  */
 export function textBlockWidth(
   item: TextItem,
@@ -320,23 +320,23 @@ export function textBlockWidth(
   return width;
 }
 
-/* =========================== 文字布局（§5.3） =========================== */
+/* =========================== 文字布局(§5.3) =========================== */
 
 export interface TextLineLayout {
   readonly text: string;
-  /** 行基线 y（纸张坐标） */
+  /** 行基线 y(纸张坐标) */
   readonly y: number;
 }
 
 export interface TextLayout {
-  /** 第一行锚点（纸张坐标） */
+  /** 第一行锚点(纸张坐标) */
   readonly px: number;
   readonly py: number;
-  /** 每行偏移（已含 line_height） */
+  /** 每行偏移(已含 line_height) */
   readonly lines: readonly TextLineLayout[];
 }
 
-/** 文本起始点：page 空间直接用；map 空间过 §5.1（字号不随地图缩放，契约 §5.3） */
+/** 文本起始点:page 空间直接用;map 空间过 §5.1(字号不随地图缩放,契约 §5.3) */
 export function textLayout(item: TextItem, geo: Geo, layout: PageLayout): TextLayout {
   const transform = mapTransform(geo, layout.map);
   const origin = item.space === 'map' ? mapPointToPage(transform, item) : { x: item.x, y: item.y };
@@ -345,9 +345,9 @@ export function textLayout(item: TextItem, geo: Geo, layout: PageLayout): TextLa
   return { px: origin.x, py: origin.y, lines };
 }
 
-/* =========================== 图框/刻度（§5.2） =========================== */
+/* =========================== 图框/刻度(§5.2) =========================== */
 
-/** 一条刻度的几何：线端点 + 标签锚点/基线（全部已换算成纸张坐标） */
+/** 一条刻度的几何:线端点 + 标签锚点/基线(全部已换算成纸张坐标) */
 export interface FrameTickLayout {
   readonly axis: 'lon' | 'lat';
   readonly side: GraticuleSide;
@@ -362,10 +362,10 @@ export interface FrameTickLayout {
 }
 
 /**
- * §5.2 图框刻度几何。
- * - 经度：page(tick.x).x 落在 [0, paper.width] 才画；bottom 向下、top 向上；
- * - 纬度：page(tick.y).y 落在 [0, paper.height] 才画；left 向左、right 向右。
- * 基线公式按契约原样（bottom 用 tick_gap + tick_font_size，left 用 font*0.35）。
+ * §5.2 图框刻度几何.
+ * - 经度:page(tick.x).x 落在 [0, paper.width] 才画;bottom 向下,top 向上;
+ * - 纬度:page(tick.y).y 落在 [0, paper.height] 才画;left 向左,right 向右.
+ * 基线公式按契约原样(bottom 用 tick_gap + tick_font_size,left 用 font*0.35).
  */
 export function frameTickLayout(layout: PageLayout, geo: Geo): FrameTickLayout[] {
   const { paper, map, frame } = layout;
@@ -444,10 +444,10 @@ export function frameTickLayout(layout: PageLayout, geo: Geo): FrameTickLayout[]
   return result;
 }
 
-/* =========================== 图例布局（§5.4） =========================== */
+/* =========================== 图例布局(§5.4) =========================== */
 
 export interface LegendRowLayout {
-  /** 行中心线 y（纸张坐标） */
+  /** 行中心线 y(纸张坐标) */
   readonly centerY: number;
   readonly swatchX0: number;
   readonly swatchX1: number;
@@ -456,18 +456,18 @@ export interface LegendRowLayout {
 }
 
 export interface LegendLayout {
-  /** 由内容派生的高度（不落 layout） */
+  /** 由内容派生的高度(不落 layout) */
   readonly height: number;
   readonly titleBaseline: number;
-  /** 标题水平中心（契约未写，预览与成品统一取宽度中点） */
+  /** 标题水平中心(契约未写,预览与成品统一取宽度中点) */
   readonly titleX: number;
   readonly rows: readonly LegendRowLayout[];
 }
 
 /**
- * §5.4 图例布局。
- * @param sizeScale 仅 map 空间的图例用：契约未定义，成品合成把 width_pt 乘 s，
- *                  这里同样只缩放宽度（行高/字号保持 pt），保持预览与成品口径一致。
+ * §5.4 图例布局.
+ * @param sizeScale 仅 map 空间的图例用:契约未定义,成品合成把 width_pt 乘 s,
+ *                  这里同样只缩放宽度(行高/字号保持 pt),保持预览与成品口径一致.
  */
 export function legendLayout(item: LegendItem, sizeScale = 1): LegendLayout {
   const padding = item.padding_pt;
@@ -495,7 +495,7 @@ export function legendLayout(item: LegendItem, sizeScale = 1): LegendLayout {
   };
 }
 
-/* =========================== 色标布局（§5.5） =========================== */
+/* =========================== 色标布局(§5.5) =========================== */
 
 export interface ColorbarTickLayout {
   readonly value: number;
@@ -515,7 +515,7 @@ export interface ColorbarLayout {
   readonly ticks: readonly ColorbarTickLayout[];
 }
 
-/** 色标标题：unit 非空且标题不含单位时追加 ` (unit)`（契约 §5.5） */
+/** 色标标题:unit 非空且标题不含单位时追加 ` (unit)`(契约 §5.5) */
 export function colorbarTitleText(item: ColorbarItem): string {
   const unit = item.unit.trim();
   if (unit.length === 0) return item.title;
@@ -524,8 +524,8 @@ export function colorbarTitleText(item: ColorbarItem): string {
 }
 
 /**
- * §5.5 色标布局。
- * @param sizeScale 仅 map 空间的色标用：宽度/高度乘 s（字号保持 pt，预览与成品一致）。
+ * §5.5 色标布局.
+ * @param sizeScale 仅 map 空间的色标用:宽度/高度乘 s(字号保持 pt,预览与成品一致).
  */
 export function colorbarLayout(
   item: ColorbarItem,
@@ -562,9 +562,9 @@ export function colorbarLayout(
   };
 }
 
-/* =========================== item 几何框（§5.7，选中框/命中盒） =========================== */
+/* =========================== item 几何框(§5.7,选中框/命中盒) =========================== */
 
-/** 图例/色标在纸张坐标里的摆放；`scale` 只作用于图例/色标的尺寸（字号保持 pt） */
+/** 图例/色标在纸张坐标里的摆放;`scale` 只作用于图例/色标的尺寸(字号保持 pt) */
 export interface ItemPlacement {
   readonly x: number;
   readonly y: number;
@@ -572,9 +572,9 @@ export interface ItemPlacement {
 }
 
 /**
- * 图例/色标的摆放公式（§5.4/§5.5 的共同入口）。
- * 为什么抽出来：预览（page-svg）、成品（compose）与选中框（itemBoundsPt）三处都需要同一份
- * 坐标换算；各写一份会漂移，契约 §5 也要求几何只在 page-layout 实现一次。
+ * 图例/色标的摆放公式(§5.4/§5.5 的共同入口).
+ * 为什么抽出来:预览(page-svg),成品(compose)与选中框(itemBoundsPt)三处都需要同一份
+ * 坐标换算;各写一份会漂移,契约 §5 也要求几何只在 page-layout 实现一次.
  */
 export function itemPlacement(
   item: { readonly x: number; readonly y: number; readonly space: ItemSpace },
@@ -587,32 +587,32 @@ export function itemPlacement(
   return { x: origin.x, y: origin.y, scale: transform.s };
 }
 
-/** item 在纸张坐标里的未旋转几何框 + 旋转参数（选中框与命中盒的唯一来源） */
+/** item 在纸张坐标里的未旋转几何框 + 旋转参数(选中框与命中盒的唯一来源) */
 export interface ItemBounds {
   readonly x: number;
   readonly y: number;
   readonly width: number;
   readonly height: number;
-  /** 绕 (rotationX, rotationY) 旋转的度数；0 = 不旋转（legend/colorbar 恒为 0） */
+  /** 绕 (rotationX, rotationY) 旋转的度数;0 = 不旋转(legend/colorbar 恒为 0) */
   readonly rotation_deg: number;
   readonly rotationX: number;
   readonly rotationY: number;
 }
 
 /**
- * §5.7：item 的声明几何框（纸张坐标，未旋转）。
+ * §5.7:item 的声明几何框(纸张坐标,未旋转).
  *
- * - text：水平 = 锚点 + 各行前进宽度（measureText，字体来自 CSS font 简写）；
- *   垂直 = 行盒口径：首行基线上方 = ascent + 半行距，末行基线下方 = descent + 半行距；
- *   半行距 = max(0, (字号 × line_height − (ascent + descent)) / 2)，所以单行文字的
- *   选中框也会随「行高」变高；行高小于字体行盒时不裁字（半行距取 0）；
- *   旋转 = §5.3 规定的 `rotate(rotation_deg px py)`；
- * - legend：`rect(x, y, width_pt*s, legendLayout().height)`（§5.4 的声明框）；
- * - colorbar：`rect(x, y, width_pt*s, height_pt*s)`（§5.5 的声明框）。
+ * - text:水平 = 锚点 + 各行前进宽度(measureText,字体来自 CSS font 简写);
+ *   垂直 = 行盒口径:首行基线上方 = ascent + 半行距,末行基线下方 = descent + 半行距;
+ *   半行距 = max(0, (字号 × line_height − (ascent + descent)) / 2),所以单行文字的
+ *   选中框也会随「行高」变高;行高小于字体行盒时不裁字(半行距取 0);
+ *   旋转 = §5.3 规定的 `rotate(rotation_deg px py)`;
+ * - legend:`rect(x, y, width_pt*s, legendLayout().height)`(§5.4 的声明框);
+ * - colorbar:`rect(x, y, width_pt*s, height_pt*s)`(§5.5 的声明框).
  *
- * 为什么不用 DOM `getBBox()`：它不含元素自身的 transform（旋转文字会画在锚点附近而错位），
- * 还会把透明命中盒算进包围盒（框因此变成外扩容差）；这里是纯函数，公式来自 §5，
- * 单测可断言，且预览/导出/选中框用同一批函数。
+ * 为什么不用 DOM `getBBox()`:它不含元素自身的 transform(旋转文字会画在锚点附近而错位),
+ * 还会把透明命中盒算进包围盒(框因此变成外扩容差);这里是纯函数,公式来自 §5,
+ * 单测可断言,且预览/导出/选中框用同一批函数.
  */
 export function itemBoundsPt(
   item: PageItem,
@@ -632,8 +632,8 @@ export function itemBoundsPt(
       const ascent = measure.ascent(font);
       const descent = measure.descent(font);
       const step = item.font_size_pt * item.line_height;
-      // 半行距把 line_height 的额外空间均分到首行上方与末行下方：多行行距由 step 展开，
-      // 单行也能从选中框高度看出行高变化。负半行距（行高 < 字体行盒）不裁字。
+      // 半行距把 line_height 的额外空间均分到首行上方与末行下方:多行行距由 step 展开,
+      // 单行也能从选中框高度看出行高变化.负半行距(行高 < 字体行盒)不裁字.
       const halfLeading = Math.max(0, (step - (ascent + descent)) / 2);
       const top = text.py - ascent - halfLeading;
       const bottom = text.py + (item.lines.length - 1) * step + descent + halfLeading;
@@ -685,14 +685,14 @@ export function itemBoundsPt(
 /* =========================== 默认排版 =========================== */
 
 export interface DefaultPageLayoutOptions {
-  /** 纸张（保留用户当前纸张）；缺省 A4 横向 */
+  /** 纸张(保留用户当前纸张);缺省 A4 横向 */
   readonly paper?: PagePaper;
-  /** 文本测量器；缺省用无 DOM 估算 */
+  /** 文本测量器;缺省用无 DOM 估算 */
   readonly measureText?: MeasureText;
   /**
-   * 分类样式覆盖（`page.text_style`）。打开带 page 块的文件时要把覆盖表传进来，
-   * 否则用户设过的分类样式会被一次生成全部清掉（见规格 §6）。
-   * 结果里的 `text_style` 是它的深拷贝；缺省 `{}`。
+   * 分类样式覆盖(`page.text_style`).打开带 page 块的文件时要把覆盖表传进来,
+   * 否则用户设过的分类样式会被一次生成全部清掉(见规格 §6).
+   * 结果里的 `text_style` 是它的深拷贝;缺省 `{}`.
    */
   readonly text_style?: TextStyleOverrides;
 }
@@ -708,8 +708,8 @@ function defaultPaper(): PagePaper {
 }
 
 /**
- * 图例宽度测量：左右 padding + swatch + gap + 最长标签，同时要容得下标题。
- * @param fontScale 纸张自适应比例 k（defaultPageLayout 的 k）；图例的字号/色块/边距都随它缩放
+ * 图例宽度测量:左右 padding + swatch + gap + 最长标签,同时要容得下标题.
+ * @param fontScale 纸张自适应比例 k(defaultPageLayout 的 k);图例的字号/色块/边距都随它缩放
  */
 function measureLegendColumn(
   geo: Geo,
@@ -742,17 +742,17 @@ function measureLegendColumn(
 }
 
 /**
- * 没有图例时的右栏宽度（pt）：只放注记/色标，不需要图例列那么宽。
+ * 没有图例时的右栏宽度(pt):只放注记/色标,不需要图例列那么宽.
  *
- * 为什么取 0.7 × 右栏最小宽：横向右栏最小宽是 150pt，只放色标（14pt）时右侧还要容纳
- * 3pt 刻度线 + 5pt 间距 + 数字标签，约 40pt 就够；取 105pt 既够放折行注记，又比图例列
- * 窄，让地图在高度允许时可以多占宽度。乘 k 与其它纸面尺寸同一口径。
+ * 为什么取 0.7 × 右栏最小宽:横向右栏最小宽是 150pt,只放色标(14pt)时右侧还要容纳
+ * 3pt 刻度线 + 5pt 间距 + 数字标签,约 40pt 就够;取 105pt 既够放折行注记,又比图例列
+ * 窄,让地图在高度允许时可以多占宽度.乘 k 与其它纸面尺寸同一口径.
  */
 function compactRightColumnWidth(fontScale: number): number {
   return PAGE_DEFAULT_RIGHT_COLUMN_MIN_PT * 0.7 * fontScale;
 }
 
-/** 把 geo 图例条目复制成 layout 条目，补齐可选字段 */
+/** 把 geo 图例条目复制成 layout 条目,补齐可选字段 */
 function legendEntriesOf(geo: Geo): LegendEntry[] {
   return geo.legend.entries.map((entry: GeoLegendEntry) => ({
     label: entry.label,
@@ -766,18 +766,18 @@ function legendEntriesOf(geo: Geo): LegendEntry[] {
   }));
 }
 
-/** 克隆光晕（避免 defaultPageLayout 与 geo 共享可变对象） */
+/** 克隆光晕(避免 defaultPageLayout 与 geo 共享可变对象) */
 function haloOf(halo: Halo | null): Halo | null {
   return halo === null ? null : { color: halo.color, width_pt: halo.width_pt };
 }
 
 /**
- * 文字元素工厂：所有可选字段都显式写出，保证 layout 形状固定。
- * 无覆盖时颜色/斜体/字重/字距/行高/光晕全部来自 `PAGE_TEXT_STYLES[role]`（单一真源）；
- * overrides 承载两件事：调用方确有语义差异的字段（锚点/坐标空间），以及 `defaultPageLayout`
- * 按分类覆盖解析出的样式（解析口径见 `core/text-style.ts`）。
- * `halo` 的 undefined 与 null 语义不同：undefined = 用角色默认，null = 显式关光晕，
- * 所以不能用 `??` 合并（默认光晕可能非 null 的角色会吞掉「关光晕」）。
+ * 文字元素工厂:所有可选字段都显式写出,保证 layout 形状固定.
+ * 无覆盖时颜色/斜体/字重/字距/行高/光晕全部来自 `PAGE_TEXT_STYLES[role]`(单一真源);
+ * overrides 承载两件事:调用方确有语义差异的字段(锚点/坐标空间),以及 `defaultPageLayout`
+ * 按分类覆盖解析出的样式(解析口径见 `core/text-style.ts`).
+ * `halo` 的 undefined 与 null 语义不同:undefined = 用角色默认,null = 显式关光晕,
+ * 所以不能用 `??` 合并(默认光晕可能非 null 的角色会吞掉「关光晕」).
  */
 function makeTextItem(
   id: number,
@@ -823,31 +823,31 @@ function makeTextItem(
     halo: overrides.halo === undefined ? haloOf(style.halo) : haloOf(overrides.halo),
     // 页面文字不是任何 geo.labels 的来源
     geo_label_id: null,
-    // 左右居中约束：默认关闭，标题/副标题/来源由 defaultPageLayout 显式打开
+    // 左右居中约束:默认关闭,标题/副标题/来源由 defaultPageLayout 显式打开
     center_h: overrides.center_h ?? false,
   };
 }
 
 /**
- * geo v2 地名 → map 空间文字元素（把「文字块垂直中心」换算成第一行基线）。
+ * geo v2 地名 -> map 空间文字元素(把「文字块垂直中心」换算成第一行基线).
  *
- * 输入约定：`label.y` 是文字块垂直中心（生成端不再算基线）；`label.x` 是水平锚点。
- * 换算公式（§4）：
+ * 输入约定:`label.y` 是文字块垂直中心(生成端不再算基线);`label.x` 是水平锚点.
+ * 换算公式(§4):
  *   step        = size × line_height
  *   offsetPaper = baseline_ratio × size − (行数−1) × step / 2
  *   item.y      = label.y + offsetPaper / mapScale
- * 为什么这么换：旧实现把 `0.36*size - (n-1)*step/2` 直接烤进 map 坐标；v2 把同一偏移换成
- * 纸面 pt 再除以 mapScale 加回去，底图坐标 → 纸面后的视觉位置与旧图一致（多行统一 1.2 行高，
- * 整块中心最多 ≤1pt 位移，可接受）。
- * 字号/描边换算：geo 字号按原图 896pt 地图设计，放到 A4 左栏需乘地图缩放 s；字号夹到 4..40pt
- * 避免不可读；描边宽度是纸面常量（不随 s 缩放）。
- * 字号（§12.1）：地图分类的字号恒统一——`label.role` 的覆盖字号 ?? 分类默认统一字号
- * （该分类全部地名原始字号的中位数 × 地图缩放 s，夹 4..40、保留 1 位小数）。不再使用单条
- * label 的字号，同一分类下所有地名 item 逐值相等。
- * 分类覆盖（§5.2）：颜色/斜体/字重/字距/行高/halo 按 `label.role` 查 `layout.text_style`
- * 解析；没有覆盖时逐字段等于 `config/text-style.ts` 的默认值。
- * 行高/字号参与 y 换算，所以必须用解析后的值。
- * 生成端不再给旋转：`rotation_deg` 固定 0（编辑器里仍可旋转）。
+ * 为什么这么换:旧实现把 `0.36*size - (n-1)*step/2` 直接烤进 map 坐标;v2 把同一偏移换成
+ * 纸面 pt 再除以 mapScale 加回去,底图坐标 -> 纸面后的视觉位置与旧图一致(多行统一 1.2 行高,
+ * 整块中心最多 ≤1pt 位移,可接受).
+ * 字号/描边换算:geo 字号按原图 896pt 地图设计,放到 A4 左栏需乘地图缩放 s;字号夹到 4..40pt
+ * 避免不可读;描边宽度是纸面常量(不随 s 缩放).
+ * 字号(§12.1):地图分类的字号恒统一--`label.role` 的覆盖字号 ?? 分类默认统一字号
+ * (该分类全部地名原始字号的中位数 × 地图缩放 s,夹 4..40,保留 1 位小数).不再使用单条
+ * label 的字号,同一分类下所有地名 item 逐值相等.
+ * 分类覆盖(§5.2):颜色/斜体/字重/字距/行高/halo 按 `label.role` 查 `layout.text_style`
+ * 解析;没有覆盖时逐字段等于 `config/text-style.ts` 的默认值.
+ * 行高/字号参与 y 换算,所以必须用解析后的值.
+ * 生成端不再给旋转:`rotation_deg` 固定 0(编辑器里仍可旋转).
  */
 function makeLabelItem(
   id: number,
@@ -861,11 +861,11 @@ function makeLabelItem(
     .slice(0, PAGE_MAX_TEXT_LINES)
     .map((line) => line.slice(0, PAGE_MAX_TEXT_LINE_CHARS));
   const scale = mapScale > 0 ? mapScale : 1;
-  // 防御式回退：正常路径已由 validateGeo 保证 role 在枚举内，坏数据由 resolveTextStyleFields
-  // 落到 area 的样式（覆盖表里也不存在这个未知分类的键）。
+  // 防御式回退:正常路径已由 validateGeo 保证 role 在枚举内,坏数据由 resolveTextStyleFields
+  // 落到 area 的样式(覆盖表里也不存在这个未知分类的键).
   const override = textStyle[label.role];
   const style = resolveTextStyleFields(label.role, override);
-  // 分类统一字号：覆盖 ?? 中位数默认值（同一 role 的每条 label 都算出同一个字号）
+  // 分类统一字号:覆盖 ?? 中位数默认值(同一 role 的每条 label 都算出同一个字号)
   const fontSize = override?.font_size_pt ?? mapCategoryDefaultFontSizePt(label.role, geo, scale);
   const step = fontSize * style.line_height;
   const offsetPaper = MAP_LABEL_STYLE.baseline_ratio * fontSize - ((lines.length - 1) * step) / 2;
@@ -889,27 +889,27 @@ function makeLabelItem(
     halo: style.halo,
     // 让分类统一样式/回算底图原始字号时能找到来源 label
     geo_label_id: label.id,
-    // 地图地名位置属于底图数据，不受纸张宽度约束
+    // 地图地名位置属于底图数据,不受纸张宽度约束
     center_h: false,
   };
 }
 
 /**
- * 由 geo 生成初始排版（契约 §9：A4 横向默认、地图占左、右栏图例/注记/色标）。
+ * 由 geo 生成初始排版(契约 §9:A4 横向默认,地图占左,右栏图例/注记/色标).
  *
- * 两套版式：
- * - 横向（默认）：左地图 + 右栏（图例→注记→色标）；
- * - 纵向（`paper.height > paper.width * 1.05`）：整宽地图 + 下方一排（图例 / 注记 / 色标），
- *   避免竖版纸上地图只占半宽、下方大片空白。
- * 两套都按纸张自适应比例 k（`config/page.ts` 的 `layoutScaleForPaper`，唯一真源）缩放图例/
- * 色标尺寸与版式间距；页面文字字号固定（`config/text-style.ts` 的默认值），地名只按地图缩放
- * s（见 makeLabelItem）。
- * 分类覆盖（§5.2）：`options.text_style` 里的覆盖逐字段取代默认值；注记/来源的折行测量与
- * 块高用解析后的字号/字重/行高（否则覆盖后文字会溢出或压到下一块）。
+ * 两套版式:
+ * - 横向(默认):左地图 + 右栏(图例->注记->色标);
+ * - 纵向(`paper.height > paper.width * 1.05`):整宽地图 + 下方一排(图例 / 注记 / 色标),
+ *   避免竖版纸上地图只占半宽,下方大片空白.
+ * 两套都按纸张自适应比例 k(`config/page.ts` 的 `layoutScaleForPaper`,唯一真源)缩放图例/
+ * 色标尺寸与版式间距;页面文字字号固定(`config/text-style.ts` 的默认值),地名只按地图缩放
+ * s(见 makeLabelItem).
+ * 分类覆盖(§5.2):`options.text_style` 里的覆盖逐字段取代默认值;注记/来源的折行测量与
+ * 块高用解析后的字号/字重/行高(否则覆盖后文字会溢出或压到下一块).
  */
 export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = {}): PageLayout {
   const measure = options.measureText ?? fallbackMeasureText;
-  // 初始排版公式的内部间距口径，不是可配置项：生成后所有位置都落在各元素 x/y 上
+  // 初始排版公式的内部间距口径,不是可配置项:生成后所有位置都落在各元素 x/y 上
   const margin = PAGE_DEFAULT_MARGIN_PT;
   const paper = options.paper === undefined ? defaultPaper() : { ...options.paper };
   const style: PageStyle = {
@@ -919,14 +919,14 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   };
   const frame: PageFrame = { ...PAGE_FRAME_DEFAULTS };
   const legendTitle = geo.suggestions.legend_title || geo.legend.title || '图例';
-  // 分类样式覆盖表：深拷贝进 layout（调用方与 layout 不共享可变对象）；键名/字段名收敛见
-  // core/page.ts 的 cloneTextStyleOverrides。
+  // 分类样式覆盖表:深拷贝进 layout(调用方与 layout 不共享可变对象);键名/字段名收敛见
+  // core/page.ts 的 cloneTextStyleOverrides.
   const textStyle: TextStyleOverrides = cloneTextStyleOverrides(options.text_style);
 
   /*
-   * 可选块降级：Cartopy 不画图例 / 不画色标 / 没有默认文案时，这些块整体缺省。
-   * 默认排版必须按「有哪些块」决定右栏（或纵向一排）存不存在，否则会留下空图例框、
-   * 画出没有数据来源的色标，或者让地图白白让出宽度。
+   * 可选块降级:Cartopy 不画图例 / 不画色标 / 没有默认文案时,这些块整体缺省.
+   * 默认排版必须按「有哪些块」决定右栏(或纵向一排)存不存在,否则会留下空图例框,
+   * 画出没有数据来源的色标,或者让地图白白让出宽度.
    */
   const relief = geo.relief;
   const hasLegend = geo.legend.entries.length > 0;
@@ -934,7 +934,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   const hasColorbar = relief !== null;
   const hasRightColumn = hasLegend || hasNotes || hasColorbar;
 
-  // 纸张自适应比例 k：图例/色标尺寸与版式间距按它缩放（页面文字字号固定，地名另有地图缩放 s）
+  // 纸张自适应比例 k:图例/色标尺寸与版式间距按它缩放(页面文字字号固定,地名另有地图缩放 s)
   const k = layoutScaleForPaper(paper.width_pt, paper.height_pt);
   const columnGap = PAGE_DEFAULT_COLUMN_GAP_PT * k;
   const sourceReserved = PAGE_SOURCE_RESERVED_PT * k;
@@ -943,19 +943,19 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   const contentWidth = paper.width_pt - margin * 2;
   const mapTop = margin + titleArea;
   const baseRatio = geo.base.height_pt / geo.base.width_pt;
-  // 竖版判定：高度超过宽度 1.05 倍（容忍近方形自定义纸仍走横向）
+  // 竖版判定:高度超过宽度 1.05 倍(容忍近方形自定义纸仍走横向)
   const portrait = paper.height_pt > paper.width_pt * 1.05;
 
   /*
-   * 分类样式解析：页面文字与地图地名都按 `page.text_style` 的覆盖逐字段取代默认值
-   * （解析口径见 core/text-style.ts，与样式设置窗口完全同源）。页面文字字号固定，
-   * 不乘纸张比例；地图地名乘地图缩放 s（在 makeLabelItem 里）。
+   * 分类样式解析:页面文字与地图地名都按 `page.text_style` 的覆盖逐字段取代默认值
+   * (解析口径见 core/text-style.ts,与样式设置窗口完全同源).页面文字字号固定,
+   * 不乘纸张比例;地图地名乘地图缩放 s(在 makeLabelItem 里).
    */
   const pageStyleOf = (role: TextRole): ResolvedTextStyleFields =>
     resolveTextStyleFields(role, textStyle[role]);
   const pageFontSizeOf = (role: TextRole, defaultSizePt: number): number =>
     textStyle[role]?.font_size_pt ?? defaultSizePt;
-  /** 解析后的分类样式 → makeTextItem 的 overrides；color 可另行兜底（注记/来源沿用 style.color） */
+  /** 解析后的分类样式 -> makeTextItem 的 overrides;color 可另行兜底(注记/来源沿用 style.color) */
   const textOverridesOf = (fields: ResolvedTextStyleFields, color?: string) => ({
     color: color ?? fields.color,
     italic: fields.italic,
@@ -965,8 +965,8 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     halo: fields.halo,
   });
 
-  // 注记/来源的解析值同时参与折行测量与块高：覆盖字号/行高后必须按新值重算，
-  // 否则右栏会溢出、纵向一排会互相压字（规格 §5.2）。
+  // 注记/来源的解析值同时参与折行测量与块高:覆盖字号/行高后必须按新值重算,
+  // 否则右栏会溢出,纵向一排会互相压字(规格 §5.2).
   const noteStyle = pageStyleOf('note');
   const noteSize = pageFontSizeOf('note', PAGE_NOTE_SIZE_PT);
   const noteLineHeight = noteStyle.line_height;
@@ -976,14 +976,14 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   const sourceLineHeight = sourceStyle.line_height;
   const sourceColor = textStyle.source?.color ?? style.color;
 
-  // 图例最小宽度：先按文字测量，再按纸张比例夹到可读区间。
-  // 横向沿用固定 150..260pt 区间（A5 横向已验证）；纵向随 k 收缩，避免小纸上图例占比过大。
+  // 图例最小宽度:先按文字测量,再按纸张比例夹到可读区间.
+  // 横向沿用固定 150..260pt 区间(A5 横向已验证);纵向随 k 收缩,避免小纸上图例占比过大.
   const measuredColumn = measureLegendColumn(geo, style, measure, k);
   const legendColumnMin = PAGE_DEFAULT_RIGHT_COLUMN_MIN_PT * (portrait ? k : 1);
   const legendColumnMax = PAGE_DEFAULT_RIGHT_COLUMN_MAX_PT * (portrait ? k : 1);
   const legendMinWidth = Math.min(legendColumnMax, Math.max(legendColumnMin, measuredColumn));
 
-  /** 图例元素（两套版式共用同一套字号/色块/边框，只有摆放不同） */
+  /** 图例元素(两套版式共用同一套字号/色块/边框,只有摆放不同) */
   const makeLegendItem = (id: number, x: number, y: number, width: number): LegendItem => ({
     id,
     kind: 'legend',
@@ -1008,7 +1008,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     },
   });
 
-  /** 色标元素（配色/刻度来自 geo.relief，只落摆放与字号；relief 已在外层判空） */
+  /** 色标元素(配色/刻度来自 geo.relief,只落摆放与字号;relief 已在外层判空) */
   const makeColorbarItem = (
     id: number,
     x: number,
@@ -1032,14 +1032,14 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     label_size_pt: PAGE_COLORBAR_LABEL_SIZE_PT * k,
   });
 
-  // 右栏预留宽度：有图例时沿用图例列宽（保持既有 demo 版式/数值），只有注记/色标时用窄列。
+  // 右栏预留宽度:有图例时沿用图例列宽(保持既有 demo 版式/数值),只有注记/色标时用窄列.
   const reservedRightWidth = hasRightColumn
     ? hasLegend
       ? legendMinWidth
       : compactRightColumnWidth(k)
     : 0;
 
-  // 地图宽度：横向受右栏与高度双重约束；纵向用满内容宽度
+  // 地图宽度:横向受右栏与高度双重约束;纵向用满内容宽度
   let mapWidth: number;
   if (portrait) {
     mapWidth = Math.max(PAGE_MIN_MAP_WIDTH_PT + 1, contentWidth);
@@ -1054,8 +1054,8 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
 
   let nextId = 1;
   const items: PageItem[] = [];
-  // 居中约束的派生 x：直接按 page 精度（3 位小数）写，保证默认排版与
-  // enforceHorizontalCenter/normalizePage 完全自洽（否则 1e-4 的差会被判成「改动」）。
+  // 居中约束的派生 x:直接按 page 精度(3 位小数)写,保证默认排版与
+  // enforceHorizontalCenter/normalizePage 完全自洽(否则 1e-4 的差会被判成「改动」).
   const pageCenterX = roundToPageDecimals(paper.width_pt / 2);
 
   // 1) 标题
@@ -1069,7 +1069,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
         titleY,
         [geo.suggestions.title],
         pageFontSizeOf('title', PAGE_TITLE_SIZE_PT),
-        // 标题默认开启左右居中约束：改纸张宽度时自动贴合中心（§B）
+        // 标题默认开启左右居中约束:改纸张宽度时自动贴合中心(§B)
         { ...textOverridesOf(pageStyleOf('title')), center_h: true },
       ),
     );
@@ -1092,18 +1092,18 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   }
 
   if (portrait) {
-    // 3P) 纵向：地图下方一排 = [图例 |] 注记 | [色标]（缺省块不占位、不留空框）
-    // 地图底边不是内容底边：经度刻度标签占 mapBottom + tick_length + tick_gap + tick_font_size，
-    // 标签自身还有约 0.2em 下伸（刻度字号是纸面字号、不随 k 缩），纵向一排必须让开这段高度。
-    // 注记首行基线 = rowY，但文字块上沿还要再高 ascent（回退口径 0.8em），所以让位量 =
-    // 刻度标签底部 + 4pt 间隙 + 注记上沿；A4 纵向同时保留原有的 16pt 最小间距。
+    // 3P) 纵向:地图下方一排 = [图例 |] 注记 | [色标](缺省块不占位,不留空框)
+    // 地图底边不是内容底边:经度刻度标签占 mapBottom + tick_length + tick_gap + tick_font_size,
+    // 标签自身还有约 0.2em 下伸(刻度字号是纸面字号,不随 k 缩),纵向一排必须让开这段高度.
+    // 注记首行基线 = rowY,但文字块上沿还要再高 ascent(回退口径 0.8em),所以让位量 =
+    // 刻度标签底部 + 4pt 间隙 + 注记上沿;A4 纵向同时保留原有的 16pt 最小间距.
     const tickLabelBottom =
       frame.tick_length_pt + frame.tick_gap_pt + frame.tick_font_size_pt * 1.2;
     const tickLabelExtent = frame.ticks
       ? tickLabelBottom + Math.max(16 * k, noteSize * 0.8 + 4)
       : 0;
     const rowY = mapTop + mapHeight + Math.max(notesGap, tickLabelExtent);
-    // 图例不存在时不占列：注记从左边距开始，只有色标时仍贴右；间距按实际存在的列计。
+    // 图例不存在时不占列:注记从左边距开始,只有色标时仍贴右;间距按实际存在的列计.
     const legendWidth = hasLegend ? legendMinWidth : 0;
     const leadingGap = hasLegend ? columnGap : 0;
     const colorbarWidth = PAGE_COLORBAR_WIDTH_PT * k;
@@ -1117,7 +1117,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
       (line) => line.length > 0,
     );
 
-    // 空图例不生成元素（也就没有空图例框）；有图例时高度仍由 §5.4 公式派生。
+    // 空图例不生成元素(也就没有空图例框);有图例时高度仍由 §5.4 公式派生.
     let legendHeight = 0;
     if (hasLegend) {
       const legendItem = makeLegendItem(nextId++, margin, rowY, legendWidth);
@@ -1137,9 +1137,9 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     }
 
     if (hasColorbar && relief !== null) {
-      // 行高 = 图例/注记/色标三块内容的最大高度；色标底部与图例/注记底对齐。
-      // 色标标题基线 = colorbarY - 4，必须落在 row 内：给标题预留 title_size*1.4 + 4，
-      // 再只在剩余高度里放色条，避免标题画到地图底/经度标签上。
+      // 行高 = 图例/注记/色标三块内容的最大高度;色标底部与图例/注记底对齐.
+      // 色标标题基线 = colorbarY - 4,必须落在 row 内:给标题预留 title_size*1.4 + 4,
+      // 再只在剩余高度里放色条,避免标题画到地图底/经度标签上.
       const colorbarMaxHeight = PAGE_COLORBAR_HEIGHT_PT * k;
       const bottomLimit = paper.height_pt - margin - sourceReserved;
       const availableRow = Math.max(PAGE_MIN_COLORBAR_HEIGHT_PT, bottomLimit - rowY);
@@ -1167,13 +1167,13 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
       );
     }
   } else {
-    // 3L) 横向：右栏自上而下 = 图例 | 注记 | 色标（缺省块不占位）
+    // 3L) 横向:右栏自上而下 = 图例 | 注记 | 色标(缺省块不占位)
     const rightX = margin + mapWidth + columnGap;
     const rightWidth = hasRightColumn
       ? Math.max(reservedRightWidth, paper.width_pt - margin - rightX)
       : 0;
 
-    // 没有图例时注记/色标直接从栏顶开始；有图例时保持既有版式（回归 demo）。
+    // 没有图例时注记/色标直接从栏顶开始;有图例时保持既有版式(回归 demo).
     let contentTop = mapTop;
     if (hasLegend) {
       const legendItem = makeLegendItem(nextId++, rightX, mapTop, rightWidth);
@@ -1198,7 +1198,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     }
 
     if (hasColorbar && relief !== null) {
-      // 色标：高度按剩余空间压缩；不够 40pt 时贴右栏底、与注记留 8pt
+      // 色标:高度按剩余空间压缩;不够 40pt 时贴右栏底,与注记留 8pt
       const colorbarWidth = PAGE_COLORBAR_WIDTH_PT * k;
       const colorbarMaxHeight = PAGE_COLORBAR_HEIGHT_PT * k;
       const colorbarX = rightX + (rightWidth - colorbarWidth) / 2;
@@ -1221,7 +1221,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     }
   }
 
-  // 4) 来源（页底一行或折行后多行，最后一行基线贴住页边距）
+  // 4) 来源(页底一行或折行后多行,最后一行基线贴住页边距)
   const sourceFont = fontShorthand(sourceSize, style.font_family, sourceStyle.font_weight);
   const sourceLines = wrapParagraphs(
     geo.suggestions.source.length > 0 ? [geo.suggestions.source] : [],
@@ -1231,19 +1231,19 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   ).filter((line) => line.length > 0);
   if (sourceLines.length > 0) {
     const baselines = sourceLines.length;
-    // 块高用解析后的行高，保证多行来源的最后一行仍贴住页边距
+    // 块高用解析后的行高,保证多行来源的最后一行仍贴住页边距
     const firstY = paper.height_pt - margin - (baselines - 1) * sourceSize * sourceLineHeight;
     items.push(
       makeTextItem(nextId++, 'source', pageCenterX, firstY, sourceLines, sourceSize, {
         anchor: 'middle',
-        // 来源默认开启左右居中约束：与标题/副标题同一口径（§B）
+        // 来源默认开启左右居中约束:与标题/副标题同一口径(§B)
         center_h: true,
         ...textOverridesOf(sourceStyle, sourceColor),
       }),
     );
   }
 
-  // 5) 地名标注：按 geo 原始绘制顺序铺成 map 空间文字（样式/字号按分类覆盖解析，见 makeLabelItem）
+  // 5) 地名标注:按 geo 原始绘制顺序铺成 map 空间文字(样式/字号按分类覆盖解析,见 makeLabelItem)
   const mapScale = geo.base.width_pt > 0 ? mapWidth / geo.base.width_pt : 1;
   const labels = [...geo.labels].sort((a, b) => a.order - b.order);
   for (const label of labels) items.push(makeLabelItem(nextId++, label, geo, mapScale, textStyle));
@@ -1253,10 +1253,10 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     map: { x: margin, y: mapTop, width_pt: mapWidth },
     frame,
     style,
-    // 覆盖表随 layout 持久化（导出进 page.text_style；重新打开继续生效）
+    // 覆盖表随 layout 持久化(导出进 page.text_style;重新打开继续生效)
     text_style: textStyle,
     items,
-    // seq 是「下一个可用 id」：保证大于所有 item id（契约 §4）
+    // seq 是「下一个可用 id」:保证大于所有 item id(契约 §4)
     seq: nextId,
   };
 }
