@@ -13,5 +13,5 @@ __pycache__/
 /.work/
 
 # 本地草稿/提示词
-prompt.md
 prompt/
+prompt.md
