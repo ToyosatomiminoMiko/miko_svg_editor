@@ -44,7 +44,7 @@ map.html(Vite 静态站;npm run dev -> http://localhost:5173/map.html)
                         title/subtitle/source 默认开启左右居中)
   render/compose-svg.ts layout + geo + base.inner -> final.svg 字符串(纯函数,node 可测)
         │  编辑:排版只改内存里的 PageLayout(不落盘)
-        │  导出(Blob + <a download>)
+        │  导出(保存对话框优先;不可用/写失败退回 Blob + <a download>)
         ▼
   <stem>.geo.json      统一文件:geo 全部字段 + `page` 排版块(纸张,地图摆放,图框/刻度,
                        分类文字样式覆盖,文字,图例,色标);再次打开即恢复排版
@@ -96,7 +96,8 @@ Cartopy_file 侧(另一个仓):
   <stem>.svg                 底图(Cartopy 纯几何),或本编辑器导出的成品(必须带内嵌可编辑源)
   <stem>.geo.json            地理元数据(`base.svg` 路径必需;只打开成品 SVG 时可省略;不再有可选的 scene.json)
 
-浏览器导出的两个文件(浏览器下载目录;文件名由底图文件名派生):
+浏览器导出的两个文件(优先弹系统保存对话框让用户选位置,不支持时落到浏览器下载目录;
+文件名由底图文件名派生):
   <stem>.geo.json            geoFileNameOf(document) = `<底图 stem>.geo.json`
                              = geo 全部字段 + `page` 排版块
   <stem>.svg                 finalFileNameOf(document) = `<底图 stem>.svg`
@@ -798,15 +799,20 @@ interface BaseSvgInfo {
 | 工具条「导出 geo.json」/ `Ctrl+S` | geo 全字段 + `page` 排版块 | `<底图 stem>.geo.json` | `application/json` |
 | 工具条「导出 SVG」                | 浏览器内合成的成品         | `<底图 stem>.svg`      | `image/svg+xml`    |
 
-- 都是 `Blob` + `<a download>`,objectURL 延迟 revoke(`PAGE_DOWNLOAD_REVOKE_MS`).
+- 保存都经 `ui/download.ts`:支持 File System Access API 的浏览器(Chromium 系且页面在安全上下文
+  HTTPS / localhost)先弹系统保存对话框,由用户选路径与文件名(默认名仍是 `<底图 stem>` 派生的
+  文件名);API 不可用,被权限策略拦住或写入选定路径失败时,退回 `Blob` + `<a download>` 默认下载,
+  objectURL 延迟 revoke(`PAGE_DOWNLOAD_REVOKE_MS`).用户在保存对话框取消 -> 提示「已取消导出」,
+  **不清脏标记,不提示成功**;写入失败退回下载时按已导出处理(内容已交给浏览器).
 - **导出 geo.json**:`serializeMapDocFile(geo, layout)`(`page` 数字 3 位小数,`geo` 数字保持 Cartopy
-  原样精度,键排序,2 空格缩进,末尾一个换行)-> 下载;成功即清脏标记.`page` 块走 `normalizePage`,
+  原样精度,键排序,2 空格缩进,末尾一个换行)-> 保存;成功即清脏标记.`page` 块走 `normalizePage`,
   会再执行一次左右居中约束并把 `center_h` 随 `items[]` 一起落盘.geo.json 是排版唯一的持久化
   形态,用导出的文件重新打开即恢复排版.
 - **导出幂等**:导出 -> 重新打开 -> 再导出,字节完全一致(同一浏览器实现).
-- **导出 SVG**:`composeFinalSvg(document, layout)` -> 下载;展示 `report.warnings`;**不清脏标记**
-  (导出 SVG 不改变排版数据,是否干净以导出 geo.json 为准).`geo.relief` 为 `null` 而 `page.items` 里
-  仍有 colorbar 时导出失败并提示「色标需要 geo.relief」,不写半成品文件.
+- **导出 SVG**:`composeFinalSvg(document, layout)` -> 保存;展示 `report.warnings`;**不清脏标记**
+  (导出 SVG 不改变排版数据,是否干净以导出 geo.json 为准).取消保存时不展示合成告警.
+  `geo.relief` 为 `null` 而 `page.items` 里仍有 colorbar 时导出失败并提示「色标需要 geo.relief」,
+  不写半成品文件.
 - `打开...`:有未导出的修改时先确认(`notifier.ask`),确认后销毁编辑器,revoke 预览 objectURL,
   回到上传面板;`beforeunload` 在脏状态下提醒.
 - 没有「保存中」状态,没有 409/400/503 响应处理:所有失败都是本地异常 + 中文提示.
@@ -875,7 +881,7 @@ src/ui/page-style-window.ts     # 「样式设置」模态窗口:头部总说明
                                 #   (字号/颜色与字形/行距与字距/描边光晕);字号/行高/字距/光晕宽度旁
                                 #   各有字段级 reset(删该字段覆盖回默认,已是默认时禁用)
 src/ui/page-notify.ts           # 消息区(miko_ui MessageArea + 简单确认框)
-src/ui/download.ts              # downloadText / downloadSvg(Blob + <a download>)
+src/ui/download.ts              # downloadText(保存对话框优先,<a download> 回退)/ downloadSvg
 src/styles-page.css             # 本页样式(.page-*;token 复用 miko_ui/styles.css 与 styles.css)
 tests/core/page.test.ts         # codec/校验/布局公式,center_h 与 enforceHorizontalCenter
 tests/core/text-style.test.ts   # 分类映射,覆盖解析,批量应用/恢复默认,resyncTextStyles

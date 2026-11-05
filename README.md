@@ -326,9 +326,11 @@ UI 代码里没有手写控件 DOM,也没有第二套控件 CSS:
 - 图框:显示开关,线宽/颜色,经纬度刻度,刻度长/字号/颜色/间距;地名/刻度随地图缩放与移动.
 - 编辑:缩放/平移(滚轮,空格/中键拖动,适应页面,1:1),点选,拖拽,方向键微移,Delete,
   未导出保护;改纸张尺寸/方向不会移动已放置元素(位置只由各自 x/y 决定).
-- 导出:`导出 geo.json`(`Ctrl+S`)下载 `<stem>.geo.json`(geo 全部字段 + `page` 排版块,重新打开
-  即恢复排版);`导出 SVG` 在浏览器内合成并下载 `<stem>.svg`(纸张尺寸,底图内容内联,文字可选中;
-  同时在 `<metadata id="mapdoc-source">` 内嵌可编辑源,成品可单文件再编辑;字体不内嵌,见限制).
+- 导出:`导出 geo.json`(`Ctrl+S`)保存到用户选的 `<stem>.geo.json`(geo 全部字段 + `page` 排版块,
+  重新打开即恢复排版);`导出 SVG` 在浏览器内合成并保存 `<stem>.svg`(纸张尺寸,底图内容内联,文字
+  可选中;同时在 `<metadata id="mapdoc-source">` 内嵌可编辑源,成品可单文件再编辑;字体不内嵌,
+  见限制).两个导出都优先弹**系统保存对话框**让用户自选位置(Chromium 系 + HTTPS/localhost;
+  其它环境退回浏览器默认下载);在对话框取消则提示「已取消导出」,脏标记保留.
   成品 -> 重新打开 -> 再导出,字节完全一致.
 - `打开...` 有未导出的修改会先确认;未导出时离开页面有 `beforeunload` 提醒.
 
@@ -351,7 +353,8 @@ npm run build   # 产物 dist/ 可放任意静态服务器(或 npm run preview �
 已有的非固定字号显示为「排版值」,恢复默认写回固定值;旧 page 块缺 `geo_label_id`/`center_h` 等
 新字段时校验不合法,会回退默认排版;无自动草稿/无 localStorage,未导出即关闭会丢修改;约 10MB
 底图首次打开与导出会有可感知卡顿;不做比例尺/指北针,撤销/重做,多图切换;小纸张(A5 横向)内容
-多时排版会很挤,需手工调字号/位置或换纸张.成品 SVG 的再编辑依赖
+多时排版会很挤,需手工调字号/位置或换纸张;保存对话框依赖浏览器的 File System Access API
+(Chromium 系 + 安全上下文),Firefox/Safari 会退回浏览器默认下载目录.成品 SVG 的再编辑依赖
 内嵌 `<metadata>`:若被 Inkscape/AI 等外部工具丢弃,就无法再打开(没有内嵌源的旧版成品不再支持),
 只能重新用 `base.svg + geo.json` 导入排版后重新导出;外部工具对渲染内容的改动不会被读回(再编辑
 以内嵌的 geo.json/`page` 排版为准).
@@ -493,7 +496,7 @@ src/
     hint-editor.ts           状态区两行(当前操作 / 操作提示)+ 尺寸输入(填充左侧栏下半区):ValueDisplay / NumberField / NumberRow
     parse-dim-input.ts       尺寸输入纯解析(node 可测,无 DOM)
     notify.ts                错误提示进 miko_ui MessageArea;info 走状态栏;确认框用 Panel + Button
-    download.ts              Blob/<a download>/objectURL 下载适配器(downloadText / downloadSvg)
+    download.ts              下载适配器:保存对话框(File System Access)优先 / <a download> 回退
     measure-text.ts          canvas measureText 适配器(无 canvas 时回退估算)
     page-open.ts             排版编辑器上传面板(SVG / JSON 两栏;JSON 可选,支持单文件成品 SVG)
     page-sidebar.ts          排版编辑器右侧属性面板编排:面板壳,sync,元素列表,选中项重建

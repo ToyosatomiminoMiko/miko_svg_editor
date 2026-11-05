@@ -4,7 +4,8 @@
  * 是什么:持有当前 `PageLayout`(唯一真值)与打开时的 `PageDocument`(底图字节 + geo),把画布
  * 指针/键盘手势翻译成对 layout 的修改,组织预览重绘与侧栏同步;导出两个文件--
  * `exportGeo()` 把 geo + page 写成 `<stem>.geo.json`(再次打开即可继续编辑),
- * `exportFinal()` 调 `render/compose-svg.ts` 在浏览器内合成 `<stem>.svg` 后下载.
+ * `exportFinal()` 调 `render/compose-svg.ts` 在浏览器内合成 `<stem>.svg`.
+ * 两个导出都经 `ui/download.ts` 的保存对话框,由用户选落盘位置;取消保存不算已导出.
  * 本文件不认识任何 HTTP 接口.
  * 为什么拖拽/缩放只改 layout 而不改底图:地理层只读(契约 §1),map 空间 item 的位置
  * 写回底图坐标;预览与成品共用 `core/page-layout.ts` 的同一套 §5 公式.
@@ -266,12 +267,17 @@ export class PageEditor {
    * 导出 `<stem>.geo.json`(Ctrl+S 的入口):geo 全字段 + page 排版块,成功即清脏标记.
    * 为什么先 `normalizePage`:page 的数字口径必须是 3 位小数(与预览/签名一致);
    * geo 块保持原精度(Cartopy 的 view_box 可能有 6 位小数),由 `serializeMapDocFile` 分别处理.
+   * 为什么要 `await`:保存对话框是异步的;用户取消(或写入失败后已回退下载)时不能清脏标记.
    */
-  exportGeo(): boolean {
+  async exportGeo(): Promise<boolean> {
     const fileName = geoFileNameOf(this.document);
     try {
       const layout = normalizePage(this.layout);
-      downloadText(serializeMapDocFile(this.geo, layout), fileName, GEO_MIME);
+      const outcome = await downloadText(serializeMapDocFile(this.geo, layout), fileName, GEO_MIME);
+      if (outcome === 'cancelled') {
+        this.notifier.info('已取消导出 geo.json');
+        return false;
+      }
       this.dirty = false;
       this.updateChrome();
       this.notifier.info(`已导出 ${fileName}`);
@@ -283,15 +289,19 @@ export class PageEditor {
   }
 
   /**
-   * 导出 `final.svg`:浏览器内合成后下载,展示合成报告里的告警.
+   * 导出 `final.svg`:浏览器内合成后保存,展示合成报告里的告警.
    * 为什么不清脏标记:导出 SVG 不改变排版数据,geo.json 仍可能没导出;
-   * 是否「干净」以 geo.json 落盘为准.
+   * 是否「干净」以 geo.json 落盘为准.用户取消保存时既不提示成功也不报合成告警.
    */
-  exportFinal(): void {
+  async exportFinal(): Promise<void> {
     const fileName = finalFileNameOf(this.document);
     try {
       const result = composeFinalSvg(this.document, this.layout);
-      downloadText(result.svg, fileName, SVG_MIME);
+      const outcome = await downloadText(result.svg, fileName, SVG_MIME);
+      if (outcome === 'cancelled') {
+        this.notifier.info('已取消导出 SVG');
+        return;
+      }
       this.reportWarnings(result.report);
       this.notifier.info(`已导出 ${fileName}(${result.report.counts.total} 个元素)`);
     } catch (error) {
@@ -628,7 +638,7 @@ export class PageEditor {
     // Ctrl+S 优先于「输入框里不响应快捷键」:导出 geo.json 是全局命令
     if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's') {
       event.preventDefault();
-      this.exportGeo();
+      void this.exportGeo();
       return;
     }
     if (isEditableTarget(event.target)) return;

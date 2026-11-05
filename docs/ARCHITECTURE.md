@@ -111,7 +111,7 @@ flowchart TB
 | `hint-editor.ts`       | 状态区两行 `<output>` + 尺寸数字输入框(提交/取消/非法态/闪示 info)                                                                                                                      |
 | `parse-dim-input.ts`   | 尺寸输入的纯解析(node 可测,无 DOM)                                                                                                                                                      |
 | `notify.ts`            | error 进 miko_ui 消息区,info 交给状态栏闪示;自绘确认框 `askConfirm`                                                                                                                     |
-| `download.ts`          | Blob/`<a download>`/objectURL 下载适配器                                                                                                                                                |
+| `download.ts`          | 导出适配器:优先系统保存对话框(File System Access API),不可用/取消/写入失败时回退 Blob/`<a download>`/objectURL                                                                          |
 | `measure-text.ts`      | `createTextMeasurer()`:canvas `measureText` 适配器(无 canvas 时回退估算)                                                                                                                |
 | `sidebar-resizer.ts`   | 侧栏宽度拖拽/键盘调整,clamp,读屏值,localStorage 记忆                                                                                                                                    |
 | `page-style-window.ts` | 地图排版页:「样式设置」模态窗口(头部总说明 / 左列分组含数量·已改·0 项置灰 / 右列分类头·实时预览 / 四组字段(字号/行高/字距/光晕宽度旁各有字段级 reset,已是默认时禁用)/ 恢复默认(整分类)) |
@@ -139,6 +139,7 @@ flowchart TB
 | `tests/core/fixtures.ts`           | 夹具:`addArcByAngles` 把「圆心+半径+起终角」换成三个点                                                                                                               |
 | `tests/render/export-svg.test.ts`  | `buildSVG` 的纯输出(整圆 `<circle>`,弧 `<path>`,构造虚线,无 NaN)                                                                                                     |
 | `tests/ui/parse-dim-input.test.ts` | 尺寸输入纯解析                                                                                                                                                       |
+| `tests/ui/download.test.ts`        | 保存策略:对话框写入 / 取消 / 无 API 与写入失败的回退(最小 DOM stub)                                                                                                  |
 
 ## 2. 从 `index.html` 到第一帧:装配顺序
 
@@ -550,8 +551,9 @@ const input = (w: Vec, snap: Snap | null = null): ClickInput => ({
 });
 ```
 
-- 尺寸输入纯解析在 `tests/ui/parse-dim-input.test.ts`;`ui/` 其余模块依赖 DOM/miko_ui,不做单测.
-- 写作时 `npm run test` 为 26 个文件 / 548 个用例全绿;用例数会变,以实际输出为准.
+- 尺寸输入纯解析在 `tests/ui/parse-dim-input.test.ts`;导出保存策略(对话框优先/回退下载)在
+  `tests/ui/download.test.ts`(用最小 DOM stub 跑 node 环境);`ui/` 其余模块依赖 DOM/miko_ui,不做单测.
+- 写作时 `npm run test` 为 27 个文件 / 612 个用例全绿;用例数会变,以实际输出为准.
 
 ### 11.2 调试一条交互链路
 
@@ -671,7 +673,7 @@ map.html(纯静态 Vite 站)
                          页面分类字号按「覆盖 ?? 该分类现有 item 字号 ?? 固定默认」回退(默认字号不随纸张缩放)
   render/compose-svg.ts  浏览器内合成 final.svg(纯函数)
         │ 编辑:排版只改内存里的 PageLayout
-        │ 导出(Blob + <a download>)
+        │ 导出(保存对话框优先,Blob + <a download> 回退)
         ▼
   <stem>.geo.json      统一文件:geo 全部字段 + `page` 排版块
                        (纸张,地图摆放,图框/刻度,分类样式覆盖 `text_style`,text/legend/colorbar items);
@@ -766,7 +768,8 @@ destroy + revoke + 回到上传面板.
 导出 geo.json(Ctrl+S):
   serializeMapDocFile(geo, layout):page 数字 3 位小数,geo 数字保持原样精度,canonicalJson 键排序;
   page 块经 normalizePage(会再执行一次左右居中约束,`center_h` 随 items 落盘)
-  -> Blob(application/json)-> <a download> `<stem>.geo.json`;成功清脏标记
+  -> Blob(application/json)-> 保存(showSaveFilePicker;不可用/写失败退回 <a download>)
+     `<stem>.geo.json`;成功清脏标记,用户在对话框取消则保持脏
   (导出幂等:导出 -> 重新打开 -> 再导出,字节完全一致)
 导出 SVG:
   composeFinalSvg(PageDocument, layout)
@@ -776,7 +779,8 @@ destroy + revoke + 回到上传面板.
     -> 底图原文内联进 <g id="mapdoc-map" transform="translate(tx,ty) scale(s)">
     -> <g id="mapdoc-frame"> + <g id="mapdoc-overlay"> + `<!-- mapdoc-final:B64 -->`
     -> {svg, report};report.counts / warnings / out_of_paper 显示在消息区
-  -> Blob(image/svg+xml)-> <a download> `<stem>.svg`;不清脏标记
+  -> Blob(image/svg+xml)-> 保存(showSaveFilePicker;取消不提示成功,也不展示合成告警)
+     `<stem>.svg`;不清脏标记
 ```
 
 `final.svg` 结构(`docs/PAGE-EDITOR.md` §6):纸张尺寸根 `<svg>` -> 纸白底 ->
@@ -830,6 +834,8 @@ prepare/extract 步骤.
   方向后由 `applyPageChange`(每次排版修改)与打开流程调用 `enforceHorizontalCenter` 自动贴合,
   有改动会标脏并告警「排版中的左右居中约束已按纸张宽度重新贴合(N 条)」.关闭开关保持当前
   x/anchor,重新可水平移动.默认排版的 title/subtitle/source 开启该约束.
+- 保存对话框依赖 File System Access API:Chromium 系 + 安全上下文(HTTPS/localhost)才弹系统对话框,
+  Firefox/Safari/非安全上下文退回浏览器默认下载;写入用户选的文件失败时同样退回下载.
 - 无自动草稿:不写 localStorage,不自动下载;未导出即刷新/关闭会丢修改(`beforeunload` 提醒).
 - 大底图(约 10MB)首次打开/导出在主线程一次完成(读取,UTF-8 解码,sha256,C1–C4 扫描,合成),
   未 Worker 化,可能卡顿.

@@ -195,10 +195,10 @@ function boot(): void {
       buildPageToolbar(shell.toolbar, {
         open: requestOpen,
         exportGeo: () => {
-          created.exportGeo();
+          void created.exportGeo();
         },
         exportSvg: () => {
-          created.exportFinal();
+          void created.exportFinal();
         },
         fitPage: () => created.fitPage(),
         actualSize: () => created.actualSize(),
