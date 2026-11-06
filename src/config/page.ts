@@ -160,12 +160,12 @@ export const PAGE_SUBTITLE_BASELINE_OFFSET_PT = 32;
 export const PAGE_NOTES_GAP_PT = 12;
 
 /**
- * 注记自动折行的宽度下限(pt).
+ * 自动折行(注记/来源)的宽度下限(pt).
  * 为什么有下限:折行宽度接近 0 时每行只能放一个字符,行数迅速撞上 `PAGE_MAX_TEXT_LINES`
  * 并被截断;统一夹到 20pt 既保证可读,也让同一条 item 在「编辑 / 打开 / 导出」三段里
  * 用同一个宽度复现折行结果(幂等).
  */
-export const PAGE_NOTE_WRAP_MIN_PT = 20;
+export const PAGE_AUTO_WRAP_MIN_PT = 20;
 
 /** 色标默认尺寸与与注记的间距 */
 export const PAGE_COLORBAR_WIDTH_PT = 14;

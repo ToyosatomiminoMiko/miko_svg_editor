@@ -13,6 +13,7 @@
  */
 
 import {
+  PAGE_AUTO_WRAP_MIN_PT,
   PAGE_COLORBAR_GAP_PT,
   PAGE_COLORBAR_HEIGHT_PT,
   PAGE_COLORBAR_LABEL_GAP_PT,
@@ -37,7 +38,6 @@ import {
   PAGE_MIN_COLORBAR_HEIGHT_PT,
   PAGE_MIN_MAP_WIDTH_PT,
   PAGE_NOTE_SIZE_PT,
-  PAGE_NOTE_WRAP_MIN_PT,
   PAGE_NOTES_GAP_PT,
   PAGE_SOURCE_RESERVED_PT,
   PAGE_SOURCE_SIZE_PT,
@@ -213,7 +213,7 @@ function tokenizeForWrap(text: string): string[] {
 }
 
 /**
- * 按最大宽度折行(结果写进 `lines` 数组;默认排版与注记自动折行共用).
+ * 按最大宽度折行(结果写进 `lines` 数组;默认排版与自动折行共用).
  * 返回至少一行;超长单词按字符硬切,避免一行溢出右栏.
  */
 export function wrapText(
@@ -309,12 +309,26 @@ function measureWithLetterSpacing(measure: MeasureText, spacingPt: number): Meas
 }
 
 /**
- * 注记自动折行宽度的默认值:从 `item.x` 到右页边距的可用宽度,夹到可读下限.
- * 用途:旧 page 块(没有 `wrap_width_pt`)与侧栏把角色切成注记时补一个合理的初始宽度.
+ * 自动折行宽度的默认值:按 item 的水平锚点从页边距推可用宽度,夹到可读下限.
+ * 用途:旧 page 块(没有 `wrap_width_pt`),侧栏把角色切成注记/来源,以及读不到存储值时
+ * 补一个合理的初始宽度.
+ * 为什么按锚点分:注记默认 `anchor=start`,文字从 x 向右排,可用宽度 = 右页边距 - x;
+ * 来源默认 `center_h=true`(`anchor` 被居中约束固定为 `middle`),文字块以 x 为中心向两侧
+ * 展开,可用宽度 = 2 × min(x - 左页边距, 右页边距 - x).只按单侧宽度算会让居中文案
+ * (如页底来源)只用半页宽折行,导出后明显偏窄.
  */
-export function defaultNoteWrapWidth(layout: PageLayout, item: TextItem): number {
-  const available = layout.paper.width_pt - PAGE_DEFAULT_MARGIN_PT - item.x;
-  return roundToPageDecimals(Math.max(PAGE_NOTE_WRAP_MIN_PT, available));
+export function defaultAutoWrapWidth(layout: PageLayout, item: TextItem): number {
+  const left = PAGE_DEFAULT_MARGIN_PT;
+  const right = layout.paper.width_pt - PAGE_DEFAULT_MARGIN_PT;
+  const toLeft = item.x - left;
+  const toRight = right - item.x;
+  const available =
+    item.center_h || item.anchor === 'middle'
+      ? 2 * Math.min(toLeft, toRight)
+      : item.anchor === 'end'
+        ? toLeft
+        : toRight;
+  return roundToPageDecimals(Math.max(PAGE_AUTO_WRAP_MIN_PT, available));
 }
 
 /** 两段折行结果是否逐行相等(比较用,避免无谓地刷新 layout/标脏) */
@@ -323,17 +337,20 @@ function sameTextLines(left: readonly string[], right: readonly string[]): boole
 }
 
 /**
- * 强制执行「注记自动折行」:保证纸张空间的注记有 `text` / `wrap_width_pt`,并按当前
+ * 强制执行「自动折行」:保证纸张空间的注记/来源有 `text` / `wrap_width_pt`,并按当前
  * 原始内容 + 字号/字重/字距 + 折行宽度重算 `lines`;其它文字元素清掉这两个字段.
  *
  * 为什么做成可重复调用的纯函数而不是只在创建时折一次:内容/字号/字距/宽度任一变化后都必须
- * 重排,否则长行会溢出右栏;做成「每次修改后统一执行」比在每个编辑入口各算一次更不容易漏.
+ * 重排,否则长行会溢出纸面;做成「每次修改后统一执行」比在每个编辑入口各算一次更不容易漏.
  * 幂等口径:宽度先收敛到 3 位小数(与 page 落盘口径一致)再折行,所以「导出 -> 重新打开」
  * 用同一个宽度复现同一批 lines,不会把文件误标脏.
+ * 为什么来源还要改 y:来源是「页底说明」,默认排版的最后一行基线贴在页边距上;折行后行数变化
+ * 时保持最后一行基线不动(块向上长),否则多出来的行会画到纸面之外,变短的内容也会浮离页底.
+ * 注记是「首行基线固定」的块,行数变化只向下长,所以只重算 lines.
  * `measure` 只用于宽度;无 DOM 的 node 单测走 `fallbackMeasureText`.
  * 返回发生改动的条数(打开流程据此标脏 + 告警).
  */
-export function enforceNoteWrap(
+export function enforceAutoWrap(
   layout: PageLayout,
   measure: MeasureText = fallbackMeasureText,
 ): number {
@@ -341,7 +358,7 @@ export function enforceNoteWrap(
   for (const item of layout.items) {
     if (item.kind !== 'text') continue;
     if (!isAutoWrapTextItem(item)) {
-      // 自动折行只属于页面注记:换角色/换坐标空间后残留的字段一律清掉.
+      // 自动折行只属于页面注记/来源:换角色/换坐标空间后残留的字段一律清掉.
       // 用 typeof 判断而不是 `!== null`:从 JSON 读进来的旧 item 这两个键可能整个缺失(undefined).
       if (typeof item.text === 'string' || item.wrap_width_pt !== null) {
         item.text = null;
@@ -352,7 +369,7 @@ export function enforceNoteWrap(
     }
     // 1) 折行宽度:缺省按位置推导,统一夹到下限并收敛到落盘精度
     const width = roundToPageDecimals(
-      Math.max(PAGE_NOTE_WRAP_MIN_PT, item.wrap_width_pt ?? defaultNoteWrapWidth(layout, item)),
+      Math.max(PAGE_AUTO_WRAP_MIN_PT, item.wrap_width_pt ?? defaultAutoWrapWidth(layout, item)),
     );
     if (item.wrap_width_pt !== width) {
       item.wrap_width_pt = width;
@@ -379,6 +396,17 @@ export function enforceNoteWrap(
     ).filter((line) => line.length > 0);
     const lines = wrapped.length > 0 ? wrapped : [''];
     if (!sameTextLines(item.lines, lines)) {
+      // 来源底对齐:按行数差把 y 反向平移(行多 -> y 变小),保持最后一行基线不动.
+      // 再用「最后一行不越过页底边距」兜底:字号/行高也变了时按旧行数差平移会有误差,
+      // 加上字号变大后每行更高,不做兜底会把最后一行推到纸面外.
+      if (item.role === 'source') {
+        const step = item.font_size_pt * item.line_height;
+        const shifted = roundToPageDecimals(item.y - (lines.length - item.lines.length) * step);
+        const bottomLimit = roundToPageDecimals(
+          layout.paper.height_pt - PAGE_DEFAULT_MARGIN_PT - (lines.length - 1) * step,
+        );
+        item.y = Math.min(shifted, bottomLimit);
+      }
       item.lines = lines;
       changed += 1;
     }
@@ -916,7 +944,7 @@ function makeTextItem(
     geo_label_id: null,
     // 左右居中约束:默认关闭,标题/副标题/来源由 defaultPageLayout 显式打开
     center_h: overrides.center_h ?? false,
-    // 自动折行:只有 defaultPageLayout 的注记会显式传这两个字段
+    // 自动折行:只有 defaultPageLayout 的注记/来源会显式传这两个字段
     text: overrides.text ?? null,
     wrap_width_pt: overrides.wrap_width_pt ?? null,
   };
@@ -931,8 +959,8 @@ function makeTextItem(
  *   offsetPaper = baseline_ratio × size − (行数−1) × step / 2
  *   item.y      = label.y + offsetPaper / mapScale
  * 为什么这么换:旧实现把 `0.36*size - (n-1)*step/2` 直接烤进 map 坐标;v2 把同一偏移换成
- * 纸面 pt 再除以 mapScale 加回去,底图坐标 -> 纸面后的视觉位置与旧图一致(多行统一 1.2 行高,
- * 整块中心最多 ≤1pt 位移,可接受).
+ * 纸面 pt 再除以 mapScale 加回去,底图坐标 -> 纸面后的视觉位置与旧图一致(旧图多行按 1.2 行高
+ * 等距,整块中心只有 ~1pt 量级位移,可接受).
  * 字号/描边换算:geo 字号按原图 896pt 地图设计,放到 A4 左栏需乘地图缩放 s;字号夹到 4..40pt
  * 避免不可读;描边宽度是纸面常量(不随 s 缩放).
  * 字号(§12.1):地图分类的字号恒统一--`label.role` 的覆盖字号 ?? 分类默认统一字号
@@ -1068,8 +1096,8 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   const noteSize = pageFontSizeOf('note', PAGE_NOTE_SIZE_PT);
   const noteLineHeight = noteStyle.line_height;
   const noteColor = textStyle.note?.color ?? style.color;
-  // 注记自动折行:字号/字重/字距参与测量,原始文案(手动换行 \n)一起落进 item,
-  // 之后内容/宽度/字号任意变化都由 `enforceNoteWrap` 用同一套口径重算 lines.
+  // 注记/来源自动折行:字号/字重/字距参与测量,原始文案(手动换行 \n)一起落进 item,
+  // 之后内容/宽度/字号任意变化都由 `enforceAutoWrap` 用同一套口径重算 lines.
   const noteFont = fontShorthand(noteSize, style.font_family, noteStyle.font_weight);
   const noteMeasure = measureWithLetterSpacing(measure, noteStyle.letter_spacing_em * noteSize);
   const noteText = geo.suggestions.notes.join('\n');
@@ -1077,6 +1105,15 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   const sourceSize = pageFontSizeOf('source', PAGE_SOURCE_SIZE_PT);
   const sourceLineHeight = sourceStyle.line_height;
   const sourceColor = textStyle.source?.color ?? style.color;
+  // 来源与注记同一套自动折行口径:原始文案 + 折行宽度落进 item,之后由 enforceAutoWrap 重排.
+  // 来源默认左右居中,可折行宽度 = 内容宽(左右页边距之间),不用 item.x 的单侧宽度.
+  const sourceFont = fontShorthand(sourceSize, style.font_family, sourceStyle.font_weight);
+  const sourceMeasure = measureWithLetterSpacing(
+    measure,
+    sourceStyle.letter_spacing_em * sourceSize,
+  );
+  const sourceText = geo.suggestions.source;
+  const sourceWrapWidth = roundToPageDecimals(Math.max(PAGE_AUTO_WRAP_MIN_PT, contentWidth));
 
   // 图例最小宽度:先按文字测量,再按纸张比例夹到可读区间.
   // 横向沿用固定 150..260pt 区间(A5 横向已验证);纵向随 k 收缩,避免小纸上图例占比过大.
@@ -1334,12 +1371,11 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   }
 
   // 4) 来源(页底一行或折行后多行,最后一行基线贴住页边距)
-  const sourceFont = fontShorthand(sourceSize, style.font_family, sourceStyle.font_weight);
   const sourceLines = wrapParagraphs(
-    geo.suggestions.source.length > 0 ? [geo.suggestions.source] : [],
+    sourceText.length > 0 ? [sourceText] : [],
     sourceFont,
-    contentWidth,
-    measure,
+    sourceWrapWidth,
+    sourceMeasure,
   ).filter((line) => line.length > 0);
   if (sourceLines.length > 0) {
     const baselines = sourceLines.length;
@@ -1351,6 +1387,8 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
         // 来源默认开启左右居中约束:与标题/副标题同一口径(§B)
         center_h: true,
         ...textOverridesOf(sourceStyle, sourceColor),
+        text: sourceText,
+        wrap_width_pt: sourceWrapWidth,
       }),
     );
   }

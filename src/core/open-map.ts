@@ -35,7 +35,7 @@ import {
   type Geo,
   type PageLayout,
 } from './page';
-import { defaultPageLayout, enforceNoteWrap } from './page-layout';
+import { defaultPageLayout, enforceAutoWrap } from './page-layout';
 import { resyncTextStyles } from './text-style';
 import type { MeasureText } from './types';
 
@@ -184,11 +184,11 @@ function buildPageLayout(
     dirty = true;
   }
 
-  // 注记自动折行是派生量:旧 page 块没有 text/wrap_width_pt,或手改过 lines,
+  // 注记/来源自动折行是派生量:旧 page 块没有 text/wrap_width_pt,或手改过 lines,
   // 打开时按当前字号/字距与存储宽度统一重排;与样式统一/居中纠偏分开告警.
-  const rewrapped = enforceNoteWrap(layout, measureText);
+  const rewrapped = enforceAutoWrap(layout, measureText);
   if (rewrapped > 0) {
-    warnings.push(`排版中的注记已按折行宽度自动重排(${rewrapped} 条),导出后会写成新口径`);
+    warnings.push(`排版中的注记/来源已按折行宽度自动重排(${rewrapped} 条),导出后会写成新口径`);
     dirty = true;
   }
 

@@ -81,11 +81,11 @@ export const MAP_LABEL_STYLE = {
   /** 字距(em,相对字号) */
   letter_spacing_em: 0,
   /** 行高倍数(多行地名共用一套) */
-  line_height: 1.2,
+  line_height: 1,
   /** 描边颜色(光晕) */
   halo_color: '#ffffff',
   /** 描边宽度(纸面 pt,不随地图缩放) */
-  halo_width_pt: 2,
+  halo_width_pt: 0.5,
   /**
    * 「文字块垂直中心 -> 第一行基线」的经验比例.
    * 为什么是 0.36:旧实现把同一偏移直接烤进 map 坐标(`0.36*size - (n-1)*step/2`),
@@ -112,8 +112,8 @@ export interface PageTextStyle {
 
 /**
  * 页面文字的角色默认样式.
- * 为什么六个角色当前完全相同:统一排版口径先冻结成一套(400/0/1.35/无光晕/#111111),
- * 角色拆分只为以后能按角色微调;引用处必须走本表,不许各自写 1.35 或 #111111.
+ * 为什么六个角色当前完全相同:统一排版口径先冻结成一套,
+ * 角色拆分只为以后能按角色微调;引用处必须走本表.
  */
 export const PAGE_TEXT_STYLES: Record<PageTextRole, PageTextStyle> = {
   title: {
@@ -121,7 +121,7 @@ export const PAGE_TEXT_STYLES: Record<PageTextRole, PageTextStyle> = {
     italic: false,
     font_weight: 400,
     letter_spacing_em: 0,
-    line_height: 1.35,
+    line_height: 1,
     halo: null,
   },
   subtitle: {
@@ -129,7 +129,7 @@ export const PAGE_TEXT_STYLES: Record<PageTextRole, PageTextStyle> = {
     italic: false,
     font_weight: 400,
     letter_spacing_em: 0,
-    line_height: 1.35,
+    line_height: 1,
     halo: null,
   },
   label: {
@@ -137,7 +137,7 @@ export const PAGE_TEXT_STYLES: Record<PageTextRole, PageTextStyle> = {
     italic: false,
     font_weight: 400,
     letter_spacing_em: 0,
-    line_height: 1.35,
+    line_height: 1,
     halo: null,
   },
   annotation: {
@@ -145,7 +145,7 @@ export const PAGE_TEXT_STYLES: Record<PageTextRole, PageTextStyle> = {
     italic: false,
     font_weight: 400,
     letter_spacing_em: 0,
-    line_height: 1.35,
+    line_height: 1,
     halo: null,
   },
   note: {
@@ -153,7 +153,7 @@ export const PAGE_TEXT_STYLES: Record<PageTextRole, PageTextStyle> = {
     italic: false,
     font_weight: 400,
     letter_spacing_em: 0,
-    line_height: 1.35,
+    line_height: 1,
     halo: null,
   },
   source: {
@@ -161,13 +161,13 @@ export const PAGE_TEXT_STYLES: Record<PageTextRole, PageTextStyle> = {
     italic: false,
     font_weight: 400,
     letter_spacing_em: 0,
-    line_height: 1.35,
+    line_height: 1,
     halo: null,
   },
 };
 
 /** 侧栏/新建文字打开光晕时的默认描边(颜色与宽度) */
-export const TEXT_HALO = { color: '#ffffff', width_pt: 2 } as const;
+export const TEXT_HALO = { color: '#ffffff', width_pt: 0 } as const;
 
 /* ---------------- 样式设置:分类元信息 ---------------- */
 
@@ -444,7 +444,7 @@ export const TEXT_STYLE_CATEGORY_GROUPS: readonly TextStyleCategoryGroup[] = [
     id: 'map',
     label: '地图标注',
     description:
-      '来自 Cartopy geo.json 的地图标注,按 role 分类;字号默认值 = 该分类地名原始字号中位数 × 地图缩放.',
+      '来自 Cartopy geo.json 的地图标注,按 role 分类;字号默认值 = 该分类地名原始字号中位数 * 地图缩放.',
     categories: MAP_LABEL_CATEGORY_ORDER.map((id) => TEXT_STYLE_CATEGORY_META[id]),
   },
 ];

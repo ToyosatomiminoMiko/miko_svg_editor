@@ -142,13 +142,13 @@ describe('MAP_LABEL_STYLE:全局标注常量', () => {
     }
   });
 
-  it('常量取值与规格一致(400 / 0 / 1.2 / #ffffff / 2 / 0.36)', () => {
+  it('常量取值与规格一致(400 / 0 / 1 / #ffffff / 0.5 / 0.36)', () => {
     expect(MAP_LABEL_STYLE).toEqual({
       font_weight: 400,
       letter_spacing_em: 0,
-      line_height: 1.2,
+      line_height: 1,
       halo_color: '#ffffff',
-      halo_width_pt: 2,
+      halo_width_pt: 0.5,
       baseline_ratio: 0.36,
     });
   });
@@ -211,7 +211,7 @@ describe('geo v2:文字块垂直中心 -> 第一行基线', () => {
 });
 
 describe('PAGE_TEXT_STYLES / TEXT_HALO:页面文字默认样式', () => {
-  it('六个角色全部 400/0/1.35/无光晕/#111111', () => {
+  it('六个角色全部 400/0/1/无光晕/#111111', () => {
     const roles = ['title', 'subtitle', 'label', 'annotation', 'note', 'source'] as const;
     for (const role of roles) {
       expect(PAGE_TEXT_STYLES[role]).toEqual({
@@ -219,11 +219,11 @@ describe('PAGE_TEXT_STYLES / TEXT_HALO:页面文字默认样式', () => {
         italic: false,
         font_weight: 400,
         letter_spacing_em: 0,
-        line_height: 1.35,
+        line_height: 1,
         halo: null,
       });
     }
-    expect(TEXT_HALO).toEqual({ color: '#ffffff', width_pt: 2 });
+    expect(TEXT_HALO).toEqual({ color: '#ffffff', width_pt: 0 });
   });
 
   it('默认排版的页面文字 item 用角色样式,注记/来源块高用对应行高', () => {

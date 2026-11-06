@@ -810,10 +810,11 @@ prepare/extract 步骤.
 - 字体不内嵌:`final.svg` 的文字用 `font-family` 引用本机字体(Noto Sans Mono CJK SC /
   JetBrains Mono / DejaVu Sans / sans-serif);跨机器字形可能变化,印刷前在 Inkscape/AI 转曲.
   字体子集载荷位置已预留(未来往 `<defs>` 加 `@font-face`).
-- **自动换行只覆盖页面注记**:`defaultPageLayout` 用 canvas 测量把注记/来源折成 `lines`;注记额外
-  存原始内容 `text` 与折行宽度 `wrap_width_pt`,内容/宽度/字号/字距变化后由 `enforceNoteWrap`
-  重算(打开流程与 `applyPageChange` 各调一次,幂等);其它文字角色与地图地名仍不重排.
-  **不做两端对齐**;字距按 item 的 `letter_spacing_em` 渲染并参与注记折行测量.
+- **自动换行只覆盖页面注记与来源**:`defaultPageLayout` 用 canvas 测量把注记/来源折成 `lines`;
+  两者都额外存原始内容 `text` 与折行宽度 `wrap_width_pt`,内容/宽度/字号/字距变化后由
+  `enforceAutoWrap` 重算(打开流程与 `applyPageChange` 各调一次,幂等);来源另按页底口径调整
+  `y`(最后一行基线不动),其它文字角色与地图地名仍不重排.
+  **不做两端对齐**;字距按 item 的 `letter_spacing_em` 渲染并参与注记/来源折行测量.
 - 文字样式是**分类级覆盖**:侧栏单条 item 不再有字号/颜色/字重/斜体/行高/字距/光晕字段,同一分类
   下所有文字共用一套样式,「样式设置」窗口改一次即批量写回该分类的全部 item;要单条不同样式只能
   换角色/分类.颜色/斜体/字重/字距/行高/光晕以 `page.text_style` 为唯一真源;页面分类字号为
@@ -834,8 +835,8 @@ prepare/extract 步骤.
 - **左右居中只作用于页面文字**:`center_h` 是 text item 的必填布尔字段,地图地名恒为 `false`.
   页面文字开启后 x 恒为 `paper.width_pt / 2`,anchor=middle,拖拽/方向键只能改 y;改纸张宽度/
   方向后由 `applyPageChange`(每次排版修改)与打开流程调用 `enforceHorizontalCenter` 自动贴合,
-  有改动会标脏并告警「排版中的左右居中约束已按纸张宽度重新贴合(N 条)」.注记自动折行同属派生
-  约束(`applyPageChange` 里与居中并列调用 `enforceNoteWrap`),旧排版缺字段时同样标脏告警.
+  有改动会标脏并告警「排版中的左右居中约束已按纸张宽度重新贴合(N 条)」.注记/来源自动折行同属
+  派生约束(`applyPageChange` 里与居中并列调用 `enforceAutoWrap`),旧排版缺字段时同样标脏告警.
   关闭开关保持当前
   x/anchor,重新可水平移动.默认排版的 title/subtitle/source 开启该约束.
 - 保存对话框依赖 File System Access API:Chromium 系 + 安全上下文(HTTPS/localhost)才弹系统对话框,

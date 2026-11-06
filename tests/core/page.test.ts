@@ -376,7 +376,7 @@ describe('defaultPageLayout(§9 初始排版)', () => {
     // 颜色/斜体来自 role 表;描边宽度是纸面常量(不随 s 缩放),旋转统一 0
     expect(labels[0]!.color).toBe('#3a3a3a');
     expect(labels[0]!.italic).toBe(false);
-    expect(labels[0]!.halo).toEqual({ color: '#ffffff', width_pt: 2 });
+    expect(labels[0]!.halo).toEqual({ color: '#ffffff', width_pt: 0.5 });
     expect(labels[1]!.color).toBe('#2d6ea6');
     expect(labels[1]!.italic).toBe(true);
     expect(labels[1]!.rotation_deg).toBe(0);
@@ -387,7 +387,7 @@ describe('defaultPageLayout(§9 初始排版)', () => {
     expect(layout.seq).toBe(Math.max(...ids) + 1);
   });
 
-  it('notes 按右栏宽度折行写入 lines(不自动换行)', () => {
+  it('注记按右栏宽度折行写入 lines(自动折行口径)', () => {
     const layout = makeScene();
     const note = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'note',

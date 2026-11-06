@@ -11,9 +11,9 @@
  * 批量应用(`.work/STYLE-SETTINGS-SPEC.md` §7.2).
  * 为什么对齐分段在左右居中打开时禁用:`center_h` 是页面文字的派生约束(x 恒为纸张中心,
  * anchor 恒为 middle).此时改对齐不会生效,禁用比让用户白点一次更清楚;关闭开关后恢复可用.
- * 为什么注记文本域读写 `text` 而不是 `lines`:自动折行时 `lines` 是派生量,直接编辑它会把
- * 自动折出来的断行当成手动换行;文本域显示/写回原始内容,折行由编辑器的 `enforceNoteWrap`
- * 统一重算.注记还多一个「折行宽度(pt)」字段,改宽度立刻重排.
+ * 为什么注记/来源文本域读写 `text` 而不是 `lines`:自动折行时 `lines` 是派生量,直接编辑它会把
+ * 自动折出来的断行当成手动换行;文本域显示/写回原始内容,折行由编辑器的 `enforceAutoWrap`
+ * 统一重算.注记/来源还多一组「自动换行」--「折行宽度(pt)」数字字段,改宽度立刻重排.
  * 为什么「打开样式设置」要带分类:窗口有 20 个分类,侧栏选中某条文字时用户想改的就是它
  * 所属的那一类;不带分类则窗口停在上次选中的分类,用户还得自己找.
  * 为什么单独成模块:文字字段仍是最多的一块(内容文本域 + 角色分段 + 对齐 + 旋转),
@@ -30,7 +30,7 @@ import {
   createSegmented,
   nextWidgetId,
 } from 'miko_ui';
-import { PAGE_NOTE_WRAP_MIN_PT } from '../config/page';
+import { PAGE_AUTO_WRAP_MIN_PT } from '../config/page';
 import { TEXT_STYLE_CATEGORY_META, type TextStyleCategoryId } from '../config/text-style';
 import {
   isAutoWrapTextItem,
@@ -40,7 +40,7 @@ import {
   type TextItem,
   type TextRole,
 } from '../core/page';
-import { defaultNoteWrapWidth } from '../core/page-layout';
+import { defaultAutoWrapWidth } from '../core/page-layout';
 import { applyCategoryStyleToItem, textCategoryOfItem } from '../core/text-style';
 import type { SidebarContext } from './page-sidebar-context';
 
@@ -72,7 +72,7 @@ export function buildTextFields(ctx: SidebarContext, item: TextItem): HTMLElemen
     ctx.handlers.onChange((layout) => {
       const target = itemById(layout, item.id);
       if (target?.kind !== 'text') return;
-      // 自动折行的注记:文本域写原始内容,lines 由 enforceNoteWrap 重算;
+      // 自动折行的注记/来源:文本域写原始内容,lines 由 enforceAutoWrap 重算;
       // 其它文字:文本域就是 lines(每行一条,回车=手动换行).
       if (isAutoWrapTextItem(target) || target.text !== null) target.text = value;
       else target.lines = value.split('\n');
@@ -87,7 +87,7 @@ export function buildTextFields(ctx: SidebarContext, item: TextItem): HTMLElemen
   textRow.classList.add('page-text-row');
   fragments.push(textRow);
 
-  // 注记自动折行:宽度是折行的唯一几何输入,改宽度立刻重排(内容/字号/字距变化也走同一约束)
+  // 注记/来源自动折行:宽度是折行的唯一几何输入,改宽度立刻重排(内容/字号/字距变化也走同一约束)
   if (isAutoWrapTextItem(item)) {
     const wrapRow = create_element({ tag: 'div' }, { class: 'page-field-grid' });
     ctx.controls.addNumberRow(
@@ -96,8 +96,8 @@ export function buildTextFields(ctx: SidebarContext, item: TextItem): HTMLElemen
       '折行宽度(pt)',
       () => {
         const target = itemById(ctx.getLayout(), item.id);
-        if (target?.kind !== 'text') return PAGE_NOTE_WRAP_MIN_PT;
-        return target.wrap_width_pt ?? defaultNoteWrapWidth(ctx.getLayout(), target);
+        if (target?.kind !== 'text') return PAGE_AUTO_WRAP_MIN_PT;
+        return target.wrap_width_pt ?? defaultAutoWrapWidth(ctx.getLayout(), target);
       },
       (value) =>
         ctx.handlers.onChange((layout) => {
@@ -105,7 +105,7 @@ export function buildTextFields(ctx: SidebarContext, item: TextItem): HTMLElemen
           if (target?.kind !== 'text') return;
           target.wrap_width_pt = value;
         }),
-      { min: PAGE_NOTE_WRAP_MIN_PT, step: 1 },
+      { min: PAGE_AUTO_WRAP_MIN_PT, step: 1 },
     );
     fragments.push(
       createControlGroup(
@@ -114,7 +114,10 @@ export function buildTextFields(ctx: SidebarContext, item: TextItem): HTMLElemen
         create_element(
           { tag: 'p' },
           { class: 'page-hint' },
-          '内容超出该宽度自动折行;内容里的手动换行会保留.',
+          // 来源是页底说明:折行时最后一行保持贴住页底,提示里点明这条排版口径
+          item.role === 'source'
+            ? '内容超出该宽度自动折行;内容里的手动换行会保留;来源折行后最后一行贴住页底.'
+            : '内容超出该宽度自动折行;内容里的手动换行会保留.',
         ),
       ),
     );
@@ -139,7 +142,7 @@ export function buildTextFields(ctx: SidebarContext, item: TextItem): HTMLElemen
         // 角色 = 分类:立即把新分类的有效样式写进这条 item(字号要排除自己,
         // 否则读到的是切换前的角色字号)
         applyCategoryStyleToItem(layout, geo, target, { excludeSelf: true });
-        // 切成/切离注记会改变本面板结构(只有注记有「自动换行」组),下一次 sync 重建
+        // 切成/切离注记或来源会改变本面板结构(只有它们在「自动换行」组),下一次 sync 重建
         ctx.markPropertyRebuild();
       }),
     );
