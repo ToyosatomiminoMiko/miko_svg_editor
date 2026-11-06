@@ -8,6 +8,8 @@
  * 界面控件的配色不在这里读:那是 miko_ui 的 token 体系,画布只消费自己的绘制常量.
  */
 
+import { FONT_FAMILY_STACK } from '../config/fonts';
+
 export interface Theme {
   /* 颜色 */
   bg: string;
@@ -78,7 +80,8 @@ const DEFAULT_PREVIEW = '#6dd5ff';
 const DEFAULT_SNAP = '#8ee6a5';
 const DEFAULT_MARQUEE_WINDOW = '#6dd5ff';
 const DEFAULT_MARQUEE_CROSS = '#8ee6a5';
-const DEFAULT_DIM_FONT = "12px 'JetBrains Mono Slashed', ui-monospace, monospace";
+/** 画布尺寸文字:屏幕像素字号 + 全项目字体栈(config/fonts.ts,与 --dim-font 的计算值一致) */
+const DEFAULT_DIM_FONT = `12px ${FONT_FAMILY_STACK}`;
 
 const DEFAULT_STROKE_WIDTH = 1.5;
 const DEFAULT_STROKE_WIDTH_HOT = 2.4;

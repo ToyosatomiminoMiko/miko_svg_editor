@@ -243,7 +243,8 @@ Cartopy 直出的 geo.json 没有这个键.形状:
   },
   "style": {
     "paper_color": "#ffffff",
-    "font_family": "'Noto Sans Mono CJK SC', 'JetBrains Mono Slashed Medium', 'DejaVu Sans', sans-serif",
+    // 全项目字体栈(config/fonts.ts 的 FONT_FAMILY_STACK),界面/预览/成品共用同一串
+    "font_family": "'JetBrains Mono Slashed', 'Noto Sans Mono CJK SC', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
     "color": "#111111",
   },
   // 分类样式覆盖表(可选):只存用户显式改过的字段,没列出的分类/字段用分类默认值
@@ -270,6 +271,11 @@ Cartopy 直出的 geo.json 没有这个键.形状:
   `#rrggbb`;数字 3 位小数;`items.length ≤ 500`;`seq` 为正整数且大于所有 item id.
   text item 的 `font_weight` 必须是 100..900 的整数,`letter_spacing_em` 必须是有限数且在 -1..2;
   text item 的 `center_h` 必须是布尔值,且 `space=map` 时不能为 `true`(地图地名位置属于底图数据).
+- `style`:`paper_color` / `color` 只接受 `#rrggbb`;`font_family` 是**全项目字体栈**
+  (`config/fonts.ts` 的 `FONT_FAMILY_STACK`:拉丁 `'JetBrains Mono Slashed'` 在前,中文
+  `'Noto Sans Mono CJK SC'` 兜底,界面与成品共用同一串).本编辑器没有字体选择入口,新文档写
+  默认值,文件里已有的 `font_family` 原样沿用(手改的自定义字体串也保留,只是界面不提供切换).
+  字体不内嵌,跨机器靠本机同名/兜底字体(§11).
 - `text_style`(可选,缺省 `{}`,`normalizePage` 一定补上):**分类文字样式覆盖表**.键必须属于
   20 个分类 id(页面文字 `title`/`subtitle`/`annotation`/`note`/`source`/`label` + 地图地名
   `city`/`city-reference`/`area`/`area-muted`/`area-accent-1` ~ `area-accent-4`/`country`/
@@ -795,14 +801,14 @@ interface BaseSvgInfo {
    - 若文件里存的逐条样式与上述口径不一致:覆盖并标脏,并告警「旧排版中的逐条文字样式已按分类
      设置统一(N 条),导出后会写成新口径」;
    - 默认排版本身与分类口径一致,重建通常不产生改动.
-     随后执行一次 `enforceHorizontalCenter`(§4.1):手改过的 `center_h=true` item 的 `x`/`anchor`
+     重建完成后执行 `enforceHorizontalCenter`(§4.1):手改过的 `center_h=true` item 的 `x`/`anchor`
      被纠回纸张中心;有改动则标脏并追加独立告警「排版中的左右居中约束已按纸张宽度重新贴合(N 条),
      导出后会写成新口径」(与样式重建分开,用户能分清是哪一步改了排版).最后统一 `normalizePage`,
      数值口径与导出/签名完全一致.底图身份只在 `geo.base`,不再有「排版记录的底图与本次上传不一致」
      的分支.
 6. 打开后状态:带合法 `page` 块 -> 干净(路径 1「已载入 geo.json 中的排版...」;路径 2
-   「已从成品 SVG 恢复排版;Ctrl+S 导出 geo.json」);样式被分类设置重算过或居中约束被纠偏过 -> 脏;
-   否则默认排版 -> 脏(「已生成初始排版...」).
+   「已从成品 SVG 恢复排版;Ctrl+S 导出 geo.json」);样式被分类设置重算过或居中约束被纠偏过
+   -> 脏;否则默认排版 -> 脏(「已生成初始排版...」).
 
 错误语义汇总(文案以 `core/open-map.ts` / `app/page-main.ts` 为准):没有收到文件 / 不识别的文件 /
 缺少或重复的 SVG / 多于一个 geo / 文件不是 UTF-8 / 不是合法 JSON / `format` 不是 `mapdoc-geo` 或
@@ -903,6 +909,7 @@ src/ui/page-notify.ts           # 消息区(miko_ui MessageArea + 简单确认�
 src/ui/download.ts              # downloadText(保存对话框优先,<a download> 回退)/ downloadSvg
 src/styles-page.css             # 本页样式(.page-*;token 复用 miko_ui/styles.css 与 styles.css)
 tests/core/page.test.ts         # codec/校验/布局公式,center_h 与 enforceHorizontalCenter
+tests/core/fonts.test.ts        # 全项目字体栈:TS 常量与 styles.css 的 --font-family-base 一致
 tests/core/text-style.test.ts   # 分类映射,覆盖解析,批量应用/恢复默认,resyncTextStyles
 tests/core/base-svg.test.ts     # 底图 C1–C4 与 inner/prefix/suffix 切片
 tests/core/base64.test.ts       # UTF-8 base64 往返与坏数据
@@ -920,7 +927,8 @@ tests/render/compose-svg.test.ts # 合成结构,marker,内嵌源,确定性,越�
 - **打开**:初始显示上传面板;在 SVG 栏与 JSON 栏里分别选/拖 `base.svg`,`geo.json`(JSON 可省略),
   或只选一份本编辑器导出的成品 SVG,点「打开地图」-> §8.2 校验 -> 生成 `PageDocument` -> 装配界面.
   带合法 `page` 块(或成品内嵌源)则恢复排版,并按分类重建每条文字样式,贴合左右居中约束,
-  再执行一次注记/来源自动折行(旧排版缺 `text`/`wrap_width_pt` 时补齐并告警,§4.1)
+  再执行一次注记/来源自动折行(旧排版缺
+  `text`/`wrap_width_pt` 时补齐并告警,§4.1)
   (颜色等与分类不一致会覆盖;页面分类字号保留排版里的现值;有改动则标脏,告警);否则用
   `defaultPageLayout` 生成初始排版(标脏).没有内嵌可编辑源的旧版成品直接拒绝.
 - **画布**:一个 SVG(viewBox 随缩放/平移变化).纸张白底 + 底图 `<image href=objectURL>`
@@ -1057,6 +1065,10 @@ tests/render/compose-svg.test.ts # 合成结构,marker,内嵌源,确定性,越�
 
 - **字体不内嵌**(v2):成品文字用 `font-family` 引用本机字体,跨机器字形可能变化,印刷前
   Inkscape/AI 转曲.字体子集载荷位置已预留(合成时可往 `<defs>` 加 `@font-face`),本轮不做.
+- **字体栈是项目级设置**:界面,预览与成品统一用 `'JetBrains Mono Slashed'`(拉丁)+
+  `'Noto Sans Mono CJK SC'`(中文兜底),唯一真源 `config/fonts.ts` 的 `FONT_FAMILY_STACK`
+  (界面侧由 `styles.css` 的 `--font-family-base` 覆盖 miko_ui 默认值).本编辑器不提供逐文档
+  字体选择:文件里的 `font_family` 原样沿用,手改的自定义字体串保留但不参与界面口径.
 - **自动换行覆盖页面注记与来源**:标题/副标题/标注/地名(手动)仍只在默认排版时按宽度折一次
   写进 `lines`,之后改内容/字号不会重排;地图地名按底图给的分行渲染.来源的折行按「页底说明」
   口径:最后一行保持贴住页底边距.**不做两端对齐**;字距按 item 的 `letter_spacing_em` 渲染并

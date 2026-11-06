@@ -88,7 +88,10 @@ UI 代码里没有手写控件 DOM,也没有第二套控件 CSS:
 中间是可聚焦的 `.app-sidebar-resizer` 拖拽条,右列上行是 dock,下行是画布;dock 的底色,下沿分隔线与
 横向排布继续来自库的 `.dock`,应用样式只把它的定位与高度交还给网格.画布不是控件,仍由 `Renderer`
 用 canvas 2D 绘制;它的颜色/线宽/虚线只写在应用样式表的 `:root`,`render/theme.ts` 读取同一批变量
-(缺失时回退同值并告警).
+(缺失时回退同值并告警).全项目字体栈由 `src/config/fonts.ts` 的 `FONT_FAMILY_STACK` 定义
+(`'JetBrains Mono Slashed'` 主字体,`'Noto Sans Mono CJK SC'` 中文兜底):`src/styles.css :root`
+用它覆盖 miko_ui 的 `--font-family-base`,页面/成品也引用同一串,两处字面量由
+`tests/core/fonts.test.ts` 钉住.
 点图元在画布上画成外环 + 实心中心,外环半径单独用 `--point-graphic-ring-radius` token,
 与线段端点,圆弧端点/圆心的小圆点(`--point-radius`)区分.
 
@@ -349,7 +352,8 @@ npm run build   # 产物 dist/ 可放任意静态服务器(或 npm run preview �
 输入文件由 Cartopy_file 正常出图直接得到(`<stem>.svg` + `<stem>.geo.json`),本仓不再需要抽取/
 准备步骤;`demo/` 下的旧底图与 geo 也可直接上传(本地目录,gitignored).
 
-**已知限制**:字体不内嵌(跨机字形可能变化,印刷前转曲);自动换行只覆盖页面注记与页底来源
+**已知限制**:字体不内嵌(跨机字形可能变化,印刷前转曲);字体栈是项目级设置(界面/预览/成品
+统一为 `JetBrains Mono Slashed` + `Noto Sans Mono CJK SC` 兜底,没有逐文档字体选择);自动换行只覆盖页面注记与页底来源
 (标题/副标题/标注/地名(手动)仍只在默认排版时折一次 `lines`,改内容/字号后不重排;地图地名按
 底图分行渲染;来源折行时最后一行保持贴住页底边距);不做两端对齐(字距按 item 的
 `letter_spacing_em` 渲染并参与注记/来源折行测量);文字样式按分类统一覆盖,不能只
@@ -595,8 +599,11 @@ app ──► ui ──► render ──► core ──► config
 - **主题只读一次**:`app/main.ts` 调 `readTheme()`,再把 `Theme` 传给 `Renderer`/`Editor`;
   纯逻辑模块不读 `getComputedStyle`.界面控件的配色不归应用:那是 `miko_ui` 的 token 体系.
 - **配置分层**(按「外观 / 布局 / 手感 / 数值 / 导出 / 元数据」拆分,变更频率不同):
-  - 外观(颜色/线宽/点半径/点图元外环半径/虚线/箭头/字体)-> `src/styles.css :root`,`render/theme.ts` 读取;
+  - 外观(颜色/线宽/点半径/点图元外环半径/虚线/箭头)-> `src/styles.css :root`,`render/theme.ts` 读取;
     `render/theme.ts` 里的默认值必须与 CSS 保持一致(改 token 要同时改两处兜底值).
+  - 字体栈(全项目统一)-> `config/fonts.ts` 的 `FONT_FAMILY_STACK` 是唯一真源:界面侧由
+    `src/styles.css :root` 覆盖 `--font-family-base` 消费(与常量逐字一致,`tests/core/fonts.test.ts`
+    断言),页面/成品直接引用;`render/theme.ts` 的 `DEFAULT_DIM_FONT` 由该常量拼出.
   - 页面布局(侧栏宽度默认值与上下限,分隔条宽度,画布最小宽度)-> `src/styles.css :root`,拖拽时
     读同一批变量;键盘步长与宽度记忆键 -> `config/layout.ts`(`LAYOUT_FALLBACK` 只在计算样式读不到时兜底).
   - 交互手感(拾取/吸附/命中/拖拽阈值)-> `config/tolerances.ts`,屏幕像素声明,用时 `worldTol(px, zoom)` 换算.

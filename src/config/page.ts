@@ -11,6 +11,8 @@
  * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
+import { FONT_FAMILY_STACK } from './fonts';
+
 /* ---------------- 文档标识 ---------------- */
 
 /**
@@ -207,12 +209,12 @@ export const PAGE_MIN_COLORBAR_HEIGHT_PT = 40;
 /* ---------------- 默认样式(page.style / page.frame) ---------------- */
 
 /**
- * 默认字体栈(契约 §4 示例原样).
- * 为什么用「CJK 等宽 -> 拉丁等宽 -> DejaVu -> sans-serif」:印刷图的中英文混排需要
- * 一套主字体兜底一套通用字体;字体不内嵌(契约 §11 已知限制,v2 仍未做).
+ * 页面默认字体栈 = 全项目字体栈(`config/fonts.ts` 的 `FONT_FAMILY_STACK` 唯一真源).
+ * 为什么这里还导出一个名字:页面文档的字段叫 `style.font_family`,渲染/默认排版读的是
+ * 页面级语义;值本身不复制(不写第二份字面量),改字体只开 `config/fonts.ts`.
+ * 字体不内嵌(契约 §11 已知限制,v2 仍未做),跨机器靠本机同名/兜底字体.
  */
-export const PAGE_DEFAULT_FONT_FAMILY =
-  "'Noto Sans Mono CJK SC', 'JetBrains Mono Slashed Medium', 'DejaVu Sans', sans-serif";
+export const PAGE_DEFAULT_FONT_FAMILY = FONT_FAMILY_STACK;
 
 export const PAGE_DEFAULT_PAPER_COLOR = '#ffffff';
 export const PAGE_DEFAULT_TEXT_COLOR = '#111111';

@@ -13,6 +13,17 @@
  */
 
 :root {
+  /* ---------------- 全项目字体 ----------------
+   * miko_ui 的 tokens.css 把 --font-family-base 设成「JetBrains Mono Slashed + 各平台系统
+   * 等宽」,没有 CJK;这里补上 'Noto Sans Mono CJK SC' 兜底,中文逐字落到等宽字体,而不是
+   * 浏览器的比例默认字体.界面(控件继承 --font-family-base)与画布尺寸文字
+   * (--code-font-family 是库里的别名,--dim-font: 12px var(--code-font-family))一起换.
+   * 值与 src/config/fonts.ts 的 FONT_FAMILY_STACK 必须逐字一致(tests/core/fonts.test.ts
+   * 直接读本文件断言);页面/成品的字体栈也来自同一个常量,界面与印刷件不会分家. */
+  --font-family-base:
+    'JetBrains Mono Slashed', 'Noto Sans Mono CJK SC', ui-monospace, SFMono-Regular, Menlo,
+    Consolas, monospace;
+
   /* 深色声明:原生控件(range 轨道,滚动条)才会按深色画 */
   color-scheme: dark;
 
