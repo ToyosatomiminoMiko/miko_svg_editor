@@ -3,15 +3,20 @@
  *
  * 为什么要有这些用例:预览里的选中框与点击命中盒都改成「由 geo.json 的 page 块 + §5 公式 + 字体
  * 行盒」推出的声明几何框(不再用 DOM getBBox,也不再有外扩容差).这里把每条推导钉住:
- * 水平边界来自锚点 + 前进宽度,垂直边界来自行基线 + 字体行盒,旋转来自 §5.3 的
+ * 水平边界来自锚点 + 内容宽度(自动折行的注记/来源取折行宽度,其余取最长行前进宽度),
+ * 垂直边界来自行基线 + 字体行盒,旋转来自 §5.3 的
  * rotate(rotation_deg px py),图例/色标用 §5.4/§5.5 的声明框并按 map 空间缩放.
  * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import { describe, expect, it } from 'vitest';
-import type { ColorbarItem, LegendItem, TextItem } from '../../src/core/page';
+import { PAGE_AUTO_WRAP_MIN_PT } from '../../src/config/page';
+import type { ColorbarItem, LegendItem, PageLayout, TextItem } from '../../src/core/page';
 import {
+  defaultAutoWrapWidth,
   defaultPageLayout,
+  effectiveAutoWrapWidth,
+  enforceAutoWrap,
   fallbackTextMeasure,
   fontShorthand,
   itemBoundsPt,
@@ -107,6 +112,107 @@ describe('itemBoundsPt:text 水平边界', () => {
     expect(loose.height).toBeCloseTo(15, 10);
     // 字体行盒是 1.0em(回退 0.8+0.2),0.5 行高的负半行距被夹到 0
     expect(compressed.height).toBeCloseTo(tight.height, 10);
+  });
+});
+
+describe('itemBoundsPt:自动折行文字的横向框 = 折行宽度设置', () => {
+  /** 取一份新默认排版里指定角色的页面文字(fixture 的注记/来源都带折行字段) */
+  function pageTextOf(target: PageLayout, role: 'note' | 'source' | 'title'): TextItem {
+    const item = target.items.find(
+      (candidate): candidate is TextItem =>
+        candidate.kind === 'text' && candidate.role === role && candidate.space === 'page',
+    );
+    if (item === undefined) throw new Error(`默认排版缺少 ${role} item`);
+    return item;
+  }
+
+  it('短文案 + 大折行宽度:框显示设置宽度,而不是文字实际宽度', () => {
+    const target = defaultPageLayout(geo);
+    const note: TextItem = {
+      ...pageTextOf(target, 'note'),
+      wrap_width_pt: 300,
+      text: '短',
+      lines: ['短'],
+    };
+    const textWidth = textBlockWidth(note, fallbackTextMeasure.width, target.style.font_family);
+    const bounds = itemBoundsPt(note, target, geo);
+    expect(bounds.width).toBeCloseTo(300, 10);
+    expect(bounds.width).toBeGreaterThan(textWidth);
+  });
+
+  it.each([
+    ['start', (px: number, _width: number) => px],
+    ['middle', (px: number, width: number) => px - width / 2],
+    ['end', (px: number, width: number) => px - width],
+  ] as const)('anchor=%s:框宽 = 折行宽度,左右边界按锚点展开', (anchor, left) => {
+    const target = defaultPageLayout(geo);
+    const note: TextItem = {
+      ...pageTextOf(target, 'note'),
+      anchor,
+      center_h: false,
+      wrap_width_pt: 120,
+    };
+    expect(effectiveAutoWrapWidth(target, note)).toBe(120);
+    const text = textLayout(note, geo, target);
+    const bounds = itemBoundsPt(note, target, geo);
+    expect(bounds.width).toBeCloseTo(120, 10);
+    expect(bounds.x).toBeCloseTo(left(text.px, 120), 10);
+  });
+
+  it('来源(左右居中):框宽 = 内容宽,框以锚点 x 为中心', () => {
+    const target = defaultPageLayout(geo);
+    const source = pageTextOf(target, 'source');
+    const width = effectiveAutoWrapWidth(target, source) ?? 0;
+    const text = textLayout(source, geo, target);
+    const bounds = itemBoundsPt(source, target, geo);
+    expect(width).toBeGreaterThan(0);
+    expect(bounds.width).toBeCloseTo(width, 10);
+    expect(bounds.x).toBeCloseTo(text.px - width / 2, 10);
+  });
+
+  it('宽度先夹到下限/收敛到 3 位小数再画框(与 enforceAutoWrap 落盘值一致)', () => {
+    const target = defaultPageLayout(geo);
+    const note = pageTextOf(target, 'note');
+    note.wrap_width_pt = 5;
+    expect(enforceAutoWrap(target)).toBeGreaterThan(0);
+    expect(note.wrap_width_pt).toBe(PAGE_AUTO_WRAP_MIN_PT);
+    expect(itemBoundsPt(note, target, geo).width).toBeCloseTo(PAGE_AUTO_WRAP_MIN_PT, 10);
+
+    note.wrap_width_pt = 123.45678;
+    expect(enforceAutoWrap(target)).toBeGreaterThan(0);
+    expect(note.wrap_width_pt).toBe(123.457);
+    expect(itemBoundsPt(note, target, geo).width).toBeCloseTo(123.457, 10);
+  });
+
+  it('wrap_width_pt 缺省(旧 page 块):框,面板读数,enforce 写入值同源', () => {
+    const target = defaultPageLayout(geo);
+    const note = pageTextOf(target, 'note');
+    note.wrap_width_pt = null;
+    const fallback = defaultAutoWrapWidth(target, note);
+    expect(effectiveAutoWrapWidth(target, note)).toBe(fallback);
+    expect(itemBoundsPt(note, target, geo).width).toBeCloseTo(fallback, 10);
+    enforceAutoWrap(target);
+    expect(note.wrap_width_pt).toBe(fallback);
+    expect(itemBoundsPt(note, target, geo).width).toBeCloseTo(fallback, 10);
+  });
+
+  it('非自动折行文字忽略折行字段,横向仍取最长行前进宽度', () => {
+    const target = defaultPageLayout(geo);
+    const title: TextItem = { ...pageTextOf(target, 'title'), wrap_width_pt: 60 };
+    expect(effectiveAutoWrapWidth(target, title)).toBeNull();
+    const expected = textBlockWidth(title, fallbackTextMeasure.width, target.style.font_family);
+    expect(itemBoundsPt(title, target, geo).width).toBeCloseTo(expected, 10);
+  });
+
+  it('地图地名(不参与折行)横向框仍按各行前进宽度', () => {
+    const target = defaultPageLayout(geo);
+    const label = target.items.find(
+      (candidate): candidate is TextItem => candidate.kind === 'text' && candidate.space === 'map',
+    );
+    if (label === undefined) throw new Error('默认排版缺少地图地名');
+    expect(effectiveAutoWrapWidth(target, label)).toBeNull();
+    const expected = textBlockWidth(label, fallbackTextMeasure.width, target.style.font_family);
+    expect(itemBoundsPt(label, target, geo).width).toBeCloseTo(expected, 10);
   });
 });
 

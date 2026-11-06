@@ -186,7 +186,7 @@
   color: var(--color-text-meta);
 }
 
-/* SVG / JSON 两栏:各自独立选择,独立回显;虚线框也表示「可以往这里拖」 */
+/* SVG / JSON 两栏:整栏就是唯一的控件(role=button),虚线框也表示「可以往这里拖」 */
 .page-open-slots {
   display: grid;
   gap: 8px;
@@ -208,6 +208,17 @@
 .page-open-slots.is-dragover .page-open-slot {
   border-color: var(--color-accent-border);
   background: var(--color-accent-hover-bg);
+}
+
+/* 键盘焦点环:`role="button"` 的 div 不会替我们画 */
+.page-open-slot:focus-visible {
+  outline: 2px solid var(--color-accent-focus);
+  outline-offset: 1px;
+}
+
+/* 忙碌时整栏不可操作:光标给回默认(容器上的 pointer-events 已挡住鼠标) */
+.page-open-slot[aria-disabled='true'] {
+  cursor: default;
 }
 
 /* 已选文件用实线框:一眼区分「还没选」和「已经有文件」 */
@@ -235,8 +246,16 @@
   color: var(--color-text-strong);
 }
 
+/* 栏末的「选择...」只是说明文字,不是第二个控件:整栏才是按钮 */
 .page-open-slot-pick {
   flex: none;
+  font-size: 12px;
+  color: var(--color-text-meta);
+}
+
+.page-open-slot:hover .page-open-slot-pick,
+.page-open-slot:focus-visible .page-open-slot-pick {
+  color: var(--color-text-strong);
 }
 
 .page-open-actions {

@@ -331,6 +331,23 @@ export function defaultAutoWrapWidth(layout: PageLayout, item: TextItem): number
   return roundToPageDecimals(Math.max(PAGE_AUTO_WRAP_MIN_PT, available));
 }
 
+/**
+ * 自动折行的有效宽度(pt):`wrap_width_pt`(缺省按锚点从页边距推导)夹到下限并收敛到落盘精度;
+ * 不参与自动折行的 item 返回 null.
+ *
+ * 为什么要有这个单一入口:同一个「折行宽度」被三处消费--`enforceAutoWrap` 实际折行,侧栏
+ * 「折行宽度(pt)」的读数,选中框/命中盒的横向声明框(`itemBoundsPt`).三处各写一份推导会漂移
+ * (例如旧文件 `wrap_width_pt` 为 null 时回退口径不一致,或面板显示 5pt 而折行实际按 20pt 下限),
+ * 所以统一从这里取数.注意它描述的是「文字允许铺开的横向带宽」,不是某一行的实际前进宽度:
+ * 自动折行保证每行前进宽度 <= 该值,两者在几何上不等价.
+ */
+export function effectiveAutoWrapWidth(layout: PageLayout, item: TextItem): number | null {
+  if (!isAutoWrapTextItem(item)) return null;
+  return roundToPageDecimals(
+    Math.max(PAGE_AUTO_WRAP_MIN_PT, item.wrap_width_pt ?? defaultAutoWrapWidth(layout, item)),
+  );
+}
+
 /** 两段折行结果是否逐行相等(比较用,避免无谓地刷新 layout/标脏) */
 function sameTextLines(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((line, index) => line === right[index]);
@@ -357,7 +374,9 @@ export function enforceAutoWrap(
   let changed = 0;
   for (const item of layout.items) {
     if (item.kind !== 'text') continue;
-    if (!isAutoWrapTextItem(item)) {
+    // 1) 折行宽度:与侧栏读数/选中框共用 `effectiveAutoWrapWidth`,不走第二套回退口径
+    const width = effectiveAutoWrapWidth(layout, item);
+    if (width === null) {
       // 自动折行只属于页面注记/来源:换角色/换坐标空间后残留的字段一律清掉.
       // 用 typeof 判断而不是 `!== null`:从 JSON 读进来的旧 item 这两个键可能整个缺失(undefined).
       if (typeof item.text === 'string' || item.wrap_width_pt !== null) {
@@ -367,10 +386,6 @@ export function enforceAutoWrap(
       }
       continue;
     }
-    // 1) 折行宽度:缺省按位置推导,统一夹到下限并收敛到落盘精度
-    const width = roundToPageDecimals(
-      Math.max(PAGE_AUTO_WRAP_MIN_PT, item.wrap_width_pt ?? defaultAutoWrapWidth(layout, item)),
-    );
     if (item.wrap_width_pt !== width) {
       item.wrap_width_pt = width;
       changed += 1;
@@ -719,13 +734,21 @@ export interface ItemBounds {
 /**
  * §5.7:item 的声明几何框(纸张坐标,未旋转).
  *
- * - text:水平 = 锚点 + 各行前进宽度(measureText,字体来自 CSS font 简写);
+ * - text:水平 = 锚点 + 「内容宽度」;内容宽度对自动折行的注记/来源取 `effectiveAutoWrapWidth`
+ *   (折行宽度,让选中框直接显示折行带宽),其余文字取各行前进宽度(measureText,字体来自
+ *   CSS font 简写);
  *   垂直 = 行盒口径:首行基线上方 = ascent + 半行距,末行基线下方 = descent + 半行距;
  *   半行距 = max(0, (字号 × line_height − (ascent + descent)) / 2),所以单行文字的
  *   选中框也会随「行高」变高;行高小于字体行盒时不裁字(半行距取 0);
  *   旋转 = §5.3 规定的 `rotate(rotation_deg px py)`;
  * - legend:`rect(x, y, width_pt*s, legendLayout().height)`(§5.4 的声明框);
  * - colorbar:`rect(x, y, width_pt*s, height_pt*s)`(§5.5 的声明框).
+ *
+ * 为什么自动折行项的横向框用宽度设置而不是各行实际宽度:折行宽度是用户在侧栏设定的几何约束,
+ * 也是 `enforceAutoWrap` 折行时用的同一个数;选中框显示它,用户才能直接看到/对上「折行带宽」.
+ * 若改用各行实测宽度,短文案的框会缩到文字本身,面板里的宽度设置就没有任何画面反馈.
+ * 两者不冲突:自动折行保证每行前进宽度 <= 折行宽度,所以该框始终包住文字;命中盒由同一个
+ * `itemBoundsPt` 推出(只加容差),命中范围也随之与可见的折行带宽一致.
  *
  * 为什么不用 DOM `getBBox()`:它不含元素自身的 transform(旋转文字会画在锚点附近而错位),
  * 还会把透明命中盒算进包围盒(框因此变成外扩容差);这里是纯函数,公式来自 §5,
@@ -745,7 +768,11 @@ export function itemBoundsPt(
         item.font_family ?? layout.style.font_family,
         item.font_weight,
       );
-      const width = textBlockWidth(item, measure.width, layout.style.font_family);
+      // 自动折行的注记/来源:横向声明框 = 折行宽度(与折行/侧栏读数同源);
+      // 其它文字没有折行约束,仍按各行实际前进宽度取最宽一行.
+      const width =
+        effectiveAutoWrapWidth(layout, item) ??
+        textBlockWidth(item, measure.width, layout.style.font_family);
       const ascent = measure.ascent(font);
       const descent = measure.descent(font);
       const step = item.font_size_pt * item.line_height;

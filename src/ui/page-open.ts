@@ -2,9 +2,12 @@
  * 出版排版编辑器的「打开地图」上传面板.
  *
  * 是什么:画布中央的一块面板--一段说明,两个独立的选择栏(SVG / JSON),一个「打开地图」
- * 按钮和一行错误文案.每栏自带「选择...」按钮,隐藏的 `<input type="file">` 与文件名回显;拖到页面
- * 任意位置的文件会按扩展名自动落进对应一栏.本文件只负责分栏,展示已选文件,把选好的文件交给
- * 回调,以及显示打开失败的中文原因.
+ * 按钮和一行错误文案.每栏**整栏就是控件**(点击任意位置或 Enter/Space 打开系统文件框),
+ * 内部是隐藏的 `<input type="file">` 与文件名回显;拖到页面任意位置的文件会按扩展名自动落进
+ * 对应一栏.本文件只负责分栏,展示已选文件,把选好的文件交给回调,以及显示打开失败的中文原因.
+ * 为什么整栏是唯一控件,不在栏内再放一个「选择...」按钮:同一动作两个入口时必须特判点击目标
+ * 才能避免弹两次文件框,还多出一个可聚焦控件;整栏做成 `role="button"` 后热区最大,键盘只有
+ * 一个停靠点,与侧栏元素行(`ui/page-sidebar.ts`)是同一套写法.
  * 为什么 SVG 与 JSON 分成两栏:打开需要「底图 + geo.json」两份文件,用户经常只想换其中一份
  * (底图没变,只重新生成 geo.json;或排版文件没变,只换了底图).合成一个 multiple 选择框时,
  * 第二次选择会覆盖第一次的全部选中项,用户只能每次把两份一起重选;拆成两栏后各栏独立替换,
@@ -20,7 +23,7 @@
  * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
-import { create_element, createButton, createPanel, type ButtonHandle } from 'miko_ui';
+import { create_element, createButton, createPanel } from 'miko_ui';
 import { PAGE_UPLOAD_JSON_ACCEPT, PAGE_UPLOAD_SVG_ACCEPT } from '../config/page';
 import { classifyUploadFile } from '../core/document';
 
@@ -45,9 +48,8 @@ export interface PageOpenPanelHandle {
 
 /** 一栏的节点与已选文件 */
 interface Slot {
-  /** 整栏(标签 + 文件名 + 按钮),点空白处等同点「选择...」 */
+  /** 整栏(标签 + 文件名 + 「选择...」文字),整栏就是 `role="button"` 控件 */
   readonly root: HTMLElement;
-  readonly pick: ButtonHandle;
   readonly input: HTMLInputElement;
   /** 文件名回显节点 */
   readonly name: HTMLElement;
@@ -60,6 +62,7 @@ interface Slot {
 interface SlotOptions {
   readonly label: string;
   readonly emptyText: string;
+  /** 栏末的说明文字(不再是独立按钮,只是提示点这里选什么) */
   readonly pickText: string;
   readonly pickTitle: string;
   readonly accept: string;
@@ -88,18 +91,13 @@ export function createPageOpenPanel(
     '底图由 Cartopy_file 生成(负责几何),geo.json 记录刻度,地名与配色;成品 SVG 自带底图与排版,选中它就能继续编辑(旧版导出,不含内嵌排版数据的成品不再支持,需要 base.svg + geo.json 重新打开).也可以把文件拖到页面任意位置,会按扩展名自动放进对应一栏.',
   );
 
-  /** 建一栏:标签 + 文件名回显 + 「选择...」按钮 + 隐藏 input */
+  /** 建一栏:标签 + 文件名回显 + 「选择...」提示 + 隐藏 input;整栏是唯一控件 */
   const createSlot = (options: SlotOptions): Slot => {
     const name = create_element(
       { tag: 'span' },
       { class: 'page-open-slot-name' },
       options.emptyText,
     );
-    const pick = createButton({
-      text: options.pickText,
-      class: 'page-open-slot-pick',
-      title: options.pickTitle,
-    });
     const input = create_element(
       { tag: 'input' },
       {
@@ -113,12 +111,17 @@ export function createPageOpenPanel(
     );
     const root = create_element(
       { tag: 'div' },
-      { class: 'page-open-slot', role: 'group', 'aria-label': options.label },
+      {
+        class: 'page-open-slot',
+        role: 'button',
+        tabindex: '0',
+        title: options.pickTitle,
+      },
       create_element({ tag: 'span' }, { class: 'page-open-slot-label' }, options.label),
       name,
-      pick.element,
+      create_element({ tag: 'span' }, { class: 'page-open-slot-pick' }, options.pickText),
     );
-    return { root, pick, input, name, emptyText: options.emptyText, files: [] };
+    return { root, input, name, emptyText: options.emptyText, files: [] };
   };
 
   const svgSlot = createSlot({
@@ -178,7 +181,7 @@ export function createPageOpenPanel(
     errorText.hidden = message === null || message.length === 0;
   };
 
-  /** 把两栏状态同步到 DOM:文件名,已填样式,按钮可用性 */
+  /** 把两栏状态同步到 DOM:文件名,已填样式,控件可用性 */
   const sync = (): void => {
     for (const slot of [svgSlot, jsonSlot]) {
       const filled = slot.files.length > 0;
@@ -187,7 +190,8 @@ export function createPageOpenPanel(
         : slot.emptyText;
       slot.root.classList.toggle('is-filled', filled);
       slot.input.disabled = busy;
-      slot.pick.setDisabled(busy);
+      // role="button" 没有原生 disabled:忙碌态用 aria-disabled 暴露给读屏
+      slot.root.setAttribute('aria-disabled', busy ? 'true' : 'false');
     }
     // 只选一个 SVG 也允许点「打开地图」:成品 SVG 自带排版;普通底图缺 geo.json 时由 core 报错.
     const ready = svgSlot.files.length > 0;
@@ -262,15 +266,17 @@ export function createPageOpenPanel(
   openButton.onClick(submit);
 
   for (const slot of [svgSlot, jsonSlot]) {
-    slot.pick.onClick(() => {
+    const openPicker = (): void => {
       if (busy) return;
       slot.input.click();
-    });
-    // 点整栏空白处等同点按钮;点在按钮上时由按钮自己的 click 处理,避免一次点击弹两次文件框
-    slot.root.addEventListener('click', (event) => {
-      if (event.target === slot.pick.element) return;
-      if (busy) return;
-      slot.input.click();
+    };
+    slot.root.addEventListener('click', openPicker);
+    // `role="button"` 的 div 没有原生按钮的键盘激活:Enter/Space 自己接
+    // (与侧栏元素行同一套);Space 默认会滚动面板,所以先 preventDefault
+    slot.root.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openPicker();
     });
     slot.input.addEventListener('change', () => {
       const files = slot.input.files === null ? [] : [...slot.input.files];

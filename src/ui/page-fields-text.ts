@@ -40,7 +40,7 @@ import {
   type TextItem,
   type TextRole,
 } from '../core/page';
-import { defaultAutoWrapWidth } from '../core/page-layout';
+import { defaultAutoWrapWidth, effectiveAutoWrapWidth } from '../core/page-layout';
 import { applyCategoryStyleToItem, textCategoryOfItem } from '../core/text-style';
 import type { SidebarContext } from './page-sidebar-context';
 
@@ -97,7 +97,11 @@ export function buildTextFields(ctx: SidebarContext, item: TextItem): HTMLElemen
       () => {
         const target = itemById(ctx.getLayout(), item.id);
         if (target?.kind !== 'text') return PAGE_AUTO_WRAP_MIN_PT;
-        return target.wrap_width_pt ?? defaultAutoWrapWidth(ctx.getLayout(), target);
+        // 与 enforceAutoWrap / 选中框同一口径:显示的就是实际折行(以及选中框宽度)用的宽度
+        return (
+          effectiveAutoWrapWidth(ctx.getLayout(), target) ??
+          defaultAutoWrapWidth(ctx.getLayout(), target)
+        );
       },
       (value) =>
         ctx.handlers.onChange((layout) => {

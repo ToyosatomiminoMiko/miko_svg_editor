@@ -733,7 +733,8 @@ page-main.ts:
   -> buildPageToolbar(含「样式设置」)-> editor.start()
 交互:
   点击 = data-page-item 命中 -> select(侧栏属性面板跟随)
-  选中框/命中盒 = §5.7 item 几何框(page 块 + §5 公式 + 字体行盒),不是 DOM getBBox
+  选中框/命中盒 = §5.7 item 几何框(page 块 + §5 公式 + 字体行盒),不是 DOM getBBox;
+                 注记/来源的横向框取折行宽度(effectiveAutoWrapWidth),与「折行宽度(pt)」同源
   拖拽 = page 空间 item 写回 pt;map 空间 item 写回底图坐标(§5.1 反变换);
          center_h=true 的页面文字只改 y(水平位移被约束吃掉)
   方向键 = 1pt 微移(Shift 10pt);center_h=true 的页面文字只改 y;滚轮 = 以指针为中心缩放;
@@ -828,8 +829,10 @@ CJK SC` 中文兜底,见 `config/fonts.ts`;口径见 `docs/PAGE-EDITOR.md` §6.3
 - **自动换行只覆盖页面注记与来源**:`defaultPageLayout` 用 canvas 测量把注记/来源折成 `lines`;
   两者都额外存原始内容 `text` 与折行宽度 `wrap_width_pt`,内容/宽度/字号/字距变化后由
   `enforceAutoWrap` 重算(打开流程与 `applyPageChange` 各调一次,幂等);来源另按页底口径调整
-  `y`(最后一行基线不动),其它文字角色与地图地名仍不重排.
-  **不做两端对齐**;字距按 item 的 `letter_spacing_em` 渲染并参与注记/来源折行测量.
+  `y`(最后一行基线不动),其它文字角色与地图地名仍不重排.折行宽度只有 `effectiveAutoWrapWidth`
+  一个口径:折行,侧栏「折行宽度(pt)」读数,选中框/命中盒的横向声明框共用它,所以画布上的选中框
+  宽度就是设置值(短文案不会缩回文字宽度).**不做两端对齐**;字距按 item 的
+  `letter_spacing_em` 渲染并参与注记/来源折行测量.
 - 文字样式是**分类级覆盖**:侧栏单条 item 不再有字号/颜色/字重/斜体/行高/字距/光晕字段,同一分类
   下所有文字共用一套样式,「样式设置」窗口改一次即批量写回该分类的全部 item;要单条不同样式只能
   换角色/分类.颜色/斜体/字重/字距/行高/光晕以 `page.text_style` 为唯一真源;页面分类字号为

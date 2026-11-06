@@ -350,7 +350,10 @@ Cartopy 直出的 geo.json 没有这个键.形状:
   `\n`),`lines` 是它按 `wrap_width_pt` + 当前字号/字重/字距折出来的结果.派生约束由
   `core/page-layout.ts` 的 `enforceAutoWrap` 统一执行:内容,折行宽度,字号,字重,字距任一
   变化后重算 `lines`;宽度先夹到下限 `PAGE_AUTO_WRAP_MIN_PT=20` 并收敛到 3 位小数再折行,
-  保证「导出 -> 重新打开」用同一宽度复现同一批 `lines`(幂等).来源额外按「页底说明」处理:
+  保证「导出 -> 重新打开」用同一宽度复现同一批 `lines`(幂等).折行宽度只有一个口径
+  `effectiveAutoWrapWidth(layout, item)`:`enforceAutoWrap` 折行,侧栏「折行宽度(pt)」读数,
+  §5.7 选中框/命中盒的横向声明框都从它取数(旧文件 `wrap_width_pt=null` 时按锚点从页边距
+  推导),三处不会各算一份.来源额外按「页底说明」处理:
   折行后保持最后一行基线不动(块向上长),并用页底边距兜底,避免多出来的行画到纸面外.
   旧 page 块没有这两个字段时,打开流程补默认宽度(注记 = `x` 到右页边距;来源默认左右居中,
   = 左右页边距之间的内容宽),把现有 `lines` 当原始内容,标脏并告警
@@ -572,8 +575,11 @@ DOM `getBBox()` 外扩:`getBBox()` 不含元素自身的 transform(旋转文字�
 **未旋转声明框**(预览,导出,命中判定共用同一批函数):
 
 ```
-text:    水平 = 锚点 anchor + 各行前进宽度(measureText;CSS font 带 font_size_pt/font-family/字重;
-               字距按 letter_spacing_em × font_size_pt × max(0, 字符数-1) 叠加)
+text:    水平 = 锚点 anchor + 内容宽度
+               内容宽度:自动折行的注记/来源 = `effectiveAutoWrapWidth`(折行宽度设置,先夹下限
+               并收敛到 3 位小数);其它文字 = 各行前进宽度(measureText;CSS font 带
+               font_size_pt/font-family/字重;字距按 letter_spacing_em × font_size_pt ×
+               max(0, 字符数-1) 叠加)
          垂直 = 首行基线 − ascent − halfLeading .. 末行基线 + descent + halfLeading
                 halfLeading = max(0, (font_size_pt × line_height − (ascent + descent)) / 2)
                 ascent/descent 是 CSS font 的字体行盒:浏览器取 canvas
@@ -588,6 +594,10 @@ colorbar:rect(x, y, width_pt × s, height_pt × s)                  // §5.5
 
 - 图例/色标的 `s` = map 空间缩放比(§5.1);page 空间 `s = 1`.text 在 map 空间只换坐标
   (§5.1),字号与前进宽度**不**乘 `s`(§5.3).
+- **自动折行文字的横向框 = 折行宽度设置**:注记/来源的选中框宽度直接取
+  `effectiveAutoWrapWidth`(与折行,侧栏读数同源),不从 `lines` 反推实际文字宽度.这样把
+  「折行宽度(pt)」改大/改小,选中框立即跟着变宽/变窄,短文案也能看出可用的折行带宽;
+  自动折行保证每行前进宽度 <= 该宽度,所以框始终包住文字.
 - text 的垂直声明框按**行盒**计算:单行文字改大 `line_height` 时选中框随之变高,而不是只包住
   字体 ascent/descent;多行仍以 `step` 展开.
 - **命中盒** = 声明框四周加 `PAGE_HIT_TOLERANCE_PT`(指针精度容差,只决定点击范围);
@@ -994,8 +1004,9 @@ tests/render/compose-svg.test.ts # 合成结构,marker,内嵌源,确定性,越�
 - **画布**:一个 SVG(viewBox 随缩放/平移变化).纸张白底 + 底图 `<image href=objectURL>`
   (放在 map 矩形)+ 图框/刻度 + items.滚轮以指针为中心缩放,空格/中键拖动平移,
   「适应页面」/「1:1」按钮.
-- **选择与编辑**:点 item 选中(选中框 = §5.7 的声明几何框,随 `rotation_deg` 旋转;外观在
-  `styles-page.css`);拖拽移动(map 空间 item 写回底图坐标,page 空间写回 pt);
+- **选择与编辑**:点 item 选中(选中框 = §5.7 的声明几何框,随 `rotation_deg` 旋转;注记/来源
+  的横向框显示「折行宽度(pt)」;外观在 `styles-page.css`);拖拽移动(map 空间 item 写回底图坐标,
+  page 空间写回 pt);
   方向键 1pt 微移(Shift 10pt);Delete 删除(title 等也允许删);双击文字 item -> 侧栏内容框聚焦.
   **左右居中约束**:页面文字的「左右居中」开关在侧栏 x/y 正下方(`center_h`);开启时 x 数字框
   冻结并置灰,x 行变灰,显示说明「水平位置由纸张宽度决定(拖拽只改垂直位置)」,对齐分段也禁用;
@@ -1116,6 +1127,10 @@ tests/render/compose-svg.test.ts # 合成结构,marker,内嵌源,确定性,越�
     多行,画布/导出都在该宽度内折行,侧栏文本域仍显示原始一长段;把折行宽度改小 -> 行数变多,
     改回原值 -> 恢复原分行(原始内容没被拆断).内容里敲回车 -> 保留为强制分段.改注记分类字号/
     字距 -> 自动重排.导出 geo.json 带 `text`/`wrap_width_pt`;重新打开 -> 状态干净,字节一致.
+    **选中框宽度 = 折行宽度**:选中注记/来源,把「折行宽度(pt)」从 150 改到 300 -> 选中虚线框
+    立即变宽到 300(左/中/右锚点分别从锚点向右/居中/向左展开),与内容长短无关;把内容改短
+    (如「注:短文案」)-> 框仍按 300 显示,不缩回文字宽度.旧 page 块缺 `wrap_width_pt` 时,框与
+    面板读数都按同一回退宽度(`effectiveAutoWrapWidth`)显示.
     选中页底来源(默认居中)把内容改长 -> 同样按内容宽折行,最后一行仍贴住页底边距(块向上长),
     不会画到纸面外;改折行宽度/字号也重排.反例:手改 `lines` 与原始内容不一致 -> 打开时按宽度
     重排,标脏并告警「排版中的注记/来源已按折行宽度自动重排(N 条)」;把 `wrap_width_pt` 放到
