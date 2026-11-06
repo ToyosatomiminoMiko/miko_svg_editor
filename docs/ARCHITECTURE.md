@@ -55,6 +55,7 @@ flowchart TB
 | `scripts/dev_ui_link.mjs`             | 本地 miko_ui 工作副本 ↔ npm 版的 link/unlink/status/auto 切换                                                                                             |
 | `scripts/check_architecture.mjs`      | `npm run arch`:src 运行期依赖只能向下 + 无环检查(见 §8.3)                                                                                                 |
 | `scripts/autorun.py`                  | 全角标点转半角:钩子 import 的 `fix_file()` + 文件/管道模式命令行                                                                                          |
+| `scripts/build_font_assets.py`        | 开发期一次性脚本:从本机安装的字体裁出 `src/assets/fonts/` 的预裁资产(需要 fontTools + brotli),不参与构建                                                  |
 | `.githooks/pre-commit`                | 提交前调 `autorun.py` 修正暂存文件,只把改过的文件重新入暂存区                                                                                             |
 
 ### 1.2 `src/app/`:装配与事件控制
@@ -133,14 +134,19 @@ flowchart TB
 
 ### 1.7 `tests/`
 
-| 目录/文件                          | 一句话职责                                                                                                                                                           |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tests/core/*.test.ts`             | core 与 config 的纯逻辑:vec/angle/format,model,entities,geometry,constraints,solver,dimensions,selection,sketch-actions,operations,point-entity,coincident/collinear |
-| `tests/core/fonts.test.ts`         | 全项目字体栈:页面默认值 / CSS `--font-family-base` 与 `config/fonts.ts` 逐字一致                                                                                     |
-| `tests/core/fixtures.ts`           | 夹具:`addArcByAngles` 把「圆心+半径+起终角」换成三个点                                                                                                               |
-| `tests/render/export-svg.test.ts`  | `buildSVG` 的纯输出(整圆 `<circle>`,弧 `<path>`,构造虚线,无 NaN)                                                                                                     |
-| `tests/ui/parse-dim-input.test.ts` | 尺寸输入纯解析                                                                                                                                                       |
-| `tests/ui/download.test.ts`        | 保存策略:对话框写入 / 取消 / 无 API 与写入失败的回退(最小 DOM stub)                                                                                                  |
+| 目录/文件                            | 一句话职责                                                                                                                                                           |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/core/*.test.ts`               | core 与 config 的纯逻辑:vec/angle/format,model,entities,geometry,constraints,solver,dimensions,selection,sketch-actions,operations,point-entity,coincident/collinear |
+| `tests/core/fonts.test.ts`           | 全项目字体栈:页面默认值 / CSS `--font-family-base` 与 `config/fonts.ts` 逐字一致                                                                                     |
+| `tests/core/fixtures.ts`             | 夹具:`addArcByAngles` 把「圆心+半径+起终角」换成三个点                                                                                                               |
+| `tests/render/export-svg.test.ts`    | `buildSVG` 的纯输出(整圆 `<circle>`,弧 `<path>`,构造虚线,无 NaN)                                                                                                     |
+| `tests/render/used-text.test.ts`     | 成品文字扫描:字符集去重排序,族名/字重收集,XML 实体只还原一遍                                                                                                         |
+| `tests/render/embedded-font.test.ts` | 内嵌字体:sfnt 格式识别,按字重选面,自定义族识别,`@font-face` CSS 字节口径                                                                                             |
+| `tests/render/hb-subset.test.ts`     | harfbuzz wasm 绑定:用随包资产真裁一次字(TrueType/可变 CFF2),子集比原字体小且可复现                                                                                   |
+| `tests/render/compose-fonts.test.ts` | 成品字体子集:不传 `font_faces` 字节不变;注入后只多出 `<defs>` 开头的 `<style>`,report 不变,重复合成同字节                                                            |
+| `tests/fixtures/node-fs.ts`          | node 单测读二进制文件(wasm/字体资产)的最小 fs 封装(tsconfig 没有 @types/node)                                                                                        |
+| `tests/ui/parse-dim-input.test.ts`   | 尺寸输入纯解析                                                                                                                                                       |
+| `tests/ui/download.test.ts`          | 保存策略:对话框写入 / 取消 / 无 API 与写入失败的回退(最小 DOM stub)                                                                                                  |
 
 ## 2. 从 `index.html` 到第一帧:装配顺序
 
@@ -446,7 +452,7 @@ ESLint 的 `no-restricted-imports` 只看「源码里写的 import 路径」,挡
 - **运行期依赖只能向下**:扫描 `src/**/*.ts` 的相对 import/export,先剔除 `import type` / `export type`(运行期会被 TypeScript / 打包器擦除,不算边),再按 `src/<layer>/...` 归层.允许边为 `app -> app|ui|render|core|config`,`ui -> ui|render|core|config`,`render -> render|core|config`,`core -> core|config`,`config -> config`;`src` 根目录散落的文件会被判违规(必须归入五层之一).
 - **没有运行期环**:对依赖图做 DFS 三色标记(回到「当前递归栈上」的节点才算环),报告完整路径.
 
-脚本失败时 `process.exit(1)`,打印「文件: 层禁止运行期依赖 层(路径)」或「运行期循环依赖:A -> B -> A」;成功时打印 `架构依赖检查通过:N 个文件,0 个反向依赖,0 个运行期环.`.当前结果:**72 个文件,0 个反向依赖,0 个运行期环**.
+脚本失败时 `process.exit(1)`,打印「文件: 层禁止运行期依赖 层(路径)」或「运行期循环依赖:A -> B -> A」;成功时打印 `架构依赖检查通过:N 个文件,0 个反向依赖,0 个运行期环.`.当前结果:**79 个文件,0 个反向依赖,0 个运行期环**.
 
 接入点:
 
@@ -554,7 +560,7 @@ const input = (w: Vec, snap: Snap | null = null): ClickInput => ({
 
 - 尺寸输入纯解析在 `tests/ui/parse-dim-input.test.ts`;导出保存策略(对话框优先/回退下载)在
   `tests/ui/download.test.ts`(用最小 DOM stub 跑 node 环境);`ui/` 其余模块依赖 DOM/miko_ui,不做单测.
-- 写作时 `npm run test` 为 27 个文件 / 612 个用例全绿;用例数会变,以实际输出为准.
+- 写作时 `npm run test` 为 33 个文件 / 656 个用例全绿;用例数会变,以实际输出为准.
 
 ### 11.2 调试一条交互链路
 
@@ -577,7 +583,7 @@ const input = (w: Vec, snap: Snap | null = null): ClickInput => ({
 | `npm run dev`                     | 本地开发(`predev` 自动链接本地 miko_ui,若存在)                                        |
 | `npm run typecheck`               | `tsc --noEmit`;分层/穷尽问题最先在这里暴露                                            |
 | `npm run lint`                    | ESLint 分层 import 禁令 + 通用规则                                                    |
-| `npm run arch`                    | 运行期依赖只能向下 + 无运行期环(`scripts/check_architecture.mjs`,当前 72 文件 0 违规) |
+| `npm run arch`                    | 运行期依赖只能向下 + 无运行期环(`scripts/check_architecture.mjs`,当前 79 文件 0 违规) |
 | `npm run format` / `format:check` | Prettier(文档也受管)                                                                  |
 | `npm run build`                   | `tsc --noEmit && vite build` -> `dist/`                                               |
 | `npm run ui:status`               | 看 miko_ui 当前解析到本地库还是 npm 版                                                |
@@ -694,11 +700,11 @@ map.html(纯静态 Vite 站)
 
 | 层        | 草图(`index.html`)            | 地图排版(`map.html`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | --------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `config/` | `config/*.ts`                 | `config/page.ts`:格式标识,上传 accept,校验容差,纸张预设,默认排版内部页边距常量 PAGE_DEFAULT_MARGIN_PT,页面文字固定默认字号,图例/色标默认值,纸张比例系数 `layoutScaleForPaper`,上限<br>`config/fonts.ts`:全项目字体栈 `FONT_FAMILY_STACK`(界面/页面/成品唯一真源)+ 历史默认栈升级表<br>`config/text-style.ts`:文字样式默认值 + 分类元信息(role 颜色表,页面文字固定默认字号,20 个分类 = 6 页面文字 + 14 地图地名 与两组顺序;样式唯一真源,其余层只引用;分类 `description`/`example`/`section` 供窗口说明,示例与语义小标题)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `config/` | `config/*.ts`                 | `config/page.ts`:格式标识,上传 accept,校验容差,纸张预设,默认排版内部页边距常量 PAGE_DEFAULT_MARGIN_PT,页面文字固定默认字号,图例/色标默认值,纸张比例系数 `layoutScaleForPaper`,上限<br>`config/fonts.ts`:全项目字体栈 `FONT_FAMILY_STACK`(界面/页面/成品唯一真源)+ `LATIN_FONT_FAMILY` / `CJK_FONT_FAMILY`(成品内嵌子集的 `@font-face` 族名)<br>`config/text-style.ts`:文字样式默认值 + 分类元信息(role 颜色表,页面文字固定默认字号,20 个分类 = 6 页面文字 + 14 地图地名 与两组顺序;样式唯一真源,其余层只引用;分类 `description`/`example`/`section` 供窗口说明,示例与语义小标题)                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `core/`   | 草图模型/约束/求解/尺寸       | `core/base-svg.ts`:底图 C1–C4 与 inner/prefix/suffix 切片<br>`core/open-map.ts`:两条打开路径 -> PageDocument + 初始排版;打开时重算文字样式(`resyncTextStyles`)并贴合左右居中(有改动标脏+告警)<br>`core/final-svg.ts`:成品 SVG 内嵌源读取 / 底图还原<br>`core/base64.ts`:UTF-8 base64<br>`core/document.ts`:PageDocument,createPageDocument,上传文件分类,导出命名<br>`core/page.ts`:geo/page 类型,规范化/校验/digest/序列化(含 `text_style`,`geo_label_id`,text item 的 `center_h` 与 `enforceHorizontalCenter`;纯逻辑,node 可测)<br>`core/page-layout.ts`:§5 布局公式 + `defaultPageLayout(geo, options)`(A4 横向/自适应纸张,可选块降级,按 `text_style` 覆盖出分类样式与地图分类统一字号,页面文字字号固定不随纸张缩放,页边距为内部常量,title/subtitle/source 默认开启左右居中)<br>`core/text-style.ts`:分类文字样式解析/批量应用/恢复默认,分类默认统一字号,打开时按分类重建逐条样式(resyncTextStyles;纯逻辑);页面分类字号 = 覆盖 ?? 该分类现有 item 字号 ?? 固定默认(默认字号不随纸张缩放,保证导出->打开幂等),地图分类字号恒统一 |
-| `render/` | canvas 渲染 + `export-svg.ts` | `render/page-format.ts`(3 位小数/转义/属性 helper)<br>`render/page-svg.ts`:layout+geo -> 预览 SVG DOM(纸张/底图 image/框/刻度/文字/图例/色标)<br>`render/compose-svg.ts`:浏览器内合成 final.svg(结构/marker/内嵌源/report)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `render/` | canvas 渲染 + `export-svg.ts` | `render/page-format.ts`(3 位小数/转义/属性 helper)<br>`render/page-svg.ts`:layout+geo -> 预览 SVG DOM(纸张/底图 image/框/刻度/文字/图例/色标)<br>`render/compose-svg.ts`:浏览器内合成 final.svg(结构/marker/内嵌源/可选字体子集/report)<br>`render/used-text.ts`:扫成品里的 `<text>` 收集字符集/族名/字重<br>`render/embedded-font.ts`:选要内嵌的字体面 + `@font-face` CSS 字节口径<br>`render/hb-subset.ts`:harfbuzz `hb-subset`(wasm)最小绑定                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `ui/`     | 状态栏/dock/工具条/通知       | `ui/page-open.ts`(上传面板),`ui/page-toolbar.ts`(文件/添加/样式/视图四组),`ui/page-style-window.ts`(样式设置窗口:头部总说明 + 分组列表含数量徽标/已改标记/地图 0 项置灰 + 分类头与实时预览 + 四组字段(字号/行高/字距/光晕宽度旁字段级 reset,已是默认时禁用)+ 恢复默认(整分类)),`ui/page-notify.ts`,`ui/download.ts`;属性面板拆为 `ui/page-sidebar.ts`(编排:面板壳/sync/元素列表)+ `ui/page-sidebar-context.ts`(面板契约)+ `ui/page-sidebar-controls.ts`(控件登记与刷新)+ `ui/page-panel-paper.ts` / `ui/page-panel-map.ts`(页面/地图面板;页面面板只有纸张预设/方向/宽高与落盘说明,改纸张不移动已放置元素)+ `ui/page-fields-common.ts` / `ui/page-fields-text.ts`(坐标空间/x-y + 页面文字「左右居中」开关(在 x/y 下方,开启时 x 冻结并置灰)/内容/角色/对齐/旋转 + 按当前分类打开样式设置) / `ui/page-fields-legend.ts` / `ui/page-fields-colorbar.ts`(元素公共/文字/图例/色标字段)(全部 miko_ui 或标准 DOM)                                                                                                                        |
-| `app/`    | `main.ts` + `editor.ts`       | `page-main.ts`(组合根:File 读成字节 + core/open-map 装配 + 样式窗口生命周期),`page-editor.ts`(选择/拖拽/缩放/导出状态机 + 分类样式补丁 + 每次排版修改后贴合左右居中约束)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `app/`    | `main.ts` + `editor.ts`       | `page-main.ts`(组合根:File 读成字节 + core/open-map 装配 + 样式窗口生命周期),`page-editor.ts`(选择/拖拽/缩放/导出状态机 + 分类样式补丁 + 每次排版修改后贴合左右居中约束;导出 SVG 时先合成草稿,再裁字体子集,最后带 `font_faces` 再合成),`font-embed.ts`(浏览器侧字体子集编排:取 wasm/资产,裁字,告警)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 `npm run arch` 的层规则不变:两个入口都只使用 `app -> ui/render/core/config` 的下行依赖.
 地图排版页与草图内核**不共享模块级单例**,因此刷新/切换模式不会互相污染.
@@ -773,20 +779,25 @@ destroy + revoke + 回到上传面板.
      `<stem>.geo.json`;成功清脏标记,用户在对话框取消则保持脏
   (导出幂等:导出 -> 重新打开 -> 再导出,字节完全一致)
 导出 SVG:
-  composeFinalSvg(PageDocument, layout)
+  composeFinalSvg(PageDocument, layout)                       # 第一遍:不嵌字体的草稿
     -> normalizePage(含左右居中约束);geo.relief 为 null 且 page.items 有 colorbar -> 抛错(不写半成品)
     -> core/page-layout.ts 的 §5 公式(mapTransform / frameTick / legend / colorbar / text)
     -> <metadata id="mapdoc-source">BASE64(JSON{document, base:{prefix,suffix,sha256,exact:true}})</metadata>
     -> 底图原文内联进 <g id="mapdoc-map" transform="translate(tx,ty) scale(s)">
     -> <g id="mapdoc-frame"> + <g id="mapdoc-overlay"> + `<!-- mapdoc-final:B64 -->`
+  embedUsedFontFaces(draft.svg)                               # 第二遍前:字体子集
+    -> collectUsedText(render/used-text.ts):字符集/族名/字重
+    -> selectFontAssets + customFamiliesOf(render/embedded-font.ts):选面 + 嵌不了的族告警
+    -> hb-subset(harfbuzz wasm,render/hb-subset.ts)逐面裁字 -> font_faces
+  composeFinalSvg(PageDocument, layout, {font_faces})         # 第二遍:多出 <defs><style>@font-face</style></defs>
     -> {svg, report};report.counts / warnings / out_of_paper 显示在消息区
   -> Blob(image/svg+xml)-> 保存(showSaveFilePicker;取消不提示成功,也不展示合成告警)
      `<stem>.svg`;不清脏标记
 ```
 
 `final.svg` 结构(`docs/PAGE-EDITOR.md` §6):纸张尺寸根 `<svg>` -> 纸白底 ->
-`<metadata id="mapdoc-source">`(内嵌可编辑源)-> `<defs>`(必含 `mapdoc-map-clip`,有 colorbar 时
-再放色标渐变)-> 地图 group(底图原文,`clip-path` 裁到地图框)-> `mapdoc-frame` -> `mapdoc-overlay` ->
+`<metadata id="mapdoc-source">`(内嵌可编辑源)-> `<defs>`(可选字体 `@font-face`,必含
+`mapdoc-map-clip`,有 colorbar 时再放色标渐变)-> 地图 group(底图原文,`clip-path` 裁到地图框)-> `mapdoc-frame` -> `mapdoc-overlay` ->
 `<!-- mapdoc-final:B64 -->`.marker(v2)记录 counts / geoDigest / pageDigest / version,键名 `page`
 (旧 `scene` 键已删除);打开成品时会被读取用于配对校验(单文件路径只告警,成品+geo 路径不一致即
 拒绝).`marker.page` **只按当前 `pageDigest` 对照**(没有旧口径回退).
@@ -808,9 +819,12 @@ prepare/extract 步骤.
 
 ### 15.6 已知边界(本轮)
 
-- 字体不内嵌:`final.svg` 的文字用 `font-family` 引用本机字体(全项目字体栈:`JetBrains Mono
-Slashed` 主字体 / `Noto Sans Mono CJK SC` 中文兜底,见 `config/fonts.ts`);跨机器字形可能
-  变化,印刷前在 Inkscape/AI 转曲.字体子集载荷位置已预留(未来往 `<defs>` 加 `@font-face`).
+- 字体子集内嵌,但覆盖有限:`final.svg` 的文字仍是真 `<text>`(可复制/再编辑),导出时把成品里
+  用到的字形从随包资产(`src/assets/fonts/`,约 3.3 MB)裁成子集,写进 `<defs>` 开头的
+  `<style>@font-face</style>`(全项目字体栈:`JetBrains Mono Slashed` 主字体 / `Noto Sans Mono
+CJK SC` 中文兜底,见 `config/fonts.ts`;口径见 `docs/PAGE-EDITOR.md` §6.3).预裁资产只覆盖 GB2312
+  - 拉丁/符号区间:覆盖不到的字与自定义字体族仍按 `font-family` 落本机字体;斜体是查看器合成倾斜;
+    中文可变面只到 700 字重;成品字节从此依赖 `harfbuzzjs` 版本(同构建下仍可复现).印刷前仍建议转曲.
 - **自动换行只覆盖页面注记与来源**:`defaultPageLayout` 用 canvas 测量把注记/来源折成 `lines`;
   两者都额外存原始内容 `text` 与折行宽度 `wrap_width_pt`,内容/宽度/字号/字距变化后由
   `enforceAutoWrap` 重算(打开流程与 `applyPageChange` 各调一次,幂等);来源另按页底口径调整

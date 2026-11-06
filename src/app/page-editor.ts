@@ -58,6 +58,7 @@ import {
   type TextStyleCategoryId,
 } from '../config/text-style';
 import { formatPageNumber } from '../render/page-format';
+import { embedUsedFontFaces } from './font-embed';
 import { composeFinalSvg, type ComposeReport } from '../render/compose-svg';
 import { renderPageSvg } from '../render/page-svg';
 import type { TextMeasure } from '../core/types';
@@ -295,18 +296,30 @@ export class PageEditor {
    * 导出 `final.svg`:浏览器内合成后保存,展示合成报告里的告警.
    * 为什么不清脏标记:导出 SVG 不改变排版数据,geo.json 仍可能没导出;
    * 是否「干净」以 geo.json 落盘为准.用户取消保存时既不提示成功也不报合成告警.
+   * 为什么要合成两次:字体子集要按「成品里实际画出来的字符」裁(来自 items,图例,色标,
+   * 刻度等多个来源),所以先合成一份不嵌字体的草稿拿字符集,裁好后再合成正式成品;
+   * 两次合成除 `<defs>` 里的 `@font-face` 外完全相同,字节可复现.
    */
   async exportFinal(): Promise<void> {
     const fileName = finalFileNameOf(this.document);
     try {
-      const result = composeFinalSvg(this.document, this.layout);
+      const draft = composeFinalSvg(this.document, this.layout);
+      const embedded = await embedUsedFontFaces(draft.svg);
+      const result =
+        embedded.faces.length === 0
+          ? draft
+          : composeFinalSvg(this.document, this.layout, { font_faces: embedded.faces });
+      const report =
+        embedded.warnings.length === 0
+          ? result.report
+          : { ...result.report, warnings: [...embedded.warnings, ...result.report.warnings] };
       const outcome = await downloadText(result.svg, fileName, SVG_MIME);
       if (outcome === 'cancelled') {
         this.notifier.info('已取消导出 SVG');
         return;
       }
-      this.reportWarnings(result.report);
-      this.notifier.info(`已导出 ${fileName}(${result.report.counts.total} 个元素)`);
+      this.reportWarnings(report);
+      this.notifier.info(`已导出 ${fileName}(${report.counts.total} 个元素)`);
     } catch (error) {
       this.notifier.error(`导出 SVG 失败:${errorMessage(error)}`);
     }

@@ -7,7 +7,11 @@
  * 单文件就能被重新打开继续编辑(§6.2).此外给出元素计数,越界告警与越界 item id(`report`).
  * 为什么在 render 层而不是 core:输出是 SVG 字符串,要复用 `render/page-format.ts` 的数值/
  * 转义口径;排版几何仍全部来自 `core/page-layout.ts`(与 `render/page-svg.ts` 预览同一套公式).
- * 确定性:不读 DOM,时间,随机数;同一 (base.inner, baseSha256, geo, layout) 输入两次得到同字节.
+ * 可选的 `font_faces`:导出时把用到的字形裁成子集字体,写成 `<defs>` 里的
+ * `<style>@font-face</style>`(见 `render/embedded-font.ts`);不传则与旧口径一样只写
+ * `font-family`.
+ * 确定性:不读 DOM,时间,随机数;同一 (base.inner, baseSha256, geo, layout, font_faces)
+ * 输入两次得到同字节.
  * 与无后端改造前的合成实现相比:图层顺序,空组写法,marker 形状沿用其字节布局,但排版几何改由
  * page-layout 统一提供,所以不要求与旧输出逐字节一致;数值格式仍走 formatPageNumber.
  * 为什么 map group 必须 `clip-path`:底图根内自带覆盖整个 Figure 的图幅白底 path,预览用
@@ -47,6 +51,7 @@ import {
   mapTransform,
   textLayout,
 } from '../core/page-layout';
+import { renderEmbeddedFontStyle, type EmbeddedFontFace } from './embedded-font';
 import {
   colorbarGradientId,
   dashArray,
@@ -80,6 +85,12 @@ export interface ComposeReport {
 export interface ComposeResult {
   readonly svg: string;
   readonly report: ComposeReport;
+}
+
+/** 合成选项:不传时与旧口径一致(只写 `font-family`,不嵌字体子集) */
+export interface ComposeOptions {
+  /** 要内嵌的字体面;由导出流程先裁好再传进来(见 `app/font-embed.ts`) */
+  readonly font_faces?: readonly EmbeddedFontFace[];
 }
 
 /** 越界判定容差:恰好压在纸张边界上不算越界(与预览的判定口径同值) */
@@ -441,10 +452,10 @@ function renderFrame(layout: PageLayout, geo: Geo): string {
   return group('mapdoc-frame', children);
 }
 
-/* =========================== defs(底图裁剪 + 色标渐变) =========================== */
+/* =========================== defs(字体子集 + 底图裁剪 + 色标渐变) =========================== */
 
 /**
- * `<defs>`:第一项固定是 `mapdoc-map-clip`(把底图裁剪到地图框),之后是 colorbar 渐变.
+ * `<defs>`:可选的字体 `@font-face` 在最前,然后是 `mapdoc-map-clip`,最后是 colorbar 渐变.
  *
  * 为什么必须裁剪:Cartopy 底图根标签内自带 matplotlib 的图幅白底(`patch_1` path 覆盖
  * 整个原始 Figure),原样内联后会溢出地图矩形铺满整页;默认白纸看不出,但
@@ -452,8 +463,15 @@ function renderFrame(layout: PageLayout, geo: Geo): string {
  * 为什么 rect 用 `geo.base.view_box`:map group 的 transform 已把底图坐标映射到纸面,
  * 局部坐标系里地图框就是 viewBox,clip 后与预览的裁剪范围逐点一致.
  * 为什么 defs 始终输出:即使没有 colorbar 也需要 clipPath;固定结构也让成品可 diff.
+ * 为什么字体 style 放在 clipPath 之前:内嵌子集是「可选载荷」,放在 defs 开头时,不嵌字体的
+ * 成品只是在 `<defs>\n` 之后少了一段,原有 clipPath/渐变部分的字节布局不变.
  */
-function renderDefs(layout: PageLayout, geo: Geo, relief: GeoRelief | null): string {
+function renderDefs(
+  layout: PageLayout,
+  geo: Geo,
+  relief: GeoRelief | null,
+  fontFaces: readonly EmbeddedFontFace[],
+): string {
   const [viewX = 0, viewY = 0, viewWidth = 0, viewHeight = 0] = geo.base.view_box;
   const clipPath =
     '<clipPath id="mapdoc-map-clip">' +
@@ -474,8 +492,9 @@ function renderDefs(layout: PageLayout, geo: Geo, relief: GeoRelief | null): str
         `${stops.join('\n')}\n</linearGradient>`,
     );
   }
-  // 顺序是契约:clipPath 在前,渐变在后(同一 defs 里,便于对照与 diff).
-  return `<defs>\n${[clipPath, ...gradients].join('\n')}\n</defs>`;
+  // 顺序是契约:字体 style(可选)在前,clipPath,渐变在后(同一 defs 里,便于对照与 diff).
+  const fontStyle = renderEmbeddedFontStyle(fontFaces);
+  return `<defs>\n${fontStyle}${[clipPath, ...gradients].join('\n')}\n</defs>`;
 }
 
 /* =========================== 越界分析与计数 =========================== */
@@ -618,16 +637,20 @@ function makeSourceMetadata(document: PageDocument, layout: PageLayout): string 
 /**
  * 合成 final.svg.
  *
- * 结构见 `docs/PAGE-EDITOR.md` §6:纸张底色 -> `<defs>`(mapdoc-map-clip + 可选色标渐变)
- * -> `mapdoc-map`(底图原文,按 clip 裁剪到地图框)-> `mapdoc-frame` -> `mapdoc-overlay`
- * (items 按数组序)-> marker -> `</svg>`.
+ * 结构见 `docs/PAGE-EDITOR.md` §6:纸张底色 -> `<defs>`(可选字体 `@font-face` +
+ * mapdoc-map-clip + 可选色标渐变)-> `mapdoc-map`(底图原文,按 clip 裁剪到地图框)
+ * -> `mapdoc-frame` -> `mapdoc-overlay`(items 按数组序)-> marker -> `</svg>`.
  *
  * 为什么先 `normalizePage`:digest 与渲染都必须只接受契约字段 + 3 位小数,
  * 避免同一语义出现多种字节;layout 合法性由编辑器保证(新建/导入时已校验).
  * `geo.relief` 为 null 而 layout 里仍有 colorbar 时抛 `Error('色标需要 geo.relief')`:
  * 这种 layout 无法画出有意义的色标,静默跳过会让成品与预览不一致.
  */
-export function composeFinalSvg(document: PageDocument, layout: PageLayout): ComposeResult {
+export function composeFinalSvg(
+  document: PageDocument,
+  layout: PageLayout,
+  options: ComposeOptions = {},
+): ComposeResult {
   if (document.base.errors.length > 0) {
     throw new Error(`底图未通过契约检查,无法合成 final.svg:${document.base.errors.join(';')}`);
   }
@@ -651,7 +674,7 @@ export function composeFinalSvg(document: PageDocument, layout: PageLayout): Com
     `viewBox="0 0 ${widthText} ${heightText}" version="1.1">\n` +
     `<rect x="0" y="0" width="${widthText}" height="${heightText}" ` +
     `fill="${attr(normalized.style.paper_color)}"/>\n`;
-  const defs = renderDefs(normalized, geo, relief);
+  const defs = renderDefs(normalized, geo, relief, options.font_faces ?? []);
   // clip-path 引用同一 defs 里的 mapdoc-map-clip:底图局部坐标(viewBox)之外的内容
   // (matplotlib 图幅白底等)不会画到纸面上,与预览 <image> 的裁剪范围一致.
   const mapOpen =

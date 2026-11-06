@@ -27,7 +27,8 @@ constraints / solver / dimensions / entities 等)不依赖 DOM,可直接在 node
 ## 快速开始
 
 应用 UI 全部基于 [`miko_ui`](https://www.npmjs.com/package/miko_ui)(DOM 原语,控件,布局行,消息区,
-主题 token).依赖声明只有一条 `"miko_ui": "^0.1.19"`,取用分两条链路:
+主题 token).依赖声明有两条:`miko_ui` 与 `harfbuzzjs`(导出 SVG 时用它的 wasm 把用到的字形裁成
+子集内嵌,见「已知限制」).`miko_ui` 取用分两条链路:
 
 | 场景               | 命令                             | 解析到哪                                     |
 | ------------------ | -------------------------------- | -------------------------------------------- |
@@ -336,8 +337,8 @@ UI 代码里没有手写控件 DOM,也没有第二套控件 CSS:
   未导出保护;改纸张尺寸/方向不会移动已放置元素(位置只由各自 x/y 决定).
 - 导出:`导出 geo.json`(`Ctrl+S`)保存到用户选的 `<stem>.geo.json`(geo 全部字段 + `page` 排版块,
   重新打开即恢复排版);`导出 SVG` 在浏览器内合成并保存 `<stem>.svg`(纸张尺寸,底图内容内联,文字
-  可选中;同时在 `<metadata id="mapdoc-source">` 内嵌可编辑源,成品可单文件再编辑;字体不内嵌,
-  见限制).两个导出都优先弹**系统保存对话框**让用户自选位置(Chromium 系 + HTTPS/localhost;
+  可选中;同时在 `<metadata id="mapdoc-source">` 内嵌可编辑源,成品可单文件再编辑;导出时把用到的
+  字形裁成子集写进 `<defs><style>@font-face</style></defs>`,见限制).两个导出都优先弹**系统保存对话框**让用户自选位置(Chromium 系 + HTTPS/localhost;
   其它环境退回浏览器默认下载);在对话框取消则提示「已取消导出」,脏标记保留.
   成品 -> 重新打开 -> 再导出,字节完全一致.
 - `打开...` 有未导出的修改会先确认;未导出时离开页面有 `beforeunload` 提醒.
@@ -352,7 +353,8 @@ npm run build   # 产物 dist/ 可放任意静态服务器(或 npm run preview �
 输入文件由 Cartopy_file 正常出图直接得到(`<stem>.svg` + `<stem>.geo.json`),本仓不再需要抽取/
 准备步骤;`demo/` 下的旧底图与 geo 也可直接上传(本地目录,gitignored).
 
-**已知限制**:字体不内嵌(跨机字形可能变化,印刷前转曲);字体栈是项目级设置(界面/预览/成品
+**已知限制**:字体按用到的字形裁子集内嵌,但随包资产只覆盖 GB2312 + 拉丁/符号区间,覆盖不到的
+字与自定义字体族仍落到查看端本机字体(印刷前建议转曲);字体栈是项目级设置(界面/预览/成品
 统一为 `JetBrains Mono Slashed` + `Noto Sans Mono CJK SC` 兜底,没有逐文档字体选择);自动换行只覆盖页面注记与页底来源
 (标题/副标题/标注/地名(手动)仍只在默认排版时折一次 `lines`,改内容/字号后不重排;地图地名按
 底图分行渲染;来源折行时最后一行保持贴住页底边距);不做两端对齐(字距按 item 的
@@ -439,7 +441,9 @@ src/
                              侧栏/工具条/通知 + 样式设置窗口 + 导出;换文档时销毁窗口
     page-editor.ts           排版编辑器状态机:选择/拖拽/方向键/缩放/平移/脏标记;分类样式补丁
                              (applyTextStyleChange/resetTextStyleChange/resetTextStyleFieldChange);
-                             导出 geo.json/SVG,destroy
+                             导出 geo.json/SVG(先合成草稿 -> 裁字体子集 -> 带 font_faces 再合成),destroy
+    font-embed.ts            浏览器侧字体子集编排:取 harfbuzz wasm 与随包字体资产,按成品用字裁字,
+                             返回 font_faces 与中文告警(失败退化为只写 font-family)
   core/                      纯逻辑内核:不碰 DOM / miko_ui,node 环境可直接单测
     types.ts                 非图元的数据类型:Point/Constraint/ToolId/SelectionItem/Selection/Marquee 等
                              (图元是多态类,在 entities.ts)
@@ -495,6 +499,9 @@ src/
     page-format.ts           排版层数字格式化(3 位小数去尾零),XML 转义,SVG 属性 helper
     page-svg.ts              layout + geo -> 排版预览 SVG(纸张/底图 image/图框刻度/文字/图例/色标)
     compose-svg.ts           浏览器内合成 final.svg(图层结构,marker,内嵌可编辑源,越界 report;纯函数)
+    used-text.ts             扫成品里的 <text>:收集字符集/字体族/字重(字体子集按它裁)
+    embedded-font.ts         选要内嵌的字体面 + 把子集写成 @font-face 的 CSS 字节口径
+    hb-subset.ts             harfbuzz hb-subset(wasm)最小绑定:整份字体 -> 只含给定字符的子集
   ui/                        miko_ui 组件封装(左侧状态栏 / 顶部 dock / 输入 / 通知)
     toolbar.ts               顶部 dock 工具栏:miko_ui 的分段按钮组 / 按钮 / 开关 / 控制组 + 操作按钮高亮
                              (两个分区 .dock-group / .dock-actions,不建面板;工具表来自 core.TOOLS)
@@ -532,6 +539,9 @@ src/
     page.ts                  排版编辑器常量:geo/成品内嵌源格式标识,上传 accept,校验容差,纸张预设,
                              默认排版的内部页边距常量 PAGE_DEFAULT_MARGIN_PT,页面文字固定默认字号,
                              纸张比例系数 layoutScaleForPaper,上限
+    fonts.ts                 全项目字体栈 FONT_FAMILY_STACK(界面/页面/成品唯一真源)+ 拉丁/中文族名
+                             常量(成品内嵌子集的 @font-face 用它们);styles.css 的 --font-family-base
+                             必须与常量逐字一致(由测试盯着)
     text-style.ts            文字样式常量与分类元信息:role 颜色表,页面文字固定默认字号,20 个分类
                              (6 页面文字 + 14 地图地名)与两组顺序,分类描述/示例/语义小标题
                              (样式唯一真源)
@@ -547,16 +557,21 @@ src/
     ui.ts                    无法用 CSS 表达的几何/交互常量(滚轮灵敏度,尺寸文字/引线留白,角度弧最小半径等)
   styles.css                 应用样式:页面网格与宿主定位 + dock 消费者类 + .app-* 消费者类 + canvas 绘制 token;
                              控件与 dock 外观来自 miko_ui
+  assets/fonts/              成品内嵌用的预裁字体资产(约 3.3 MB):JetBrains Mono Slashed 400/600/700
+                             静态面 + Noto Sans Mono CJK SC 可变面(GB2312 + 拉丁/符号区间)+ OFL 许可;
+                             由 scripts/build_font_assets.py 生成
 tests/                       node 环境单测,按被测层分组
   core/                      纯逻辑层:草图 model/entities/geometry/constraints/solver/dimensions/
                               operations/sketch-actions/selection/vec/camera,以及排版文档的
                               base-svg/base64/final-svg/open-map/page/text-style/page-geo(fixtures.ts 是建图辅助)
-  render/                    SVG 导出(buildSVG)与浏览器内合成(composeFinalSvg)
+  render/                    SVG 导出(buildSVG),浏览器内合成(composeFinalSvg),字体子集
+                             (used-text / embedded-font / hb-subset / compose-fonts)
   ui/                        无 DOM 的 UI 纯函数(尺寸输入解析 parseDimInput)
   fixtures/                  共用的最小底图 fixture(200×100 无文字 SVG)与 PageDocument/geo 工厂
 scripts/dev_ui_link.mjs      本地库 / npm 发布版切换(link / unlink / status / auto)
 scripts/check_architecture.mjs 架构依赖检查:层间方向(只许向下)+ 运行期循环依赖
 scripts/autorun.py           提交前把中文全角标点转半角(.githooks/pre-commit 调用)
+scripts/build_font_assets.py 开发期一次性脚本:从本机字体重建 src/assets/fonts/(fontTools + brotli)
 .githooks/pre-commit         git 钩子:修正暂存文件的标点,只把改过的文件重新入暂存区
 eslint.config.js             ESLint 扁平配置(按目录声明的依赖分层白名单)
 vitest.config.ts             Vitest:node 环境,include tests/**/*.test.ts,关闭 globals

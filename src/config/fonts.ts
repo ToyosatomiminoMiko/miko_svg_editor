@@ -2,7 +2,8 @@
  * 全项目字体栈的唯一真源(界面 + 画布 + 页面预览 + 成品 SVG 共用同一串).
  *
  * 是什么:拉丁主字体 `'JetBrains Mono Slashed'` + 中文兜底 `'Noto Sans Mono CJK SC'`
- * 的 `font-family` 串.界面侧由 `src/styles.css :root` 的 `--font-family-base` 消费
+ * 的 `font-family` 串,以及两族名对应的成品内嵌子集资产规则(见 `render/embedded-font.ts`)
+ * 用到的族名常量.界面侧由 `src/styles.css :root` 的 `--font-family-base` 消费
  * (miko_ui 的控件与画布 token `--code-font-family` / `--dim-font` 都读它);页面侧由
  * `PAGE_DEFAULT_FONT_FAMILY`(`config/page.ts`)写进 `page.style.font_family` 与每个
  * `<text>` 的 `font-family`.
@@ -20,5 +21,25 @@
  * 与成品静默用成两种字体,所以由测试盯着.
  * 元信息:作者 ToyosatomiminoMiko,2026-11-07.
  */
+
+/** 拉丁主字体族名(与 miko_ui 的 `@font-face` 一致,成品内嵌子集也用这个族名) */
+export const LATIN_FONT_FAMILY = 'JetBrains Mono Slashed';
+
+/** 中文等宽兜底族名(系统字体,成品内嵌子集用这一族的预裁资产) */
+export const CJK_FONT_FAMILY = 'Noto Sans Mono CJK SC';
+
+/**
+ * 字体栈末尾的系统等宽兜底族(不随包).它们只在本机装了两族之外的机器上生效,成品内嵌时
+ * 特意识别为「预期内的系统兜底」而不是「不认识的自定义字体」,不会触发告警.
+ */
+export const SYSTEM_FALLBACK_FAMILIES = [
+  'ui-monospace',
+  'SFMono-Regular',
+  'Menlo',
+  'Consolas',
+  'monospace',
+] as const;
+
+/** 界面/预览/成品的 `font-family` 串:拉丁主字体在前,中文兜底在后,通用等宽收尾 */
 export const FONT_FAMILY_STACK =
-  "'JetBrains Mono Slashed', 'Noto Sans Mono CJK SC', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+  `'${LATIN_FONT_FAMILY}', '${CJK_FONT_FAMILY}', ` + SYSTEM_FALLBACK_FAMILIES.join(', ');

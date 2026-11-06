@@ -275,7 +275,8 @@ Cartopy 直出的 geo.json 没有这个键.形状:
   (`config/fonts.ts` 的 `FONT_FAMILY_STACK`:拉丁 `'JetBrains Mono Slashed'` 在前,中文
   `'Noto Sans Mono CJK SC'` 兜底,界面与成品共用同一串).本编辑器没有字体选择入口,新文档写
   默认值,文件里已有的 `font_family` 原样沿用(手改的自定义字体串也保留,只是界面不提供切换).
-  字体不内嵌,跨机器靠本机同名/兜底字体(§11).
+  导出时按成品里实际用到的字形把这两族裁成子集内嵌(§6.3);没有对应资产的自定义字体串仍靠
+  本机字体(§11).
 - `text_style`(可选,缺省 `{}`,`normalizePage` 一定补上):**分类文字样式覆盖表**.键必须属于
   20 个分类 id(页面文字 `title`/`subtitle`/`annotation`/`note`/`source`/`label` + 地图地名
   `city`/`city-reference`/`area`/`area-muted`/`area-accent-1` ~ `area-accent-4`/`country`/
@@ -604,6 +605,7 @@ colorbar:rect(x, y, width_pt × s, height_pt × s)                  // §5.5
 <rect x="0" y="0" width="{paper.width}" height="{paper.height}" fill="{paper_color}"/>
 <metadata id="mapdoc-source"><base64(canonicalJson({format,version,document,base}))></metadata>
 <defs>
+[<style type="text/css"><![CDATA[@font-face{...}]]></style>]   # 仅当导出时裁出了字体子集(§6.3)
 <clipPath id="mapdoc-map-clip"><rect x="{vb[0]}" y="{vb[1]}" width="{vb[2]}" height="{vb[3]}"/></clipPath>
 [<linearGradient id="mapdoc-cbar-{id}" ...>...stops...</linearGradient>]   # 仅当 page 块有 colorbar
 </defs>
@@ -629,8 +631,9 @@ colorbar:rect(x, y, width_pt × s, height_pt × s)                  // §5.5
   成品显示.位置固定在纸张底色之后,`<defs>` 之前(便于按行定位,也让 §6 的图层顺序保持稳定).
 - 底图自带全局 CSS(如 `*{stroke-linejoin:round;stroke-linecap:butt}`)会作用于整份成品,接受.
 - 图层 id 前缀 `mapdoc-`;底图与排版层 id 不得冲突.
-- 字体**不内嵌**(v2 已知限制):文字用 `font-family` 引用本机字体;换机器可能换字形,
-  需要印刷时在 Inkscape/AI 里转曲.合成接口已留好以后加字体载荷(`<defs><style>@font-face...`)的位置.
+- **字体子集内嵌**(§6.3):导出时把成品里实际用到的字形从随包字体资产裁成子集,写成
+  `<defs>` 开头的 `<style>@font-face</style>`;不传 `font_faces`(预览/测试/旧调用)时与旧口径
+  一样只写 `font-family`,成品字节不变.自定义字体族没有可裁的资产,那部分只写 `font-family`.
 - 文件末尾恰好一个换行.**确定性口径**:同一浏览器实现,同一 `(base.inner, base sha256, geo, page)`
   输入两次得到相同字节;不读 DOM/时间/随机数.不同浏览器/不同版本的浮点与序列化实现可能不同,
   「同字节」只在同一浏览器实现下承诺(不跨实现).
@@ -703,6 +706,63 @@ interface FinalSourcePayload {
   内嵌源,marker 摘要,渲染内容都由同一套纯函数重建,见 `tests/core/open-map.test.ts`).
 - 没有内嵌可编辑源的旧版成品:**不再支持打开**(§8.1);请用 Cartopy 的 `base.svg + geo.json`
   重新导入排版后,由本编辑器重新导出带内嵌源的成品.
+
+### 6.3 字体子集内嵌(导出时按用到的字形裁字)
+
+成品必须是「拿到别的机器上也不换字形」的:文字写成真 `<text>`(可复制/可再编辑),同时把用到的
+字形裁成子集字体内嵌.载荷位置固定在 `<defs>` 的第一项:
+
+```html
+<style type="text/css">
+  <![CDATA[
+  /* 内嵌字体子集仅含本图用到的字形: JetBrains Mono Slashed (SIL OFL 1.1), Noto Sans Mono CJK SC (SIL OFL 1.1). */
+  @font-face { font-family: "JetBrains Mono Slashed"; font-style: normal; font-weight: 400; src: url("data:font/ttf;base64,...") format("truetype"); }
+  @font-face { font-family: "Noto Sans Mono CJK SC"; font-style: normal; font-weight: 400 700; src: url("data:font/otf;base64,...") format("opentype"); }
+  ]]>
+</style>
+```
+
+- **族名与 `font-family` 完全一致**:`@font-face` 的 `font-family` 必须逐字等于 `<text>` 属性里的
+  族名(含引号写法归一),否则查看器按 CSS 字体匹配的语义会继续落到本机字体,内嵌白做.
+- **字重**:拉丁侧三份静态面(400/600/700,与 miko_ui 随包 woff2 同源),按成品里出现的字重挑
+  「最近的」一份;中文侧一份可变面(`wght` 400..700,`font-weight: 400 700`)通吃.`style.font_weight`
+  允许 100..900,落在区间外时由查看器取最近的可用面.
+- **斜体是合成倾斜**:两族都没有真斜体面,`font-style: italic` 由查看器倾斜合成(与旧 Python 实现
+  同口径);内嵌只覆盖 regular 面.
+- **载荷是子集,不是整族**:每份只含成品里实际出现的码点,典型页面几十 KB 量级;应用随包的
+  字体资产(`src/assets/fonts/`,约 3.3 MB)只分发一次,不随每份成品走.
+
+导出流程(`app/page-editor.ts` 的 `exportFinal`,实现见 `app/font-embed.ts`):
+
+1. `composeFinalSvg(document, layout)` 先合成一份**不嵌字体**的草稿;
+2. `render/used-text.ts` 的 `collectUsedText` 扫草稿里的 `<text>`:字符集(去重排序),`font-family`
+   族名,`font-weight` 字重.为什么扫成品而不是扫数据:文字来自 text item/地图地名/图例条目/
+   色标刻度/图框刻度等多个来源,扫已画出来的字等于「以实际用到的字为准」,不漏也不多带;
+3. `render/embedded-font.ts` 的 `selectFontAssets` / `customFamiliesOf` 决定要嵌哪些面,哪些族
+   嵌不了(自定义字体串),后者计入告警;
+4. `render/hb-subset.ts` 用 harfbuzz 的 `hb-subset`(wasm)逐个面裁字;资产是 sfnt(TrueType/OTF),
+   不接受 woff/woff2 容器(harfbuzzjs 的 wasm 没编 brotli);
+5. 带上 `font_faces` 再 `composeFinalSvg` 一次,写进 `<defs>` 开头.
+
+**降级**:wasm/资产加载失败,裁字失败或没有任何可嵌资产时,返回空 `font_faces` + 中文告警,
+成品退回「只写 `font-family`」的旧口径(用户看得到告警,失败不给坏字节).
+
+**覆盖范围**(预裁资产的边界,见 `scripts/build_font_assets.py`):拉丁侧覆盖基本拉丁,拉丁补充/
+扩展,常用标点,货币,字母式,数字形式,箭头,数学算符,带圈数字,几何图形,杂项符号,CJK 标点,
+CJK 兼容形式,全角形式;中文侧覆盖 GB2312 全集(汉字 6763 + 符号 682).**覆盖不到的字符不内嵌**,
+那些字在查看端仍按 `font-family` 栈落到本机字体(可能换字形,与 v2 行为一致);要扩覆盖就改
+脚本里的字符区间并重跑(需要 fontTools 与系统安装的 Noto Sans Mono CJK VF).
+
+**确定性**:同一份字体资产 + 同一 `harfbuzzjs` 版本 + 同一份字,子集字节可复现(测试断言两次裁字
+完全相同).换 harfbuzz 版本不保证与旧成品逐字节相同--这是「字体内嵌」引入的新口径,§6.2 的
+「成品 -> 重开 -> 再导出字节幂等」只在同一构建下成立;`marker`/`pageDigest`/内嵌可编辑源都不含
+字体载荷,所以再编辑与摘要校验不受影响.
+
+**相关文件**:`app/font-embed.ts`(浏览器侧编排),`render/hb-subset.ts`(wasm 绑定),
+`render/used-text.ts`(字符集/族/字重扫描),`render/embedded-font.ts`(选面 + CSS),
+`src/assets/fonts/`(预裁资产 + OFL 许可),`scripts/build_font_assets.py`(重建资产);
+测试见 `tests/render/hb-subset.test.ts` / `used-text.test.ts` / `embedded-font.test.ts` /
+`compose-fonts.test.ts`.
 
 ## 7. 底图契约(`src/core/base-svg.ts`)
 
@@ -1063,8 +1123,10 @@ tests/render/compose-svg.test.ts # 合成结构,marker,内嵌源,确定性,越�
 
 ## 11. 非目标与已知限制
 
-- **字体不内嵌**(v2):成品文字用 `font-family` 引用本机字体,跨机器字形可能变化,印刷前
-  Inkscape/AI 转曲.字体子集载荷位置已预留(合成时可往 `<defs>` 加 `@font-face`),本轮不做.
+- **字体内嵌覆盖有限**:成品按用到字形裁子集内嵌(§6.3),但预裁资产只覆盖 GB2312 + 拉丁/符号
+  区间,覆盖不到的字符与自定义字体族仍按 `font-family` 落到本机字体(可能换字形,印刷前仍建议在
+  Inkscape/AI 里转曲);斜体是查看器合成倾斜,不是真斜体;中文可变面只到 700 字重,更粗的字重按
+  最近面渲染.
 - **字体栈是项目级设置**:界面,预览与成品统一用 `'JetBrains Mono Slashed'`(拉丁)+
   `'Noto Sans Mono CJK SC'`(中文兜底),唯一真源 `config/fonts.ts` 的 `FONT_FAMILY_STACK`
   (界面侧由 `styles.css` 的 `--font-family-base` 覆盖 miko_ui 默认值).本编辑器不提供逐文档

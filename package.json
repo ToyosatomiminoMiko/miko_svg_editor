@@ -57,6 +57,7 @@
     }
   },
   "dependencies": {
+    "harfbuzzjs": "^1.6.4",
     "miko_ui": "^0.1.19"
   }
 }
