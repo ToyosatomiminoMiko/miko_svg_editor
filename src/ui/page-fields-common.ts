@@ -36,7 +36,11 @@ export function buildCommonItemFields(ctx: SidebarContext, item: PageItem): HTML
   spaceSegmented.onChange((space) =>
     ctx.handlers.onChange((layout) => {
       const target = itemById(layout, item.id);
-      if (target) target.space = space;
+      if (!target) return;
+      target.space = space;
+      // 坐标空间会改变面板结构(左右居中开关/自动换行宽度/地图地名的只读说明),
+      // 下一次 sync 重建属性面板,避免残留对当前空间无效的控件.
+      ctx.markPropertyRebuild();
     }),
   );
   ctx.controls.registerSegmented(

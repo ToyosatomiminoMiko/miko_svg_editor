@@ -35,7 +35,7 @@ import {
   type Geo,
   type PageLayout,
 } from './page';
-import { defaultPageLayout } from './page-layout';
+import { defaultPageLayout, enforceNoteWrap } from './page-layout';
 import { resyncTextStyles } from './text-style';
 import type { MeasureText } from './types';
 
@@ -183,6 +183,15 @@ function buildPageLayout(
     warnings.push(`排版中的左右居中约束已按纸张宽度重新贴合(${recentered} 条),导出后会写成新口径`);
     dirty = true;
   }
+
+  // 注记自动折行是派生量:旧 page 块没有 text/wrap_width_pt,或手改过 lines,
+  // 打开时按当前字号/字距与存储宽度统一重排;与样式统一/居中纠偏分开告警.
+  const rewrapped = enforceNoteWrap(layout, measureText);
+  if (rewrapped > 0) {
+    warnings.push(`排版中的注记已按折行宽度自动重排(${rewrapped} 条),导出后会写成新口径`);
+    dirty = true;
+  }
+
   // 最后统一数值口径(3 位小数 + 居中约束再兜底一次),与导出/签名完全一致.
   layout = normalizePage(layout);
 

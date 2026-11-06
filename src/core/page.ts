@@ -94,6 +94,21 @@ export interface TextItem extends ItemBase {
    * (地图地名的位置由底图数据决定,不能被纸张宽度覆盖).
    */
   center_h: boolean;
+  /**
+   * 自动折行的原始内容(含手动换行 `\n`);null = 不自动折行,`lines` 即真值.
+   * 为什么要有它:自动折行时 `lines` 是派生量(`text` 按 `wrap_width_pt` 折出来的结果),
+   * 若只存折好的 `lines`,用户把宽度改宽或改回原样时无法还原段落边界(手动换行会被当成
+   * 硬折行).所以开启自动折行的注记同时存原始内容,`lines` 只用于渲染/导出.
+   */
+  text: string | null;
+  /**
+   * 自动折行宽度(pt);null = 不自动折行.目前只有**纸张空间的注记**(`role === 'note'`)
+   * 允许非 null,其它文字元素必须是 null(校验会拒绝).
+   * 是派生约束的真值:内容/字号/字重/字距/该宽度任一变化后,编辑器都会调用
+   * `core/page-layout.ts` 的 `enforceNoteWrap` 重算 `lines`;导出写盘也带上它,
+   * 重新打开时用同一个宽度复现折行(幂等).
+   */
+  wrap_width_pt: number | null;
 }
 
 /** 图例条目(契约 §3 legend.entries / §4.1 legend.entries) */
@@ -427,6 +442,19 @@ function normalizeGeoLabelId(value: unknown): string | null {
 }
 
 /**
+ * 文字 item 的原始内容:开了自动折行用 `text`,否则 `lines` 拼回(手动换行用 `\n`).
+ * 侧栏文本域与 `enforceNoteWrap` 共用这个口径,保证「用户看到的文本」和「折行输入」一致.
+ */
+export function textContentOf(item: TextItem): string {
+  return item.text ?? item.lines.join('\n');
+}
+
+/** 只有纸张空间的注记参与自动折行(标题/地名等仍按 lines 渲染,不重排) */
+export function isAutoWrapTextItem(item: TextItem): boolean {
+  return item.space === 'page' && item.role === 'note';
+}
+
+/**
  * 执行「左右居中」约束:把 `center_h === true` 的页面文字 item 拉回纸张中心并强制
  * `anchor = 'middle'`,返回被改动的条数.
  *
@@ -451,25 +479,33 @@ export function enforceHorizontalCenter(layout: PageLayout): number {
 
 /**
  * 规范化 layout(3 位小数,新对象);保存前与摘要前都走它.
- * 除数字口径外还补三处兜底:`text_style` 缺省/坏结构 -> `{}`,text item 的 `geo_label_id`
- * 坏值 -> `null`,text item 的 `center_h` 缺省/坏值 -> `false`;随后执行一次居中约束,
- * 保证 x/anchor 与 center_h 自洽(下游一律按「字段一定存在」消费).
+ * 除数字口径外还补几处兜底:`text_style` 缺省/坏结构 -> `{}`,text item 的 `geo_label_id`
+ * 坏值 -> `null`,text item 的 `center_h` 缺省/坏值 -> `false`,自动折行字段
+ * (`text` / `wrap_width_pt`)缺省/坏值 -> `null` 且只允许出现在纸张空间的注记上;
+ * 随后执行一次居中约束,保证 x/anchor 与 center_h 自洽(下游一律按「字段一定存在」消费).
+ * 折行本身不在这里算:折行要用字体测量,由 `core/page-layout.ts` 的 `enforceNoteWrap` 负责.
  */
 export function normalizePage(layout: PageLayout): PageLayout {
   const rounded = roundNumbersDeep(layout);
   const normalized: PageLayout = {
     ...rounded,
     text_style: cloneTextStyleOverrides(rounded.text_style),
-    items: rounded.items.map((item) =>
-      item.kind === 'text'
-        ? {
-            ...item,
-            geo_label_id: normalizeGeoLabelId(item.geo_label_id),
-            // 居中只对纸张空间有意义;地图 item 上残留的 true 一律收敛成 false
-            center_h: item.space === 'page' && item.center_h === true,
-          }
-        : item,
-    ),
+    items: rounded.items.map((item) => {
+      if (item.kind !== 'text') return item;
+      const autoWrap = isAutoWrapTextItem(item);
+      return {
+        ...item,
+        geo_label_id: normalizeGeoLabelId(item.geo_label_id),
+        // 居中只对纸张空间有意义;地图 item 上残留的 true 一律收敛成 false
+        center_h: item.space === 'page' && item.center_h === true,
+        // 自动折行只有页面注记能用;其它 item / 坏值一律清掉,避免落盘出现无意义的字段.
+        text: autoWrap && typeof item.text === 'string' ? item.text : null,
+        wrap_width_pt:
+          autoWrap && isFiniteNumber(item.wrap_width_pt) && item.wrap_width_pt > 0
+            ? item.wrap_width_pt
+            : null,
+      };
+    }),
   };
   enforceHorizontalCenter(normalized);
   return normalized;
@@ -883,6 +919,21 @@ function validateTextItem(
     if (item.geo_label_id !== null) {
       errors.push(`${path}.geo_label_id: 页面文字必须为 null`);
     }
+  }
+  // 自动折行字段只属于「纸张空间 + 注记」;缺省(旧 page 块)视为未开启,由 normalize 落 null,
+  // 打开流程再按默认宽度补齐(normalizePage 不依赖字体测量,不能在这里折行).
+  const autoWrapItem = item.space === 'page' && item.role === 'note';
+  const wrapWidth = item.wrap_width_pt;
+  if (wrapWidth !== undefined && wrapWidth !== null) {
+    if (!autoWrapItem) errors.push(`${path}.wrap_width_pt: 只有页面注记支持自动折行`);
+    else if (!isFiniteNumber(wrapWidth) || wrapWidth <= 0) {
+      errors.push(`${path}.wrap_width_pt: 必须是正数`);
+    }
+  }
+  const rawText = item.text;
+  if (rawText !== undefined && rawText !== null) {
+    if (!autoWrapItem) errors.push(`${path}.text: 只有页面注记支持自动折行`);
+    else if (typeof rawText !== 'string') errors.push(`${path}.text: 必须是字符串`);
   }
 }
 

@@ -37,6 +37,7 @@ import {
   PAGE_MIN_COLORBAR_HEIGHT_PT,
   PAGE_MIN_MAP_WIDTH_PT,
   PAGE_NOTE_SIZE_PT,
+  PAGE_NOTE_WRAP_MIN_PT,
   PAGE_NOTES_GAP_PT,
   PAGE_SOURCE_RESERVED_PT,
   PAGE_SOURCE_SIZE_PT,
@@ -51,7 +52,7 @@ import {
 import { MAP_LABEL_STYLE, PAGE_TEXT_STYLES } from '../config/text-style';
 import { mapCategoryDefaultFontSizePt, resolveTextStyleFields } from './text-style';
 import type { ResolvedTextStyleFields } from './text-style';
-import { cloneTextStyleOverrides, roundToPageDecimals } from './page';
+import { cloneTextStyleOverrides, isAutoWrapTextItem, roundToPageDecimals } from './page';
 import type { MeasureText, TextMeasure } from './types';
 import type {
   ColorbarItem,
@@ -212,7 +213,7 @@ function tokenizeForWrap(text: string): string[] {
 }
 
 /**
- * 按最大宽度折行(不做自动换行:结果要写进 `lines` 数组,契约 §11).
+ * 按最大宽度折行(结果写进 `lines` 数组;默认排版与注记自动折行共用).
  * 返回至少一行;超长单词按字符硬切,避免一行溢出右栏.
  */
 export function wrapText(
@@ -295,6 +296,94 @@ export function wrapParagraphs(
     limited[lastIndex] = `${last.slice(0, Math.max(0, PAGE_MAX_TEXT_LINE_CHARS - 1))}...`;
   }
   return limited;
+}
+
+/**
+ * 折行用测量器:在字形宽度上叠加字距前进量.
+ * 为什么:SVG 的 `letter-spacing` 让每个字符后面多出一段,行宽 = 字形前进宽度
+ * + 字距 × max(0, 字符数-1);只看字形宽度会把「带字距的行」判窄,导出后一行溢出.
+ */
+function measureWithLetterSpacing(measure: MeasureText, spacingPt: number): MeasureText {
+  if (spacingPt === 0) return measure;
+  return (text, font) => measure(text, font) + spacingPt * Math.max(0, [...text].length - 1);
+}
+
+/**
+ * 注记自动折行宽度的默认值:从 `item.x` 到右页边距的可用宽度,夹到可读下限.
+ * 用途:旧 page 块(没有 `wrap_width_pt`)与侧栏把角色切成注记时补一个合理的初始宽度.
+ */
+export function defaultNoteWrapWidth(layout: PageLayout, item: TextItem): number {
+  const available = layout.paper.width_pt - PAGE_DEFAULT_MARGIN_PT - item.x;
+  return roundToPageDecimals(Math.max(PAGE_NOTE_WRAP_MIN_PT, available));
+}
+
+/** 两段折行结果是否逐行相等(比较用,避免无谓地刷新 layout/标脏) */
+function sameTextLines(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((line, index) => line === right[index]);
+}
+
+/**
+ * 强制执行「注记自动折行」:保证纸张空间的注记有 `text` / `wrap_width_pt`,并按当前
+ * 原始内容 + 字号/字重/字距 + 折行宽度重算 `lines`;其它文字元素清掉这两个字段.
+ *
+ * 为什么做成可重复调用的纯函数而不是只在创建时折一次:内容/字号/字距/宽度任一变化后都必须
+ * 重排,否则长行会溢出右栏;做成「每次修改后统一执行」比在每个编辑入口各算一次更不容易漏.
+ * 幂等口径:宽度先收敛到 3 位小数(与 page 落盘口径一致)再折行,所以「导出 -> 重新打开」
+ * 用同一个宽度复现同一批 lines,不会把文件误标脏.
+ * `measure` 只用于宽度;无 DOM 的 node 单测走 `fallbackMeasureText`.
+ * 返回发生改动的条数(打开流程据此标脏 + 告警).
+ */
+export function enforceNoteWrap(
+  layout: PageLayout,
+  measure: MeasureText = fallbackMeasureText,
+): number {
+  let changed = 0;
+  for (const item of layout.items) {
+    if (item.kind !== 'text') continue;
+    if (!isAutoWrapTextItem(item)) {
+      // 自动折行只属于页面注记:换角色/换坐标空间后残留的字段一律清掉.
+      // 用 typeof 判断而不是 `!== null`:从 JSON 读进来的旧 item 这两个键可能整个缺失(undefined).
+      if (typeof item.text === 'string' || item.wrap_width_pt !== null) {
+        item.text = null;
+        item.wrap_width_pt = null;
+        changed += 1;
+      }
+      continue;
+    }
+    // 1) 折行宽度:缺省按位置推导,统一夹到下限并收敛到落盘精度
+    const width = roundToPageDecimals(
+      Math.max(PAGE_NOTE_WRAP_MIN_PT, item.wrap_width_pt ?? defaultNoteWrapWidth(layout, item)),
+    );
+    if (item.wrap_width_pt !== width) {
+      item.wrap_width_pt = width;
+      changed += 1;
+    }
+    // 2) 原始内容:旧 page 块没有 text(undefined)时,把当前 lines 当段落(手动换行保留)
+    const raw = typeof item.text === 'string' ? item.text : item.lines.join('\n');
+    if (typeof item.text !== 'string') {
+      item.text = raw;
+      changed += 1;
+    }
+    // 3) 重算 lines:字号/字重/字距都影响前进宽度;行高只影响行距,不参与折行
+    const font = fontShorthand(
+      item.font_size_pt,
+      item.font_family ?? layout.style.font_family,
+      item.font_weight,
+    );
+    const spacingPt = item.letter_spacing_em * item.font_size_pt;
+    const wrapped = wrapParagraphs(
+      [raw],
+      font,
+      width,
+      measureWithLetterSpacing(measure, spacingPt),
+    ).filter((line) => line.length > 0);
+    const lines = wrapped.length > 0 ? wrapped : [''];
+    if (!sameTextLines(item.lines, lines)) {
+      item.lines = lines;
+      changed += 1;
+    }
+  }
+  return changed;
 }
 
 /**
@@ -799,6 +888,8 @@ function makeTextItem(
       | 'line_height'
       | 'font_weight'
       | 'letter_spacing_em'
+      | 'text'
+      | 'wrap_width_pt'
     >
   > = {},
 ): TextItem {
@@ -825,6 +916,9 @@ function makeTextItem(
     geo_label_id: null,
     // 左右居中约束:默认关闭,标题/副标题/来源由 defaultPageLayout 显式打开
     center_h: overrides.center_h ?? false,
+    // 自动折行:只有 defaultPageLayout 的注记会显式传这两个字段
+    text: overrides.text ?? null,
+    wrap_width_pt: overrides.wrap_width_pt ?? null,
   };
 }
 
@@ -891,6 +985,9 @@ function makeLabelItem(
     geo_label_id: label.id,
     // 地图地名位置属于底图数据,不受纸张宽度约束
     center_h: false,
+    // 地图地名不参与自动折行(文字来自底图数据且已经手动分好行)
+    text: null,
+    wrap_width_pt: null,
   };
 }
 
@@ -971,6 +1068,11 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   const noteSize = pageFontSizeOf('note', PAGE_NOTE_SIZE_PT);
   const noteLineHeight = noteStyle.line_height;
   const noteColor = textStyle.note?.color ?? style.color;
+  // 注记自动折行:字号/字重/字距参与测量,原始文案(手动换行 \n)一起落进 item,
+  // 之后内容/宽度/字号任意变化都由 `enforceNoteWrap` 用同一套口径重算 lines.
+  const noteFont = fontShorthand(noteSize, style.font_family, noteStyle.font_weight);
+  const noteMeasure = measureWithLetterSpacing(measure, noteStyle.letter_spacing_em * noteSize);
+  const noteText = geo.suggestions.notes.join('\n');
   const sourceStyle = pageStyleOf('source');
   const sourceSize = pageFontSizeOf('source', PAGE_SOURCE_SIZE_PT);
   const sourceLineHeight = sourceStyle.line_height;
@@ -1112,10 +1214,13 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
       40,
       contentWidth - legendWidth - leadingGap - (hasColorbar ? colorbarWidth + columnGap : 0),
     );
-    const noteFont = fontShorthand(noteSize, style.font_family, noteStyle.font_weight);
-    const noteLines = wrapParagraphs(geo.suggestions.notes, noteFont, notesWidth, measure).filter(
-      (line) => line.length > 0,
-    );
+    const noteWrapWidth = roundToPageDecimals(notesWidth);
+    const noteLines = wrapParagraphs(
+      geo.suggestions.notes,
+      noteFont,
+      noteWrapWidth,
+      noteMeasure,
+    ).filter((line) => line.length > 0);
 
     // 空图例不生成元素(也就没有空图例框);有图例时高度仍由 §5.4 公式派生.
     let legendHeight = 0;
@@ -1131,6 +1236,8 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
         makeTextItem(nextId++, 'note', notesX, rowY, noteLines, noteSize, {
           anchor: 'start',
           ...textOverridesOf(noteStyle, noteColor),
+          text: noteText,
+          wrap_width_pt: noteWrapWidth,
         }),
       );
       noteBlockHeight = noteLines.length * noteSize * noteLineHeight;
@@ -1181,10 +1288,13 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
       contentTop = mapTop + legendLayout(legendItem).height;
     }
 
-    const noteFont = fontShorthand(noteSize, style.font_family, noteStyle.font_weight);
-    const noteLines = wrapParagraphs(geo.suggestions.notes, noteFont, rightWidth, measure).filter(
-      (line) => line.length > 0,
-    );
+    const noteWrapWidth = roundToPageDecimals(rightWidth);
+    const noteLines = wrapParagraphs(
+      geo.suggestions.notes,
+      noteFont,
+      noteWrapWidth,
+      noteMeasure,
+    ).filter((line) => line.length > 0);
     let notesBottom = contentTop;
     if (noteLines.length > 0) {
       const notesY = hasLegend ? contentTop + notesGap : contentTop;
@@ -1192,6 +1302,8 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
         makeTextItem(nextId++, 'note', rightX, notesY, noteLines, noteSize, {
           anchor: 'start',
           ...textOverridesOf(noteStyle, noteColor),
+          text: noteText,
+          wrap_width_pt: noteWrapWidth,
         }),
       );
       notesBottom = notesY + noteLines.length * noteSize * noteLineHeight;

@@ -43,7 +43,7 @@ import {
   type TextItem,
   type TextRole,
 } from '../core/page';
-import { mapTransform } from '../core/page-layout';
+import { enforceNoteWrap, mapTransform } from '../core/page-layout';
 import {
   applyCategoryStyleToItem,
   applyTextStyle,
@@ -211,12 +211,15 @@ export class PageEditor {
 
   /**
    * 应用一次 layout 修改:mutator 直接改 layout,然后重绘/同步侧栏/记脏.
-   * `center_h` 是派生约束,每次修改后统一贴合(纸张宽度/方向改变,角色切换等都走这里),
-   * 这样「左右居中」是持续约束,而不是只在打开窗口时算一次.
+   * 两个派生约束每次修改后统一执行:
+   * - `center_h`:纸张宽度/方向改变或角色切换后,居中项重新贴合;
+   * - 注记自动折行:内容/字号/字距/宽度任一变化后按最新字段重算 `lines`,
+   *   漏在任何编辑入口都会让长行溢出右栏,所以放在统一出口而不是各处补.
    */
   applyPageChange(mutate: (layout: PageLayout, geo: Geo) => void): void {
     mutate(this.layout, this.geo);
     enforceHorizontalCenter(this.layout);
+    enforceNoteWrap(this.layout, this.measureText.width);
     this.dirty = true;
     this.renderAll();
   }
@@ -739,6 +742,10 @@ export class PageEditor {
       geo_label_id: null,
       // 与默认排版同口径:标题/副标题/来源默认左右居中;其余手动文字自由摆放
       center_h: role === 'title' || role === 'subtitle' || role === 'source',
+      // 自动折行字段先留空:若 role 是注记,`applyPageChange` 里的 enforceNoteWrap
+      // 会补默认宽度并把原始内容折成 lines(非注记则一直保持 null)
+      text: null,
+      wrap_width_pt: null,
     };
     const placed = this.placeNewText(item, layout, role);
     applyCategoryStyleToItem(layout, this.geo, placed);
