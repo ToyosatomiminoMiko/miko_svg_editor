@@ -82,8 +82,8 @@ function sameHalo(left: Halo | null, right: Halo | null): boolean {
 
 /**
  * 某分类的代码默认样式(不含字号).
- * 页面分类查 `PAGE_TEXT_STYLES`;地图分类 = 角色表颜色/斜体 + 全局常量
- * (字重/字距/行高/光晕),与 geo v2 生成口的样式口径逐字一致.
+ * 页面分类查 `PAGE_TEXT_STYLES`;地图分类 = 角色表颜色/斜体/光晕宽度 + 全局常量
+ * (字重/字距/行高/光晕颜色),与 geo v2 生成口的样式口径逐字一致.
  * 防御分支:运行期传入未知地名角色(坏 geo 未经校验就进默认排版)时按 area 的样式兜底,
  * 与改造前 makeLabelItem 的回退口径一致.
  */
@@ -107,7 +107,10 @@ export function defaultTextStyleFields(category: TextStyleCategoryId): ResolvedT
     font_weight: MAP_LABEL_STYLE.font_weight,
     letter_spacing_em: MAP_LABEL_STYLE.letter_spacing_em,
     line_height: MAP_LABEL_STYLE.line_height,
-    halo: { color: MAP_LABEL_STYLE.halo_color, width_mm: MAP_LABEL_STYLE.halo_width_mm },
+    halo: {
+      color: MAP_LABEL_STYLE.halo_color,
+      width_mm: roleStyle.halo_width_mm ?? MAP_LABEL_STYLE.halo_width_mm,
+    },
   };
 }
 

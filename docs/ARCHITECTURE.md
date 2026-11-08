@@ -893,7 +893,7 @@ CJK SC` 中文兜底,见 `config/fonts.ts`;口径见 `docs/PAGE-EDITOR.md` §6.3
   仍用 `*_pt`/`space` 字段时静默回退默认排版(不迁移,不告警);缺 `paper.locked`/`margin` 但无
   旧字段的 page 块仍按不合法告警后回退.
 - 页面分类字号按「覆盖 ?? 该分类现有 item 字号 ?? `PAGE_TEXT_DEFAULT_FONT_SIZE_MM`」回退:固定
-  默认字号为标题 6mm / 副标题 3mm / 注记 3mm / 来源 2mm,不随纸张缩放;打开/重建时
+  默认字号为标题 8mm / 副标题 4mm / 注记 3mm / 来源 2mm,不随纸张缩放;打开/重建时
   保留 item 里已有的字号(导出 -> 打开字节幂等,不误标脏),当前值与固定默认不同时窗口显示
   「排版值」;只有用户显式改字号或恢复默认才写固定默认值.地图分类不走这条回退,字号恒为
   「覆盖 ?? `MAP_LABEL_ROLE_STYLES[role].font_size_mm`(纸张 mm 设计常量)」.

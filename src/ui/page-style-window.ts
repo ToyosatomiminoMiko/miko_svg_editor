@@ -1023,11 +1023,17 @@ export class StyleSettingsWindow {
     return null;
   }
 
-  /** 光晕打开时的默认值:地图分类跟 `MAP_LABEL_STYLE`,页面分类跟 `TEXT_HALO` */
+  /** 光晕打开时的默认值:地图分类跟该分类的代码默认(角色表可覆盖宽度),页面分类跟 `TEXT_HALO` */
   private defaultHalo(): Halo {
-    return TEXT_STYLE_CATEGORY_META[this.selected].kind === 'map'
-      ? { color: MAP_LABEL_STYLE.halo_color, width_mm: MAP_LABEL_STYLE.halo_width_mm }
-      : { color: TEXT_HALO.color, width_mm: TEXT_HALO.width_mm };
+    if (TEXT_STYLE_CATEGORY_META[this.selected].kind === 'map') {
+      return (
+        defaultTextStyleFields(this.selected).halo ?? {
+          color: MAP_LABEL_STYLE.halo_color,
+          width_mm: MAP_LABEL_STYLE.halo_width_mm,
+        }
+      );
+    }
+    return { color: TEXT_HALO.color, width_mm: TEXT_HALO.width_mm };
   }
 
   /** 释放上一批字段控件(重建/destroy 前调用):先解绑控件,再清空登记 */

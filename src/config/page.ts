@@ -178,8 +178,8 @@ export const PAGE_SOURCE_RESERVED_MM = 9;
 export const PAGE_SOURCE_CLEARANCE_MM = 3;
 
 /** 默认字号(mm) */
-export const PAGE_TITLE_SIZE_MM = 6;
-export const PAGE_SUBTITLE_SIZE_MM = 3;
+export const PAGE_TITLE_SIZE_MM = 8;
+export const PAGE_SUBTITLE_SIZE_MM = 4;
 export const PAGE_NOTE_SIZE_MM = 3;
 export const PAGE_SOURCE_SIZE_MM = 2;
 

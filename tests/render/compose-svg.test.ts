@@ -295,6 +295,7 @@ describe('composeFinalSvg:text(§5.3)', () => {
   it('字距进入 letter-spacing 属性(3 位小数)且属性顺序在 fill 之前', () => {
     const { document, layout } = setup();
     const title = firstText(layout, 'title');
+    title.font_size_mm = 6;
     title.font_weight = 700;
     title.letter_spacing_em = 0.1;
     const result = composeFinalSvg(document, layout);

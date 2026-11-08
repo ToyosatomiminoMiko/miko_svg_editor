@@ -412,10 +412,10 @@ describe('defaultPageLayout(§9 初始排版)', () => {
     // 地名字号是前端的纸张 mm 设计常量(role 表),与底图尺寸/地图缩放无关
     const expectedSize = mapCategoryDefaultFontSizeMm('country');
     expect(labels[0]!.font_size_mm).toBe(expectedSize);
-    // 颜色/斜体来自 role 表;描边宽度是纸面常量(不随 s 缩放),旋转统一 0
-    expect(labels[0]!.color).toBe('#3a3a3a');
+    // 颜色/斜体来自 role 表;描边宽度按角色(国名 0.5mm,其余 0.18mm),旋转统一 0
+    expect(labels[0]!.color).toBe('#ff0000');
     expect(labels[0]!.italic).toBe(false);
-    expect(labels[0]!.halo).toEqual({ color: '#ffffff', width_mm: 0.18 });
+    expect(labels[0]!.halo).toEqual({ color: '#ffffff', width_mm: 0.5 });
     expect(labels[1]!.color).toBe('#2d6ea6');
     expect(labels[1]!.italic).toBe(true);
     expect(labels[1]!.rotation_deg).toBe(0);
@@ -533,7 +533,7 @@ describe('纸张自适应(defaultPageLayout 的 k)', () => {
     const sourceText = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'source',
     );
-    expect(title?.font_size_mm).toBeCloseTo(6, 9);
+    expect(title?.font_size_mm).toBeCloseTo(8, 9);
     expect(sourceText?.font_size_mm).toBeCloseTo(2, 9);
     const label = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.geo_label_id !== null,

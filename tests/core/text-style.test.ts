@@ -76,14 +76,19 @@ function mutableGeo(geo: Geo): Record<string, unknown> {
 describe('MAP_LABEL_ROLE_STYLES:§2 角色表', () => {
   it('14 个 role,颜色/斜体与规格逐字一致', () => {
     const expected: Record<MapLabelRole, MapLabelRoleStyle> = {
-      country: { color: '#3a3a3a', italic: false, font_size_mm: 2.3 },
+      country: {
+        color: '#ff0000',
+        italic: false,
+        font_size_mm: 4,
+        halo_width_mm: 0.5,
+      },
       'country-name': { color: '#8b0000', italic: false, font_size_mm: 4 },
-      sea: { color: '#1f4e79', italic: true, font_size_mm: 2.1 },
-      city: { color: '#111111', italic: false, font_size_mm: 1.7 },
+      sea: { color: '#1f4e79', italic: true, font_size_mm: 1.8 },
+      city: { color: '#111111', italic: false, font_size_mm: 2 },
       'city-reference': { color: '#555555', italic: false, font_size_mm: 1.6 },
-      river: { color: '#2d6ea6', italic: true, font_size_mm: 1.9 },
+      river: { color: '#2d6ea6', italic: true, font_size_mm: 1.6 },
       highland: { color: '#6d4a33', italic: true, font_size_mm: 2.2 },
-      area: { color: '#111111', italic: false, font_size_mm: 1.7 },
+      area: { color: '#111111', italic: false, font_size_mm: 3 },
       'area-muted': { color: '#666666', italic: false, font_size_mm: 2 },
       'area-accent-1': { color: '#4a1486', italic: false, font_size_mm: 1.8 },
       'area-accent-2': { color: '#005a32', italic: false, font_size_mm: 2 },
@@ -98,7 +103,7 @@ describe('MAP_LABEL_ROLE_STYLES:§2 角色表', () => {
     }
   });
 
-  it('每个 role 的地名 item 的颜色/斜体来自角色表', () => {
+  it('每个 role 的地名 item 的颜色/斜体/光晕宽度来自角色表', () => {
     const geo = makeGeo();
     geo.labels = MAP_LABEL_ROLES.map((role, index) => ({
       id: `label-${role}`,
@@ -117,6 +122,9 @@ describe('MAP_LABEL_ROLE_STYLES:§2 角色表', () => {
       const role = MAP_LABEL_ROLES[index]!;
       expect(item.color).toBe(MAP_LABEL_ROLE_STYLES[role].color);
       expect(item.italic).toBe(MAP_LABEL_ROLE_STYLES[role].italic);
+      expect(item.halo?.width_mm).toBe(
+        MAP_LABEL_ROLE_STYLES[role].halo_width_mm ?? MAP_LABEL_STYLE.halo_width_mm,
+      );
     });
   });
 
@@ -126,21 +134,29 @@ describe('MAP_LABEL_ROLE_STYLES:§2 角色表', () => {
     const item = mapLabels(layoutOf(geo))[0]!;
     expect(item.color).toBe(MAP_LABEL_ROLE_STYLES.area.color);
     expect(item.italic).toBe(MAP_LABEL_ROLE_STYLES.area.italic);
+    expect(item.halo?.width_mm).toBe(MAP_LABEL_STYLE.halo_width_mm);
   });
 });
 
 describe('MAP_LABEL_STYLE:全局标注常量', () => {
-  it('字重/字距/行高/描边宽度全部来自 MAP_LABEL_STYLE,旋转固定 0', () => {
-    for (const item of mapLabels(layoutOf(makeGeo()))) {
+  it('字重/字距/行高来自全局常量,描边宽度按角色覆盖,旋转固定 0', () => {
+    // fixture 两个地名依次是 country / river:国名光晕更宽(0.5),河流沿用全局 0.18
+    const roles = ['country', 'river'] as const;
+    const labels = mapLabels(layoutOf(makeGeo()));
+    expect(labels).toHaveLength(roles.length);
+    labels.forEach((item, index) => {
+      const role = roles[index]!;
       expect(item.font_weight).toBe(MAP_LABEL_STYLE.font_weight);
       expect(item.letter_spacing_em).toBe(MAP_LABEL_STYLE.letter_spacing_em);
       expect(item.line_height).toBe(MAP_LABEL_STYLE.line_height);
       expect(item.halo).toEqual({
         color: MAP_LABEL_STYLE.halo_color,
-        width_mm: MAP_LABEL_STYLE.halo_width_mm,
+        width_mm: MAP_LABEL_ROLE_STYLES[role].halo_width_mm ?? MAP_LABEL_STYLE.halo_width_mm,
       });
       expect(item.rotation_deg).toBe(0);
-    }
+    });
+    expect(labels[0]!.halo?.width_mm).toBe(0.5);
+    expect(labels[1]!.halo?.width_mm).toBe(MAP_LABEL_STYLE.halo_width_mm);
   });
 
   it('常量取值与规格一致(400 / 0 / 1 / #ffffff / 0.18mm / 0.36)', () => {
@@ -194,8 +210,8 @@ describe('geo v2:文字块垂直中心 -> 第一行基线', () => {
     // fixture 的 country / river 各一条:字号只由 role 表决定,与 geo.labels 无关
     expect(labels[0]!.font_size_mm).toBe(MAP_LABEL_ROLE_STYLES.country.font_size_mm);
     expect(labels[1]!.font_size_mm).toBe(MAP_LABEL_ROLE_STYLES.river.font_size_mm);
-    expect(labels[0]!.font_size_mm).toBe(2.3);
-    expect(labels[1]!.font_size_mm).toBe(1.9);
+    expect(labels[0]!.font_size_mm).toBe(4);
+    expect(labels[1]!.font_size_mm).toBe(1.6);
   });
 
   it('同一 geo 换纸张/换地图宽度/换底图尺寸,字号都不变', () => {
@@ -410,7 +426,10 @@ describe('mapCategoryDefaultFontSizeMm:role 表纸张 mm 设计字号(§12.1)', 
       expect(mapCategoryDefaultFontSizeMm(role)).toBe(MAP_LABEL_ROLE_STYLES[role].font_size_mm);
     }
     // 抽样钉死设计值(mm,纸面口径)
-    expect(mapCategoryDefaultFontSizeMm('country')).toBe(2.3);
+    expect(mapCategoryDefaultFontSizeMm('country')).toBe(4);
+    expect(mapCategoryDefaultFontSizeMm('sea')).toBe(1.8);
+    expect(mapCategoryDefaultFontSizeMm('river')).toBe(1.6);
+    expect(mapCategoryDefaultFontSizeMm('area')).toBe(3);
     expect(mapCategoryDefaultFontSizeMm('country-name')).toBe(4);
     expect(mapCategoryDefaultFontSizeMm('area-basin')).toBe(3.4);
   });
@@ -418,7 +437,7 @@ describe('mapCategoryDefaultFontSizeMm:role 表纸张 mm 设计字号(§12.1)', 
   it('未知 role(坏数据绕过 validateGeo)回退 area 的字号', () => {
     const unknown = 'not-a-role' as MapLabelRole;
     expect(mapCategoryDefaultFontSizeMm(unknown)).toBe(MAP_LABEL_ROLE_STYLES.area.font_size_mm);
-    expect(mapCategoryDefaultFontSizeMm(unknown)).toBe(1.7);
+    expect(mapCategoryDefaultFontSizeMm(unknown)).toBe(3);
   });
 
   it('geo.labels 里残留的 font_size_pt(旧产物)不参与字号计算', () => {
@@ -1068,7 +1087,7 @@ describe('分类默认样式:与 config 真源一致(§2/§3)', () => {
       expect(resolved.line_height).toBe(MAP_LABEL_STYLE.line_height);
       expect(resolved.halo).toEqual({
         color: MAP_LABEL_STYLE.halo_color,
-        width_mm: MAP_LABEL_STYLE.halo_width_mm,
+        width_mm: roleStyle.halo_width_mm ?? MAP_LABEL_STYLE.halo_width_mm,
       });
     }
   });
@@ -1095,7 +1114,7 @@ describe('分类默认样式:与 config 真源一致(§2/§3)', () => {
     for (const role of ['title', 'subtitle', 'note', 'source'] as const) {
       expect(defaultTextFontSizeMm(role, a4Layout)).toBe(defaultTextFontSizeMm(role, a5Layout));
     }
-    expect(defaultTextFontSizeMm('title', a4Layout)).toBeCloseTo(6, 9);
+    expect(defaultTextFontSizeMm('title', a4Layout)).toBeCloseTo(8, 9);
     expect(defaultTextFontSizeMm('note', a4Layout)).toBeCloseTo(3, 9);
     // 地图分类默认字号 = role 表纸张 mm 设计字号(A4/A5 一致,与纸张/底图缩放无关)
     for (const category of MAP_LABEL_ROLES) {

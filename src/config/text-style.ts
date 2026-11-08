@@ -47,7 +47,7 @@ export const MAP_LABEL_ROLES = [
 
 export type MapLabelRole = (typeof MAP_LABEL_ROLES)[number];
 
-/** 一个地图地名角色对应的文字样式(颜色/斜体/设计字号,其余是全局常量) */
+/** 一个地图地名角色对应的文字样式(颜色/斜体/设计字号/光晕宽度,其余是全局常量) */
 export interface MapLabelRoleStyle {
   /** 文字填充色 */
   readonly color: string;
@@ -60,6 +60,12 @@ export interface MapLabelRoleStyle {
    * 里改的覆盖(`page.text_style[分类].font_size_mm`)才是个体差异.
    */
   readonly font_size_mm: number;
+  /**
+   * 该角色的光晕宽度覆盖(mm,纸面口径);缺省 = `MAP_LABEL_STYLE.halo_width_mm`.
+   * 为什么按角色给:国名一类大字号的文字在彩色底图上需要更宽的白色描边才读得清,而海域/
+   * 河流等小字号文字统一加宽会把笔画糊掉;光晕颜色仍由全局常量统一.
+   */
+  readonly halo_width_mm?: number;
 }
 
 /**
@@ -69,17 +75,18 @@ export interface MapLabelRoleStyle {
  *
  * 设计字号也在这里,而且是**唯一真源**:字号是前端纸张 mm 设计值,与 Cartopy/底图尺寸/
  * 地图缩放都无关;数值按现有成品的实际纸面字号标定(改风格只改本表).单张图想调字号就改
- * 「样式设置」里的分类覆盖,不回到这里.
+ * 「样式设置」里的分类覆盖,不回到这里.本表的取值取自缅甸行政区划图
+ * (`myanmar_administrative_divisions_bilingual.geo.json`)的样式设置,作为新图的默认.
  */
 export const MAP_LABEL_ROLE_STYLES: Record<MapLabelRole, MapLabelRoleStyle> = {
-  country: { color: '#3a3a3a', italic: false, font_size_mm: 2.3 },
+  country: { color: '#ff0000', italic: false, font_size_mm: 4, halo_width_mm: 0.5 },
   'country-name': { color: '#8b0000', italic: false, font_size_mm: 4 },
-  sea: { color: '#1f4e79', italic: true, font_size_mm: 2.1 },
-  city: { color: '#111111', italic: false, font_size_mm: 1.7 },
+  sea: { color: '#1f4e79', italic: true, font_size_mm: 1.8 },
+  city: { color: '#111111', italic: false, font_size_mm: 2 },
   'city-reference': { color: '#555555', italic: false, font_size_mm: 1.6 },
-  river: { color: '#2d6ea6', italic: true, font_size_mm: 1.9 },
+  river: { color: '#2d6ea6', italic: true, font_size_mm: 1.6 },
   highland: { color: '#6d4a33', italic: true, font_size_mm: 2.2 },
-  area: { color: '#111111', italic: false, font_size_mm: 1.7 },
+  area: { color: '#111111', italic: false, font_size_mm: 3 },
   'area-muted': { color: '#666666', italic: false, font_size_mm: 2 },
   'area-accent-1': { color: '#4a1486', italic: false, font_size_mm: 1.8 },
   'area-accent-2': { color: '#005a32', italic: false, font_size_mm: 2 },
