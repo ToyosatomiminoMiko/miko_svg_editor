@@ -2,12 +2,13 @@
  * 出版排版编辑器的「打开地图」上传面板.
  *
  * 是什么:画布中央的一块面板--一段说明,两个独立的选择栏(SVG / JSON),一个「打开地图」
- * 按钮和一行错误文案.每栏**整栏就是控件**(点击任意位置或 Enter/Space 打开系统文件框),
- * 内部是隐藏的 `<input type="file">` 与文件名回显;拖到页面任意位置的文件会按扩展名自动落进
- * 对应一栏.本文件只负责分栏,展示已选文件,把选好的文件交给回调,以及显示打开失败的中文原因.
+ * 按钮和一行错误文案.每栏**整栏就是控件**:一个视觉隐藏,铺满整栏的原生 `<input type="file">`
+ * 自己接收点击与 Enter/Space,栏内是标签,文件名回显与「选择...」说明文字;拖到页面任意位置的
+ * 文件会按扩展名自动落进对应一栏.本文件只负责分栏,展示已选文件,把选好的文件交给回调,以及
+ * 显示打开失败的中文原因.
  * 为什么整栏是唯一控件,不在栏内再放一个「选择...」按钮:同一动作两个入口时必须特判点击目标
- * 才能避免弹两次文件框,还多出一个可聚焦控件;整栏做成 `role="button"` 后热区最大,键盘只有
- * 一个停靠点,与侧栏元素行(`ui/page-sidebar.ts`)是同一套写法.
+ * 才能避免弹两次文件框,还多出一个可聚焦控件.让原生文件框铺满整栏后,点击,键盘,禁用语义都由
+ * 这个 input 承担,本文件不需要 `role="button"`,keydown 转发或第二套 disabled 状态.
  * 为什么 SVG 与 JSON 分成两栏:打开需要「底图 + geo.json」两份文件,用户经常只想换其中一份
  * (底图没变,只重新生成 geo.json;或排版文件没变,只换了底图).合成一个 multiple 选择框时,
  * 第二次选择会覆盖第一次的全部选中项,用户只能每次把两份一起重选;拆成两栏后各栏独立替换,
@@ -48,7 +49,7 @@ export interface PageOpenPanelHandle {
 
 /** 一栏的节点与已选文件 */
 interface Slot {
-  /** 整栏(标签 + 文件名 + 「选择...」文字),整栏就是 `role="button"` 控件 */
+  /** 整栏(标签 + 文件名 + 「选择...」文字);文件框铺满整栏,整栏因此就是唯一控件 */
   readonly root: HTMLElement;
   readonly input: HTMLInputElement;
   /** 文件名回显节点 */
@@ -62,7 +63,7 @@ interface Slot {
 interface SlotOptions {
   readonly label: string;
   readonly emptyText: string;
-  /** 栏末的说明文字(不再是独立按钮,只是提示点这里选什么) */
+  /** 栏末的说明文字(不是控件,只是提示点这里选什么) */
   readonly pickText: string;
   readonly pickTitle: string;
   readonly accept: string;
@@ -91,7 +92,7 @@ export function createPageOpenPanel(
     '底图由 Cartopy_file 生成(负责几何),geo.json 记录刻度,地名与配色;成品 SVG 自带底图与排版,选中它就能继续编辑(旧版导出,不含内嵌排版数据的成品不再支持,需要 base.svg + geo.json 重新打开).也可以把文件拖到页面任意位置,会按扩展名自动放进对应一栏.',
   );
 
-  /** 建一栏:标签 + 文件名回显 + 「选择...」提示 + 隐藏 input;整栏是唯一控件 */
+  /** 建一栏:<label> + 标签 + 文件名回显 + 「选择...」提示;文件框铺满整栏,整栏即控件 */
   const createSlot = (options: SlotOptions): Slot => {
     const name = create_element(
       { tag: 'span' },
@@ -105,21 +106,16 @@ export function createPageOpenPanel(
         class: 'page-open-input',
         accept: options.accept,
         multiple: options.multiple ? '' : undefined,
-        'aria-hidden': 'true',
-        tabindex: '-1',
       },
     );
+    // 用 <label> 包住 input:input 是原生控件,label 的文字顺带成为它的可访问名
     const root = create_element(
-      { tag: 'div' },
-      {
-        class: 'page-open-slot',
-        role: 'button',
-        tabindex: '0',
-        title: options.pickTitle,
-      },
+      { tag: 'label' },
+      { class: 'page-open-slot', title: options.pickTitle },
       create_element({ tag: 'span' }, { class: 'page-open-slot-label' }, options.label),
       name,
       create_element({ tag: 'span' }, { class: 'page-open-slot-pick' }, options.pickText),
+      input,
     );
     return { root, input, name, emptyText: options.emptyText, files: [] };
   };
@@ -165,7 +161,7 @@ export function createPageOpenPanel(
   const panel = createPanel({
     title: '打开地图',
     class: 'page-open-panel',
-    body: [lead, hint, slots, errorText, actions, svgSlot.input, jsonSlot.input],
+    body: [lead, hint, slots, errorText, actions],
   });
   overlay.append(panel.element);
   host.append(overlay);
@@ -190,8 +186,6 @@ export function createPageOpenPanel(
         : slot.emptyText;
       slot.root.classList.toggle('is-filled', filled);
       slot.input.disabled = busy;
-      // role="button" 没有原生 disabled:忙碌态用 aria-disabled 暴露给读屏
-      slot.root.setAttribute('aria-disabled', busy ? 'true' : 'false');
     }
     // 只选一个 SVG 也允许点「打开地图」:成品 SVG 自带排版;普通底图缺 geo.json 时由 core 报错.
     const ready = svgSlot.files.length > 0;
@@ -265,19 +259,8 @@ export function createPageOpenPanel(
 
   openButton.onClick(submit);
 
+  // 点击,键盘与禁用都由铺满整栏的原生 input 自己承担:这里只等 change
   for (const slot of [svgSlot, jsonSlot]) {
-    const openPicker = (): void => {
-      if (busy) return;
-      slot.input.click();
-    };
-    slot.root.addEventListener('click', openPicker);
-    // `role="button"` 的 div 没有原生按钮的键盘激活:Enter/Space 自己接
-    // (与侧栏元素行同一套);Space 默认会滚动面板,所以先 preventDefault
-    slot.root.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      event.preventDefault();
-      openPicker();
-    });
     slot.input.addEventListener('change', () => {
       const files = slot.input.files === null ? [] : [...slot.input.files];
       // 清掉 value:否则用户修好文件后重新选同一个文件不会触发 change

@@ -186,14 +186,16 @@
   color: var(--color-text-meta);
 }
 
-/* SVG / JSON 两栏:整栏就是唯一的控件(role=button),虚线框也表示「可以往这里拖」 */
+/* SVG / JSON 两栏:整栏就是唯一的控件(原生文件框铺满整栏),虚线框也表示「可以往这里拖」 */
 .page-open-slots {
   display: grid;
   gap: 8px;
   margin-top: 12px;
 }
 
+/* 整栏是控件:原生文件框绝对定位铺满它,所以栏本身要当定位元素 */
 .page-open-slot {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -210,15 +212,10 @@
   background: var(--color-accent-hover-bg);
 }
 
-/* 键盘焦点环:`role="button"` 的 div 不会替我们画 */
-.page-open-slot:focus-visible {
+/* 焦点环画在整栏:真正被聚焦的是透明铺满栏的 input,它自己画不出可见描边 */
+.page-open-slot:has(.page-open-input:focus-visible) {
   outline: 2px solid var(--color-accent-focus);
   outline-offset: 1px;
-}
-
-/* 忙碌时整栏不可操作:光标给回默认(容器上的 pointer-events 已挡住鼠标) */
-.page-open-slot[aria-disabled='true'] {
-  cursor: default;
 }
 
 /* 已选文件用实线框:一眼区分「还没选」和「已经有文件」 */
@@ -246,16 +243,11 @@
   color: var(--color-text-strong);
 }
 
-/* 栏末的「选择...」只是说明文字,不是第二个控件:整栏才是按钮 */
+/* 栏末的「选择...」只是说明文字,不是第二个控件 */
 .page-open-slot-pick {
   flex: none;
   font-size: 12px;
   color: var(--color-text-meta);
-}
-
-.page-open-slot:hover .page-open-slot-pick,
-.page-open-slot:focus-visible .page-open-slot-pick {
-  color: var(--color-text-strong);
 }
 
 .page-open-actions {
@@ -275,8 +267,13 @@
   display: none;
 }
 
+/* 文件框透明铺满整栏:点击,键盘与禁用语义都由它原生承担,不需要 JS 转发 click
+ * (inset 定满四边且不写宽高,绝对定位元素就自动吃到整栏尺寸) */
 .page-open-input {
-  display: none;
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
 /* 读取/校验期间视觉上锁住两栏,避免用户误以为没收到点击 */
