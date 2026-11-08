@@ -1258,11 +1258,11 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     // 地图底边不是内容底边:经度刻度标签占 mapBottom + tick_length + tick_gap + tick_font_size,
     // 标签自身还有约 0.2em 下伸(刻度字号是纸面字号,不随 k 缩),纵向一排必须让开这段高度.
     // 注记首行基线 = rowY,但文字块上沿还要再高 ascent(回退口径 0.8em),所以让位量 =
-    // 刻度标签底部 + 4pt 间隙 + 注记上沿;A4 纵向同时保留原有的 16pt 最小间距.
+    // 刻度标签底部 + 4pt 间隙 + 注记上沿;同时保留一个栏间距作为最小行距.
     const tickLabelBottom =
       frame.tick_length_mm + frame.tick_gap_mm + frame.tick_font_size_mm * 1.2;
     const tickLabelExtent = frame.ticks
-      ? tickLabelBottom + Math.max(5.6 * k, noteSize * 0.8 + 1.4)
+      ? tickLabelBottom + Math.max(PAGE_DEFAULT_COLUMN_GAP_MM * k, noteSize * 0.8 + 1.4)
       : 0;
     const rowY = mapTop + mapHeight + Math.max(notesGap, tickLabelExtent);
     // 图例不存在时不占列:注记从左边距开始,只有色标时仍贴右;间距按实际存在的列计.

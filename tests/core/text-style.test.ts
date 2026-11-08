@@ -1105,8 +1105,8 @@ describe('分类默认样式:与 config 真源一致(§2/§3)', () => {
     for (const role of ['title', 'subtitle', 'note', 'source'] as const) {
       expect(defaultTextFontSizeMm(role, a4Layout)).toBe(defaultTextFontSizeMm(role, a5Layout));
     }
-    expect(defaultTextFontSizeMm('title', a4Layout)).toBeCloseTo(6.35, 9);
-    expect(defaultTextFontSizeMm('note', a4Layout)).toBeCloseTo(2.646, 9);
+    expect(defaultTextFontSizeMm('title', a4Layout)).toBeCloseTo(6, 9);
+    expect(defaultTextFontSizeMm('note', a4Layout)).toBeCloseTo(3, 9);
     for (const category of MAP_LABEL_ROLES) {
       expect(defaultTextFontSizeMm(category, a4Layout)).toBe(MAP_LABEL_DEFAULT_FONT_SIZE_MM);
     }

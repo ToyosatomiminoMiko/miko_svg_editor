@@ -278,7 +278,7 @@ describe('normalizeGeo:可选块补默认(返回新对象)', () => {
     expect(layout.items.some((item) => item.kind === 'colorbar')).toBe(true);
     expect(validatePage(layout, normalized).ok).toBe(true);
     // 没有图例时地图不再让出图例列宽(右栏只留窄列/无列)
-    expect(layout.map.width_mm).toBeGreaterThan(297 - 20 - 5.6 - 53);
+    expect(layout.map.width_mm).toBeGreaterThan(297 - 20 - 6 - 53);
   });
 
   it('显式 null 与缺省等价', () => {
@@ -329,18 +329,18 @@ describe('defaultPageLayout:有图例时保持 A4 横向既有数值(回归)', (
   it('地图/右栏/字号与降级前一致', () => {
     const geo = normalizeGeo(makeGeo());
     const layout = layoutOf(geo);
-    // 内容宽 = 297 - 2×10(初始版式内缩);地图宽 = 内容宽 - 栏间距 5.6 - 图例列 53
+    // 内容宽 = 297 - 2×10(初始版式内缩);地图宽 = 内容宽 - 栏间距 6 - 图例列 53
     const contentWidth = 297 - 20;
     expect(layout.map.x).toBe(10);
-    expect(layout.map.y).toBe(25.5);
-    expect(layout.map.width_mm).toBeCloseTo(contentWidth - 5.6 - 53, 9);
+    expect(layout.map.y).toBe(26);
+    expect(layout.map.width_mm).toBeCloseTo(contentWidth - 6 - 53, 9);
 
     const legend = layout.items.find((item) => item.kind === 'legend');
     expect(legend?.kind).toBe('legend');
     if (legend?.kind === 'legend') {
-      expect(legend.x).toBeCloseTo(10 + layout.map.width_mm + 5.6, 9);
-      expect(legend.y).toBe(25.5);
-      expect(legend.font_size_mm).toBeCloseTo(3.2, 9);
+      expect(legend.x).toBeCloseTo(10 + layout.map.width_mm + 6, 9);
+      expect(legend.y).toBe(26);
+      expect(legend.font_size_mm).toBeCloseTo(3, 9);
       expect(legend.entries).toHaveLength(5);
     }
     const colorbar = layout.items.find((item) => item.kind === 'colorbar');
@@ -363,10 +363,10 @@ describe('defaultPageLayout:无 legend 降级(不生成空图例框)', () => {
 
     const contentWidth = 297 - 20;
     const compactRightWidth = 53 * 0.7; // compactRightColumnWidth:0.7 × 右栏最小宽
-    expect(layout.map.width_mm).toBeCloseTo(contentWidth - 5.6 - compactRightWidth, 9);
+    expect(layout.map.width_mm).toBeCloseTo(contentWidth - 6 - compactRightWidth, 9);
     // 右栏紧贴地图右侧,注记从栏顶(地图顶)开始
-    expect(note.x).toBeCloseTo(layout.map.x + layout.map.width_mm + 5.6, 9);
-    expect(note.y).toBeCloseTo(25.5, 9);
+    expect(note.x).toBeCloseTo(layout.map.x + layout.map.width_mm + 6, 9);
+    expect(note.y).toBeCloseTo(26, 9);
     // 注记/色标都在纸内,且色标不压注记(色标在注记块下方)
     const noteBottom = note.y + note.lines.length * note.font_size_mm * note.line_height;
     expect(colorbar.y).toBeGreaterThanOrEqual(noteBottom);

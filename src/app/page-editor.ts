@@ -15,6 +15,9 @@
  */
 
 import {
+  PAGE_COLORBAR_LABEL_SIZE_MM,
+  PAGE_COLORBAR_TITLE_SIZE_MM,
+  PAGE_DEFAULT_COLUMN_GAP_MM,
   PAGE_FIT_PADDING_RATIO,
   PAGE_KEY_MOVE_LARGE_MM,
   PAGE_KEY_MOVE_MM,
@@ -395,10 +398,10 @@ export class PageEditor {
       newId = allocateItemId(layout);
       const paper = layout.paper;
       const { margin } = layout;
-      // 右栏顶部:优先贴版心右边线,至少与地图留 5.6mm;图例宽夹在 [14, 61]mm.
+      // 右栏顶部:优先贴版心右边线,至少与地图留一个栏间距;图例宽夹在 [14, 61]mm.
       const rightEdge = paper.width_mm - margin.right;
       const rightX = Math.max(
-        layout.map.x + layout.map.width_mm + 5.6,
+        layout.map.x + layout.map.width_mm + PAGE_DEFAULT_COLUMN_GAP_MM,
         rightEdge - PAGE_NEW_LEGEND_WIDTH_MM,
       );
       const width = Math.max(14, Math.min(PAGE_NEW_LEGEND_WIDTH_MM, rightEdge - rightX));
@@ -458,8 +461,8 @@ export class PageEditor {
         unit: relief.unit,
         show_title: true,
         show_ticks: true,
-        title_size_mm: 2.8,
-        label_size_mm: 2.5,
+        title_size_mm: PAGE_COLORBAR_TITLE_SIZE_MM,
+        label_size_mm: PAGE_COLORBAR_LABEL_SIZE_MM,
       };
       layout.items.push(colorbar);
     });
@@ -779,11 +782,11 @@ export class PageEditor {
     const paper = layout.paper;
     switch (role) {
       case 'title':
-        return { ...item, y: Math.max(5.2, layout.map.y - 9.2), lines: ['新标题'] };
+        return { ...item, y: Math.max(5, layout.map.y - 9), lines: ['新标题'] };
       case 'subtitle':
-        return { ...item, y: Math.max(11.2, layout.map.y - 3.5), lines: ['副标题'] };
+        return { ...item, y: Math.max(11, layout.map.y - 4), lines: ['副标题'] };
       case 'source':
-        return { ...item, y: paper.height_mm - layout.margin.bottom - 4.9, lines: ['来源说明'] };
+        return { ...item, y: paper.height_mm - layout.margin.bottom - 5, lines: ['来源说明'] };
       case 'note':
         return {
           ...item,

@@ -174,9 +174,9 @@ export const TEXT_HALO = { color: '#ffffff', width_mm: 0 } as const;
 /**
  * 新建标注/手动地名文字的默认字号(mm).
  * 为什么单独一条:工具栏「文字」新建出来的 item 与默认排版共用同一套固定字号;
- * 统一放在分类元信息旁边,新建入口不再各自写死 10.
+ * 统一放在分类元信息旁边,新建入口不再各自写死字号.
  */
-export const PAGE_TEXT_NEW_FONT_SIZE_MM = 3.5;
+export const PAGE_TEXT_NEW_FONT_SIZE_MM = 4;
 
 /**
  * 页面文字分类的固定默认字号(mm).
@@ -193,7 +193,7 @@ export const PAGE_TEXT_DEFAULT_FONT_SIZE_MM: Record<PageTextRole, number> = {
 };
 
 /** 地图地名在拿不到底图字号时的兜底字号(mm,纸面) */
-export const MAP_LABEL_DEFAULT_FONT_SIZE_MM = 3.5;
+export const MAP_LABEL_DEFAULT_FONT_SIZE_MM = 4;
 
 /** 样式设置窗口里的分类 id:页面文字角色 + 地图地名角色(两套枚举不相交) */
 export type TextStyleCategoryId = PageTextRole | MapLabelRole;

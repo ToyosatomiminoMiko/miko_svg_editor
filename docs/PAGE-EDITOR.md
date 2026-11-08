@@ -82,8 +82,8 @@ map.html(Vite 静态站;npm run dev -> http://localhost:5173/map.html)
 geo.json 原文 -> 重新打开走同一条链路.**生成端不存样式;item 不是独立样式真源;地图分类字号恒
 统一**(同一分类下所有地名永远相等;窗口改任意字段,哪怕只改颜色,也会把该分类字号统一到窗口值).
 页面文字的分类字号口径不同:`覆盖 font_size_mm ?? 该分类现有 item 的字号 ?? 固定默认字号`
-(`PAGE_TITLE_SIZE_MM=6.35` / `PAGE_SUBTITLE_SIZE_MM=3.175` / `PAGE_NOTE_SIZE_MM=2.646` /
-`PAGE_SOURCE_SIZE_MM=2.469`,不随纸张缩放)--item 里已有的字号优先保留,导出 -> 打开幂等,窗口把
+(`PAGE_TITLE_SIZE_MM=6` / `PAGE_SUBTITLE_SIZE_MM=3` / `PAGE_NOTE_SIZE_MM=3` /
+`PAGE_SOURCE_SIZE_MM=2`,不随纸张缩放)--item 里已有的字号优先保留,导出 -> 打开幂等,窗口把
 这种与固定默认不同的状态标为「排版值」;只有用户显式改字号或恢复默认才按固定默认/覆盖重算.
 
 ## 2. 文件与落点
@@ -238,17 +238,17 @@ Cartopy 直出的 geo.json 没有这个键.形状:
   },
   // 页边距(mm,四边到纸张边缘的距离):版心参考,不参与排版计算,不移动已放置元素
   "margin": { "top": 0, "right": 0, "bottom": 0, "left": 0 },
-  "map": { "x": 10, "y": 25.5, "width_mm": 210.4 },
+  "map": { "x": 10, "y": 26, "width_mm": 210.4 },
   // 高度由宽度派生:map.height = width_mm * geo.base.height_pt / geo.base.width_pt(保持纵横比)
   "frame": {
     "show": true,
     "stroke": "#000000",
     "width_mm": 0.3,
     "ticks": true,
-    "tick_length_mm": 1.8,
-    "tick_font_size_mm": 2.5,
+    "tick_length_mm": 2,
+    "tick_font_size_mm": 3,
     "tick_color": "#444444",
-    "tick_gap_mm": 0.7,
+    "tick_gap_mm": 1,
   },
   "style": {
     "paper_color": "#ffffff",
@@ -258,7 +258,7 @@ Cartopy 直出的 geo.json 没有这个键.形状:
   },
   // 分类样式覆盖表(可选):只存用户显式改过的字段,没列出的分类/字段用分类默认值
   "text_style": {
-    "title": { "font_size_mm": 6.35, "color": "#111111", "font_weight": 600 },
+    "title": { "font_size_mm": 7, "color": "#111111", "font_weight": 600 },
     "city": {
       "font_size_mm": 3, // 地图分类:字号恒统一;缺省时用分类默认统一字号(该分类底图字号中位数 × 地图缩放)
       "color": "#222222",
@@ -302,10 +302,10 @@ Cartopy 直出的 geo.json 没有这个键.形状:
   `letter_spacing_em`,`line_height`,`halo` 七个,且**只存用户显式改过的值**--默认值仍在
   `config/text-style.ts`,不复制进文件.地图分类的字号**恒统一**:`font_size_mm` 缺省时使用
   「分类默认统一字号」--取该分类全部 `geo.labels` 的 `font_size_pt` 中位数 × 地图缩放比 `s`,
-  夹到 1.5..15mm 并保留 1 位小数;该分类没有地名时回退 3.5mm;同一分类下所有地名永远使用同一个
+  夹到 1.5..15mm 并保留 1 位小数;该分类没有地名时回退 4mm;同一分类下所有地名永远使用同一个
   字号.页面分类的字号口径是「覆盖 `font_size_mm` ?? 该分类现有 item 的字号 ??
-  `PAGE_TEXT_DEFAULT_FONT_SIZE_MM`」:页面默认字号固定(标题 6.35mm / 副标题 3.175mm /
-  注记 2.646mm / 来源 2.469mm,标注与手动地名 3.5mm,不随纸张缩放);item 里已有的字号优先保留,
+  `PAGE_TEXT_DEFAULT_FONT_SIZE_MM`」:页面默认字号固定(标题 6mm / 副标题 3mm /
+  注记 3mm / 来源 2mm,标注与手动地名 4mm,不随纸张缩放);item 里已有的字号优先保留,
   按分类重建不会改写它(导出 -> 打开字节幂等);用户显式改字号或恢复默认才按固定默认值/覆盖
   重写.覆盖表是「覆盖 ?? 分类默认」的样式来源:设置时由 `core/text-style.ts` 把解析后的样式批量
   写回该分类全部 item,默认排版(§5.6)也按它解析初始值;渲染仍只读 item 上的显式字段(§5.3).
@@ -330,11 +330,11 @@ Cartopy 直出的 geo.json 没有这个键.形状:
   "kind": "text",
   "role": "title", // title|subtitle|label|annotation|note|source(页面文字角色;样式由分类覆盖决定)
   "x": 148.5,
-  "y": 15.2, // 纸张坐标(mm);首行基线
+  "y": 15, // 纸张坐标(mm);首行基线
   "lines": ["伏尔加河流域地形图"], // 1..40 行,每行 ≤200 字符;开启自动折行时是派生量
   "text": null, // 自动折行的原始内容(含手动换行);null = lines 即真值
   "wrap_width_mm": null, // 自动折行宽度(mm);null = 不自动折行(只有页面注记/来源可为数字)
-  "font_size_mm": 6.35,
+  "font_size_mm": 6,
   "font_family": null, // null = 用 style.font_family
   "color": "#111111",
   "anchor": "middle", // start|middle|end
@@ -389,7 +389,7 @@ Cartopy 直出的 geo.json 没有这个键.形状:
   "id": 3,
   "kind": "legend",
   "x": 240,
-  "y": 25.5,
+  "y": 26,
   "width_mm": 47,
   "title": "图例",
   "entries": [
@@ -404,12 +404,12 @@ Cartopy 直出的 geo.json 没有这个键.形状:
       "marker": null,
     },
   ],
-  "font_size_mm": 3.2,
-  "title_size_mm": 4.2,
-  "row_height_mm": 4.9,
-  "padding_mm": 2.5,
-  "swatch_width_mm": 8.5,
-  "swatch_gap_mm": 2.1,
+  "font_size_mm": 3,
+  "title_size_mm": 4,
+  "row_height_mm": 5,
+  "padding_mm": 3,
+  "swatch_width_mm": 9,
+  "swatch_gap_mm": 2,
   "frame": {
     "show": true,
     "stroke": "#bbbbbb",
@@ -432,13 +432,13 @@ Cartopy 直出的 geo.json 没有这个键.形状:
   "x": 270,
   "y": 90,
   "width_mm": 5,
-  "height_mm": 63.5,
+  "height_mm": 64,
   "title": "高程 / 水深",
   "unit": "m",
   "show_title": true,
   "show_ticks": true,
-  "title_size_mm": 2.8,
-  "label_size_mm": 2.5,
+  "title_size_mm": 3,
+  "label_size_mm": 3,
 }
 ```
 
@@ -504,12 +504,12 @@ paint-order=stroke` 的副本,再画正常填充(与 matplotlib 的 paint-order 
   逐条写回该分类全部 item(地图 item 若字号/行高变化,按「文字块垂直中心」修正纸张坐标 `y`,
   保住用户手动拖过的位置).字号口径按分类类型区分:
   - 地图分类:item 字号 = 覆盖 `font_size_mm` ?? **分类默认统一字号**(该分类底图字号中位数 ×
-    地图缩放比 `s`,夹到 1.5..15mm 并保留 1 位小数,无地名时 3.5mm).因此同一地图分类下所有
+    地图缩放比 `s`,夹到 1.5..15mm 并保留 1 位小数,无地名时 4mm).因此同一地图分类下所有
     地名**字号必须相等**:默认排版,批量应用(哪怕只改颜色),恢复默认,单条 item 切换分类都会
     写回该统一字号.
   - 页面分类:item 字号 = 覆盖 `font_size_mm` ?? 该分类现有 item 的字号 ?? 固定默认字号
-    `PAGE_TEXT_DEFAULT_FONT_SIZE_MM`(标题 6.35mm / 副标题 3.175mm / 注记 2.646mm / 来源
-    2.469mm,不随纸张缩放).改颜色/行高等不含字号的补丁不会顺手改写页面文字字号;item 里已有
+    `PAGE_TEXT_DEFAULT_FONT_SIZE_MM`(标题 6mm / 副标题 3mm / 注记 3mm / 来源
+    2mm,不随纸张缩放).改颜色/行高等不含字号的补丁不会顺手改写页面文字字号;item 里已有
     的字号优先保留(`resyncTextStyles` 不会改它,导出 -> 打开幂等);用户显式改字号或恢复默认
     才写新值.
 - **分类样式是唯一真源**:打开带 `page` 块的排版后,会按分类重建每一条 text item 的样式
@@ -548,7 +548,7 @@ vmin/vmax/stops/ticks 来自 geo.relief
 stops 用 offset/color 原样
 title(show_title):基线 y-1.4,anchor=middle,x = item.x+width_mm/2
 每个 tick v:ty = y + height*(1-(v-vmin)/(vmax-vmin));右侧短线 x+width_mm..x+width_mm+1;
-标签 x+width_mm+1.8,anchor=start,基线 ty + label_size_mm*0.35
+标签 x+width_mm+2,anchor=start,基线 ty + label_size_mm*0.35
 单位:title 后接 " (unit)"(unit 非空且标题不含单位时)
 ```
 
@@ -556,29 +556,29 @@ title(show_title):基线 y-1.4,anchor=middle,x = item.x+width_mm/2
 
 - 纸张默认 **A4 横向 297×210mm**(`PAGE_DEFAULT_PAPER_WIDTH_MM` / `HEIGHT_MM`),`locked:false`;
   排版随纸张自适应:`k = clamp(min(长边/297, 短边/210), 0.62, 1.6)`(`layoutScaleForPaper`)缩放
-  图例/色标尺寸与版式间距;**页面文字字号固定**(`PAGE_TITLE_SIZE_MM=6.35` /
-  `PAGE_SUBTITLE_SIZE_MM=3.175` / `PAGE_NOTE_SIZE_MM=2.646` / `PAGE_SOURCE_SIZE_MM=2.469`,
+  图例/色标尺寸与版式间距;**页面文字字号固定**(`PAGE_TITLE_SIZE_MM=6` /
+  `PAGE_SUBTITLE_SIZE_MM=3` / `PAGE_NOTE_SIZE_MM=3` / `PAGE_SOURCE_SIZE_MM=2`,
   不随纸张缩放);**横向**纸用「左地图 + 右栏」,**纵向**纸(`h > w*1.05`)用「地图满内容宽 +
   下方一排图例/注记/色标」,并让开地图底部的经度刻度标签.
 - **初始版式内缩是内部常量,不是页边距**:`PAGE_DEFAULT_INSET_MM = 10`(左/下内缩),
-  `PAGE_DEFAULT_MAP_TOP_MM = 25.5`(地图顶部起始 y);标题/副标题首行基线是纸张绝对坐标
-  `PAGE_TITLE_BASELINE_MM = 15.2` / `PAGE_SUBTITLE_BASELINE_MM = 21.2`,不写成「相对页边距偏移」.
+  `PAGE_DEFAULT_MAP_TOP_MM = 26`(地图顶部起始 y);标题/副标题首行基线是纸张绝对坐标
+  `PAGE_TITLE_BASELINE_MM = 15` / `PAGE_SUBTITLE_BASELINE_MM = 21`,不写成「相对页边距偏移」.
   这些常量只用于 `defaultPageLayout` 生成初始排版,不写进 `page` 块;返回的 `margin` 是四边 0 的
   页边距字段.已放置元素只由各自 x/y 决定位置,改纸张尺寸后位置不变.
-- 地图摆放:`map.x = inset = 10`,`map.y = mapTop = 25.5`,`contentWidth = paper.width_mm - inset*2`;
+- 地图摆放:`map.x = inset = 10`,`map.y = mapTop = 26`,`contentWidth = paper.width_mm - inset*2`;
   横向可用宽 = `contentWidth`(无右栏)或 `contentWidth - columnGap - 右栏宽`(有右栏),可用高 =
   `paper.height_mm - inset - sourceReserved - mapTop`;`mapWidth = max(2, min(可用宽, 可用高 /
 baseRatio))`,纵向 `mapWidth = max(2, contentWidth)`;高度仍由
-  `mapWidth × geo.base.height_pt / geo.base.width_pt` 派生.间距:`columnGap = 5.6*k`,
-  `sourceReserved = 8.5*k`,`notesGap = 4.2*k`.
+  `mapWidth × geo.base.height_pt / geo.base.width_pt` 派生.间距:`columnGap = 6*k`,
+  `sourceReserved = 9*k`,`notesGap = 4*k`.
 - 地名标注(`geo.labels`)打开时按 §5.1 一次性换算成纸张坐标铺上,**同分类统一字号**(见下条):
   颜色/斜体按 `role` 查 `config/text-style.ts` 的角色表,字重/字距/行高/描边取 `MAP_LABEL_STYLE`;
   `label.y` 是文字块垂直中心,按 `baseline_ratio` 换算回第一行基线后加回(见契约 §4),旋转默认 0.
   标题/副标题/注记/来源来自 `geo.suggestions`.
 - **分类样式覆盖参与默认排版**:`defaultPageLayout` 仍接受 `options.text_style` 覆盖表,返回值的
   `text_style` 是它的深拷贝(缺省 `{}`);打开时的初始排版没有已有覆盖,传入缺省 `{}`.标题/副标题/
-  注记/来源:字号 = 覆盖 `font_size_mm` ?? **固定默认字号**(`PAGE_TITLE_SIZE_MM=6.35` /
-  `PAGE_SUBTITLE_SIZE_MM=3.175` / `PAGE_NOTE_SIZE_MM=2.646` / `PAGE_SOURCE_SIZE_MM=2.469`,
+  注记/来源:字号 = 覆盖 `font_size_mm` ?? **固定默认字号**(`PAGE_TITLE_SIZE_MM=6` /
+  `PAGE_SUBTITLE_SIZE_MM=3` / `PAGE_NOTE_SIZE_MM=3` / `PAGE_SOURCE_SIZE_MM=2`,
   不乘 `k`);颜色/斜体/字重/字距/行高/光晕 = 覆盖 ?? `PAGE_TEXT_STYLES[role]`(注记/来源无颜色
   覆盖时仍沿用 `style.color`);注记/来源的折行测量与块高必须用**解析后的**字号/字重/行高,否则
   覆盖后文字会溢出或压到下一块.注记与来源都把原始文案(手动换行保留)与**折行宽度**写进 item 的
@@ -588,7 +588,7 @@ baseRatio))`,纵向 `mapWidth = max(2, contentWidth)`;高度仍由
   基线口径一致.
   地名:按 `label.role` 解析覆盖(颜色/斜体/字重/字距/行高/光晕),字号 = 覆盖
   `font_size_mm` ?? **分类默认统一字号**(该分类底图字号中位数 × `s`,夹到 1.5..15mm 并保留
-  1 位小数;分类没有地名时回退 3.5mm),同一分类全部地名同字号;`geo_label_id = label.id`.默认
+  1 位小数;分类没有地名时回退 4mm),同一分类全部地名同字号;`geo_label_id = label.id`.默认
   排版只用于打开时的初始生成;之后改纸张尺寸/方向不会重新生成版式,既有 item 的字号保持不变
   (§5.3).
 - **可选块降级**:`hasLegend = geo.legend.entries.length > 0`,
@@ -601,9 +601,9 @@ baseRatio))`,纵向 `mapWidth = max(2, contentWidth)`;高度仍由
     `MAX_MM=92`;纵向再乘 k),既有布局/数值不变(回归 demo);**无图例但有注记/色标**时横向右栏
     改用窄列 `0.7 × 53 × k`(A4 横向约 37.1mm,只容纳折行注记与色标),地图相应加宽;纵向注记从
     左内缩开始,色标仍贴右,空块不占列;三块都没有时整栏/整排不存在,地图用满内容宽.
-- 图例/色标默认尺寸来自 `config/page.ts`:`PAGE_LEGEND_DEFAULTS`(字号 3.2mm / 标题 4.2mm /
-  行高 4.9mm / padding 2.5mm / swatch 8.5mm / 间距 2.1mm,均乘 k),`PAGE_COLORBAR_WIDTH_MM=5`
-  / `HEIGHT_MM=63.5` / `GAP_MM=6.5`(乘 k),色标最小高度 `PAGE_MIN_COLORBAR_HEIGHT_MM=14`.
+- 图例/色标默认尺寸来自 `config/page.ts`:`PAGE_LEGEND_DEFAULTS`(字号 3mm / 标题 4mm /
+  行高 5mm / padding 3mm / swatch 9mm / 间距 2mm,均乘 k),`PAGE_COLORBAR_WIDTH_MM=5`
+  / `HEIGHT_MM=64` / `GAP_MM=7`(乘 k),色标最小高度 `PAGE_MIN_COLORBAR_HEIGHT_MM=14`.
 - **标题/副标题/来源默认左右居中**:`center_h = true`,`x = paper.width_mm / 2`,`anchor = middle`
   (派生 x 按 page 的 3 位小数口径写,保证与 `enforceHorizontalCenter`/`normalizePage` 自洽);
   注记(默认排版里唯一的自由摆放页面文字)与全部地图地名 `center_h = false`;标注/手动地名不在默认
@@ -1186,10 +1186,10 @@ tests/render/compose-svg.test.ts # 合成结构(mm 根标签),marker,内嵌源,�
     标题的 `x`/`anchor` 后重新打开 -> 纠回纸张中心,标脏并告警「排版中的左右居中约束已按纸张宽度
     重新贴合(N 条)」;再导出并重新打开 -> 干净(幂等).
 11. **页面字号固定与旧排版「排版值」**:页面文字(标题/副标题/注记/来源)默认字号固定为
-    6.35/3.175/2.646/2.469mm,改变纸张宽/方向不会改变它们;导出 -> 重新打开字号一致,状态干净
+    6/3/3/2mm,改变纸张宽/方向不会改变它们;导出 -> 重新打开字号一致,状态干净
     (不标脏,不出现「逐条文字样式已按分类设置统一」告警),再次导出字节一致.打开保留了非固定
     字号的 page 块(例如 4mm 标题)时:样式设置分类头显示「排版值」,恢复默认可用;
-    点击后状态回到「默认」,字号写回当前固定默认值(标题 6.35mm),画布字号随之变化.地图分类字号
+    点击后状态回到「默认」,字号写回当前固定默认值(标题 6mm),画布字号随之变化.地图分类字号
     仍恒为「覆盖 ?? 中位数 × `s`」.
 12. **排版值状态**:页面分类无覆盖,当前字号与固定默认字号不同 -> 分类头状态显示「排版值」,
     「恢复「X」默认值」可用;点击后状态回到「默认」,字号变为固定默认值.地图分类无覆盖时仍显示
@@ -1247,7 +1247,7 @@ tests/render/compose-svg.test.ts # 合成结构(mm 根标签),marker,内嵌源,�
   **旧 pt page 块不再兼容**:仍用 `*_pt`/`space` 字段的排版被静默忽略并回退默认排版(不迁移,
   不补默认值,不告警);缺 `paper.locked`/`margin` 但无旧字段的排版校验不合法,会告警并回退.
   **地图标注按分类强制统一字号**,不能逐条保留底图字号层级.
-- **页面文字字号固定**:标题/副标题/注记/来源默认 6.35/3.175/2.646/2.469mm,不随纸张尺寸缩放;
+- **页面文字字号固定**:标题/副标题/注记/来源默认 6/3/3/2mm,不随纸张尺寸缩放;
   排版里已有的其它字号显示为「排版值」,点「恢复默认」写回固定默认值.
 - **页边距只是版心参考**:`page.margin` 四边(mm)不参与排版计算,不移动已放置元素,只用于编辑时
   高亮内容框与两处次要计算(自动折行回退宽度,来源折行页底兜底).默认四边 0.

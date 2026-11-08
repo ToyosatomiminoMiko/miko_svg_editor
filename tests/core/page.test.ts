@@ -336,9 +336,9 @@ describe('defaultPageLayout(§9 初始排版)', () => {
       locked: false,
     });
     expect(layout.margin).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
-    // 初始版式的内部内缩 10mm / 地图顶 25.5mm(不是页边距)
+    // 初始版式的内部内缩 10mm / 地图顶 26mm(不是页边距)
     expect(layout.map.x).toBe(10);
-    expect(layout.map.y).toBe(25.5);
+    expect(layout.map.y).toBe(26);
     expect(layout.map.width_mm).toBeGreaterThan(1);
     expect(layout.map.x + layout.map.width_mm).toBeLessThan(297);
 
@@ -460,7 +460,7 @@ describe('纸张自适应(defaultPageLayout 的 k)', () => {
     const k = Math.min(1.6, Math.max(0.62, Math.min(a5.width_mm / 297, a5.height_mm / 210)));
     expect(k).toBeLessThan(1);
     const inset = 10;
-    const sourceReserved = 8.5 * k;
+    const sourceReserved = 9 * k;
 
     // 色标不压注记,且不越过页底(内部内缩 + 来源预留区)
     const noteLastBaseline =
@@ -473,16 +473,16 @@ describe('纸张自适应(defaultPageLayout 的 k)', () => {
 
     // 图例/版式间距按 k 缩小;页面文字字号固定(mm),地名字号只跟地图缩放 s
     const legend = layout.items.find((item) => item.kind === 'legend');
-    if (legend?.kind === 'legend') expect(legend.font_size_mm).toBeCloseTo(3.2 * k, 9);
-    expect(note.font_size_mm).toBeCloseTo(2.646, 9);
+    if (legend?.kind === 'legend') expect(legend.font_size_mm).toBeCloseTo(3 * k, 9);
+    expect(note.font_size_mm).toBeCloseTo(3, 9);
     const title = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'title',
     );
     const sourceText = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'source',
     );
-    expect(title?.font_size_mm).toBeCloseTo(6.35, 9);
-    expect(sourceText?.font_size_mm).toBeCloseTo(2.469, 9);
+    expect(title?.font_size_mm).toBeCloseTo(6, 9);
+    expect(sourceText?.font_size_mm).toBeCloseTo(2, 9);
     const label = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.geo_label_id !== null,
     );
@@ -505,12 +505,12 @@ describe('纸张自适应(defaultPageLayout 的 k)', () => {
   it('A4 横向 k=1:版式与 mm 默认值一致', () => {
     const layout = makeScene();
     const legend = layout.items.find((item) => item.kind === 'legend');
-    if (legend?.kind === 'legend') expect(legend.font_size_mm).toBeCloseTo(3.2, 9);
+    if (legend?.kind === 'legend') expect(legend.font_size_mm).toBeCloseTo(3, 9);
     const note = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'note',
     );
-    expect(note?.font_size_mm).toBeCloseTo(2.646, 9);
-    expect(layout.map.y).toBe(25.5);
+    expect(note?.font_size_mm).toBeCloseTo(3, 9);
+    expect(layout.map.y).toBe(26);
   });
   it('A4/A5 纵向:地图用满内容宽,下方一排三块,互不覆盖且不越界', () => {
     const geo = makeGeo();
@@ -540,7 +540,7 @@ describe('纸张自适应(defaultPageLayout 的 k)', () => {
       // 地图用满内容宽度,标题仍在页顶
       expect(layout.map.x).toBe(10);
       expect(layout.map.width_mm).toBeCloseTo(widthMm - 20, 9);
-      expect(layout.map.y).toBeCloseTo(25.5, 9);
+      expect(layout.map.y).toBeCloseTo(26, 9);
 
       const legend = layout.items.find((item) => item.kind === 'legend');
       const note = layout.items.find(
@@ -562,9 +562,9 @@ describe('纸张自适应(defaultPageLayout 的 k)', () => {
         layout.frame.tick_gap_mm +
         layout.frame.tick_font_size_mm * 1.2;
       const tickExtent = layout.frame.ticks
-        ? tickLabelBottom + Math.max(5.6 * k, noteSize * 0.8 + 1.4)
+        ? tickLabelBottom + Math.max(6 * k, noteSize * 0.8 + 1.4)
         : 0;
-      expect(legend.y).toBeCloseTo(mapBottom + Math.max(4.2 * k, tickExtent), 9);
+      expect(legend.y).toBeCloseTo(mapBottom + Math.max(4 * k, tickExtent), 9);
       expect(legend.y).toBeGreaterThan(mapBottom);
 
       // 三块同一排:图例在左,注记居中,色标贴右,互不相交
@@ -579,16 +579,16 @@ describe('纸张自适应(defaultPageLayout 的 k)', () => {
       expect(note.x + noteWidth).toBeLessThanOrEqual(colorbar.x + 1e-6);
 
       // 色标标题(基线 y-1.4)在整排之内,不画到地图底/刻度标签上
-      const titleBlock = 2.8 * k * 1.4 + 1.4;
+      const titleBlock = 3 * k * 1.4 + 1.4;
       const rowHeight = Math.max(
         legendHeight,
         note.lines.length * note.font_size_mm * note.line_height,
         14 + titleBlock,
       );
       const rowBottom = legend.y + rowHeight;
-      const bottomLimit = heightMm - 10 - 8.5 * k;
+      const bottomLimit = heightMm - 10 - 9 * k;
       expect(colorbar.height_mm).toBeCloseTo(
-        Math.max(14, Math.min(63.5 * k, rowHeight - titleBlock)),
+        Math.max(14, Math.min(64 * k, rowHeight - titleBlock)),
         6,
       );
       expect(colorbar.y + colorbar.height_mm).toBeCloseTo(rowBottom, 6);
@@ -733,7 +733,7 @@ describe('§5.5 色标', () => {
     );
     expect(tick0.x1).toBeCloseTo(colorbar.x + colorbar.width_mm, 9);
     expect(tick0.x2).toBeCloseTo(colorbar.x + colorbar.width_mm + 1, 9);
-    expect(tick0.labelX).toBeCloseTo(colorbar.x + colorbar.width_mm + 1.8, 9);
+    expect(tick0.labelX).toBeCloseTo(colorbar.x + colorbar.width_mm + 2, 9);
     expect(tick0.labelBaseline).toBeCloseTo(tick0.ty + colorbar.label_size_mm * 0.35, 9);
   });
 

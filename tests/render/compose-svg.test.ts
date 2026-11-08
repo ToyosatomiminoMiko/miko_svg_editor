@@ -297,7 +297,7 @@ describe('composeFinalSvg:text(§5.3)', () => {
     title.letter_spacing_em = 0.1;
     const result = composeFinalSvg(document, layout);
     const spacing = num(title.letter_spacing_em * title.font_size_mm);
-    expect(spacing).toBe('0.635');
+    expect(spacing).toBe('0.6');
     expect(result.svg).toMatch(
       new RegExp(
         `font-family="[^"]*" font-size="${num(title.font_size_mm)}" font-weight="700" ` +
@@ -396,7 +396,7 @@ describe('composeFinalSvg:图框/刻度(§5.2)', () => {
     const mapBottom = map.y + mapHeight;
     const svg = result.svg;
     expect(svg).toContain(
-      `<rect x="10" y="25.5" width="${num(map.width_mm)}" height="${num(mapHeight)}" fill="none" stroke="#000000" stroke-width="${num(layout.frame.width_mm)}"/>`,
+      `<rect x="10" y="26" width="${num(map.width_mm)}" height="${num(mapHeight)}" fill="none" stroke="#000000" stroke-width="${num(layout.frame.width_mm)}"/>`,
     );
     // 第一条经度刻度(bottom)
     const lon = geo.graticule.lon[0];

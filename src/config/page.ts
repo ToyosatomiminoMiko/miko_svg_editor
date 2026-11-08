@@ -154,34 +154,34 @@ export const PAGE_DEFAULT_MARGIN_MM = 0;
 export const PAGE_DEFAULT_INSET_MM = 10;
 
 /** 地图顶部起始 y(mm):给标题/副标题留出的高度 */
-export const PAGE_DEFAULT_MAP_TOP_MM = 25.5;
+export const PAGE_DEFAULT_MAP_TOP_MM = 26;
 
 /** 地图与右栏之间的间距(mm) */
-export const PAGE_DEFAULT_COLUMN_GAP_MM = 5.6;
+export const PAGE_DEFAULT_COLUMN_GAP_MM = 6;
 
 /** 右栏(图例/注记/色标)最小/最大宽度(mm) */
 export const PAGE_DEFAULT_RIGHT_COLUMN_MIN_MM = 53;
 export const PAGE_DEFAULT_RIGHT_COLUMN_MAX_MM = 92;
 
 /** 页面底部给「来源」一行预留的高度(mm,含与地图的间隔) */
-export const PAGE_SOURCE_RESERVED_MM = 8.5;
+export const PAGE_SOURCE_RESERVED_MM = 9;
 
 /** 默认字号(mm) */
-export const PAGE_TITLE_SIZE_MM = 6.35;
-export const PAGE_SUBTITLE_SIZE_MM = 3.175;
-export const PAGE_NOTE_SIZE_MM = 2.646;
-export const PAGE_SOURCE_SIZE_MM = 2.469;
+export const PAGE_TITLE_SIZE_MM = 6;
+export const PAGE_SUBTITLE_SIZE_MM = 3;
+export const PAGE_NOTE_SIZE_MM = 3;
+export const PAGE_SOURCE_SIZE_MM = 2;
 
 /**
  * 标题/副标题首行基线的纸张坐标(mm,从纸张上边缘量起,不再相对页边距).
  * 为什么用绝对坐标:全项目只有纸张坐标系,标题位置就是页面上的一个 y,没有第二套原点;
  * 页边距只画内容框参考,不参与排版计算.
  */
-export const PAGE_TITLE_BASELINE_MM = 15.2;
-export const PAGE_SUBTITLE_BASELINE_MM = 21.2;
+export const PAGE_TITLE_BASELINE_MM = 15;
+export const PAGE_SUBTITLE_BASELINE_MM = 21;
 
 /** 注记首行与图例底部的间距(mm) */
-export const PAGE_NOTES_GAP_MM = 4.2;
+export const PAGE_NOTES_GAP_MM = 4;
 
 /**
  * 自动折行(注记/来源)的宽度下限(mm).
@@ -193,8 +193,8 @@ export const PAGE_AUTO_WRAP_MIN_MM = 7;
 
 /** 色标默认尺寸与与注记的间距(mm) */
 export const PAGE_COLORBAR_WIDTH_MM = 5;
-export const PAGE_COLORBAR_HEIGHT_MM = 63.5;
-export const PAGE_COLORBAR_GAP_MM = 6.5;
+export const PAGE_COLORBAR_HEIGHT_MM = 64;
+export const PAGE_COLORBAR_GAP_MM = 7;
 
 /**
  * 排版自适应比例 k 的上下限(相对 A4 横向):小纸张(A5)把图例/色标与版式间距整体缩小,
@@ -247,20 +247,20 @@ export const PAGE_FRAME_DEFAULTS = {
   stroke: '#000000',
   width_mm: 0.3,
   ticks: true,
-  tick_length_mm: 1.8,
-  tick_font_size_mm: 2.5,
+  tick_length_mm: 2,
+  tick_font_size_mm: 3,
   tick_color: '#444444',
-  tick_gap_mm: 0.7,
+  tick_gap_mm: 1,
 } as const;
 
 /** 图例默认值(契约 §5.4 参数) */
 export const PAGE_LEGEND_DEFAULTS = {
-  font_size_mm: 3.2,
-  title_size_mm: 4.2,
-  row_height_mm: 4.9,
-  padding_mm: 2.5,
-  swatch_width_mm: 8.5,
-  swatch_gap_mm: 2.1,
+  font_size_mm: 3,
+  title_size_mm: 4,
+  row_height_mm: 5,
+  padding_mm: 3,
+  swatch_width_mm: 9,
+  swatch_gap_mm: 2,
   frame_stroke: '#bbbbbb',
   frame_width_mm: 0.3,
   frame_fill: '#ffffff',
@@ -268,12 +268,12 @@ export const PAGE_LEGEND_DEFAULTS = {
 } as const;
 
 /** 色标默认字号(mm,契约 §5.5) */
-export const PAGE_COLORBAR_TITLE_SIZE_MM = 2.8;
-export const PAGE_COLORBAR_LABEL_SIZE_MM = 2.5;
+export const PAGE_COLORBAR_TITLE_SIZE_MM = 3;
+export const PAGE_COLORBAR_LABEL_SIZE_MM = 3;
 
-/** 色标刻度短线长度与标签间距(mm,契约 §5.5 的 1 / 1.8,写死公式里,不落 page) */
+/** 色标刻度短线长度与标签间距(mm,契约 §5.5 的 1 / 2,写死公式里,不落 page) */
 export const PAGE_COLORBAR_TICK_LENGTH_MM = 1;
-export const PAGE_COLORBAR_LABEL_GAP_MM = 1.8;
+export const PAGE_COLORBAR_LABEL_GAP_MM = 2;
 
 /* ---------------- 预览交互 ---------------- */
 
@@ -306,5 +306,5 @@ export const PAGE_TEXT_FALLBACK_DESCENT_RATIO = 0.2;
 
 /** 新建元素的默认尺寸/位置偏移(mm) */
 export const PAGE_NEW_COLORBAR_WIDTH_MM = 5;
-export const PAGE_NEW_COLORBAR_HEIGHT_MM = 56.5;
+export const PAGE_NEW_COLORBAR_HEIGHT_MM = 57;
 export const PAGE_NEW_LEGEND_WIDTH_MM = 61;
