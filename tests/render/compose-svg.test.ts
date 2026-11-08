@@ -21,7 +21,7 @@ import {
   type LegendItem,
   type TextItem,
 } from '../../src/core/page';
-import { defaultPageLayout } from '../../src/core/page-layout';
+import { defaultPageLayout, legendLayout } from '../../src/core/page-layout';
 import { escapeXmlAttribute, formatPageNumber } from '../../src/render/page-format';
 import { composeFinalSvg, type ComposeResult } from '../../src/render/compose-svg';
 import { BASE_INFO, makeDocument, makeGeo, withoutBlocks } from '../fixtures/page-fixtures';
@@ -71,27 +71,29 @@ describe('composeFinalSvg:§6 结构与数值', () => {
   it('文件头/纸张/图层顺序符合 §6,且底图原文原样内联', () => {
     const { result } = setup();
     const svg = result.svg;
-    // 根 svg:宽高带 pt,viewBox 与宽高一致(数值走 formatPageNumber,3 位小数去尾零)
+    // 根 svg:宽高带 mm,viewBox 与宽高一致(数值走 formatPageNumber,3 位小数去尾零)
     expect(
       svg.startsWith(
         '<?xml version="1.0" encoding="utf-8"?>\n' +
           '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ' +
-          'width="841.89pt" height="595.276pt" viewBox="0 0 841.89 595.276" version="1.1">\n',
+          'width="297mm" height="210mm" viewBox="0 0 297 210" version="1.1">\n',
       ),
     ).toBe(true);
-    expect(svg).toContain('<rect x="0" y="0" width="841.89" height="595.276" fill="#ffffff"/>\n');
+    expect(svg).toContain('<rect x="0" y="0" width="297" height="210" fill="#ffffff"/>\n');
 
     // 底图内联:defs(裁剪)-> map 组(带 clip-path)-> 原文切片 + 收尾;不出现 <image> 引底图
     expect(svg).toContain(
       '<defs>\n<clipPath id="mapdoc-map-clip">' +
         '<rect x="0" y="0" width="200" height="100"/></clipPath>\n',
     );
+    const map = normalizePage(setup().layout).map;
+    const scale = num(map.width_mm / BASE_INFO.width_pt);
     expect(svg).toContain(
       '<g id="mapdoc-map" clip-path="url(#mapdoc-map-clip)" ' +
-        'transform="translate(28,72) scale(3.099)">',
+        `transform="translate(${num(map.x)},${num(map.y)}) scale(${scale})">`,
     );
     expect(svg).toContain(BASE_INFO.inner);
-    expect(svg).toContain('scale(3.099)">\n <defs>');
+    expect(svg).toContain(`scale(${scale})">\n <defs>`);
     expect(svg).not.toContain('<image');
 
     // 图层顺序:defs -> map -> frame -> overlay -> marker;clipPath 在色标渐变之前(契约)
@@ -213,9 +215,7 @@ describe('composeFinalSvg:底图裁剪(消除 matplotlib 图幅白底外溢)', (
     const { document, layout } = setup();
     layout.style.paper_color = '#ffeecc';
     const result = composeFinalSvg(document, layout);
-    expect(result.svg).toContain(
-      '<rect x="0" y="0" width="841.89" height="595.276" fill="#ffeecc"/>',
-    );
+    expect(result.svg).toContain('<rect x="0" y="0" width="297" height="210" fill="#ffeecc"/>');
     // map group 通过 clip-path 引用同一个 defs,白底不会画到纸面(结构断言;
     // 浏览器端由 verifier 用近白色底图 + 非白 paper_color 目视复验)
     expect(result.svg).toMatch(
@@ -224,35 +224,27 @@ describe('composeFinalSvg:底图裁剪(消除 matplotlib 图幅白底外溢)', (
   });
 });
 
-describe('composeFinalSvg:text/map 空间(§5.1/§5.3)', () => {
-  it('map 空间文字只变换起点,字号不乘 s;halo 先描边后填充', () => {
-    const { document, layout, result } = setup();
-    const geo = document.geo;
-    // 合成前会 normalizePage(3 位小数):坐标比较必须用规范化后的 item 与 map
+describe('composeFinalSvg:text(§5.3)', () => {
+  it('文字起点 = 纸张坐标 x/y;字号/描边宽度都是 mm;halo 先描边后填充', () => {
+    const { layout, result } = setup();
+    // 合成前会 normalizePage(3 位小数):坐标比较必须用规范化后的 item
     const normalized = normalizePage(layout);
     const label = firstText(normalized, 'label');
-    const map = normalized.map;
-    const s = map.width_pt / geo.base.width_pt;
-    const px = map.x + label.x * s;
-    const py = map.y + label.y * s;
-    expect(label.space).toBe('map');
-    // 起点过 §5.1;font-size 仍是 pt(不乘 s);描边宽度是纸面常量(2pt,不乘 s)
     const family = escapeXmlAttribute(normalized.style.font_family);
     expect(result.svg).toContain(
-      `<text x="${num(px)}" y="${num(py)}" text-anchor="${label.anchor}" ` +
+      `<text x="${num(label.x)}" y="${num(label.y)}" text-anchor="${label.anchor}" ` +
         `font-family="${family}" ` +
-        `font-size="${num(label.font_size_pt)}" fill="${label.halo?.color ?? label.color}" ` +
-        `stroke="${label.halo?.color ?? label.color}" stroke-width="${num(label.halo?.width_pt ?? 0)}" ` +
+        `font-size="${num(label.font_size_mm)}" fill="${label.halo?.color ?? label.color}" ` +
+        `stroke="${label.halo?.color ?? label.color}" stroke-width="${num(label.halo?.width_mm ?? 0)}" ` +
         'paint-order="stroke">甲国</text>',
     );
   });
 
   it('多行 + 旋转:整组绕第一行锚点旋转,行距 = 字号 × 行高', () => {
     const { document, layout } = setup();
-    const geo = document.geo;
     const label = layout.items.find(
       (item): item is TextItem =>
-        item.kind === 'text' && item.space === 'map' && item.lines.length > 1,
+        item.kind === 'text' && item.geo_label_id !== null && item.lines.length > 1,
     );
     expect(label).toBeDefined();
     if (label === undefined) return;
@@ -266,17 +258,15 @@ describe('composeFinalSvg:text/map 空间(§5.1/§5.3)', () => {
     );
     expect(flatLabel).toBeDefined();
     if (flatLabel === undefined) return;
-    const map = normalized.map;
-    const s = map.width_pt / geo.base.width_pt;
-    const px = map.x + flatLabel.x * s;
-    const py = map.y + flatLabel.y * s;
+    const px = flatLabel.x;
+    const py = flatLabel.y;
     const group = new RegExp(
       `<g transform="rotate\\(${num(flatLabel.rotation_deg)} ${num(px)} ${num(py)}\\)">([\\s\\S]*?)</g>`,
     ).exec(result.svg);
     expect(group).not.toBeNull();
     const body = group?.[1] ?? '';
     const y1 = py;
-    const y2 = py + flatLabel.font_size_pt * flatLabel.line_height;
+    const y2 = py + flatLabel.font_size_mm * flatLabel.line_height;
     expect(body).toContain(`y="${num(y1)}"`);
     expect(body).toContain(`y="${num(y2)}"`);
     expect(body).toContain('>乙河</text>');
@@ -306,11 +296,11 @@ describe('composeFinalSvg:text/map 空间(§5.1/§5.3)', () => {
     title.font_weight = 700;
     title.letter_spacing_em = 0.1;
     const result = composeFinalSvg(document, layout);
-    const spacing = num(title.letter_spacing_em * title.font_size_pt);
-    expect(spacing).toBe('1.8');
+    const spacing = num(title.letter_spacing_em * title.font_size_mm);
+    expect(spacing).toBe('0.635');
     expect(result.svg).toMatch(
       new RegExp(
-        `font-family="[^"]*" font-size="${num(title.font_size_pt)}" font-weight="700" ` +
+        `font-family="[^"]*" font-size="${num(title.font_size_mm)}" font-weight="700" ` +
           `letter-spacing="${spacing}" fill=`,
       ),
     );
@@ -330,19 +320,25 @@ describe('composeFinalSvg:legend(§5.4)', () => {
     if (legend === undefined) return;
     const svg = result.svg;
     // 底板:fill-opacity 只作用白底;描边/线宽来自 frame
+    const legendBox = legendLayout(legend);
     expect(svg).toContain(
-      `<rect x="${num(legend.x)}" y="${num(legend.y)}" width="${num(legend.width_pt)}" ` +
-        `height="100.8" fill="#ffffff" fill-opacity="0.94" stroke="#bbbbbb" stroke-width="0.8"/>`,
+      `<rect x="${num(legend.x)}" y="${num(legend.y)}" width="${num(legend.width_mm)}" ` +
+        `height="${num(legendBox.height)}" fill="#ffffff" fill-opacity="0.94" ` +
+        `stroke="#bbbbbb" stroke-width="${num(legend.frame.width_mm)}"/>`,
     );
     // 标题:宽度中点,基线 = y + padding + title_size
     expect(svg).toContain(
-      `<text x="${num(legend.x + legend.width_pt / 2)}" ` +
-        `y="${num(legend.y + legend.padding_pt + legend.title_size_pt)}" ` +
+      `<text x="${num(legend.x + legend.width_mm / 2)}" ` +
+        `y="${num(legend.y + legend.padding_mm + legend.title_size_mm)}" ` +
         'text-anchor="middle"',
     );
     expect(svg).toContain('>图例</text>');
-    // line swatch
-    expect(svg).toContain('<line x1="670.89" y1="102.8" x2="694.89" y2="102.8" stroke="#4a4a4a"');
+    // line swatch(几何来自 legendLayout().rows)
+    const firstRow = legendBox.rows[0]!;
+    expect(svg).toContain(
+      `<line x1="${num(firstRow.swatchX0)}" y1="${num(firstRow.centerY)}" ` +
+        `x2="${num(firstRow.swatchX1)}" y2="${num(firstRow.centerY)}" stroke="#4a4a4a"`,
+    );
     // rect swatch(fill 来自条目)
     expect(svg).toContain('fill="#9ecae1" stroke="#2e6f9e"');
     // point marker:star 多边形 / square 矩形 / circle 圆
@@ -354,27 +350,6 @@ describe('composeFinalSvg:legend(§5.4)', () => {
     for (const label of ['国界', '湖泊', '星标', '方标', '圆标']) {
       expect(svg).toContain(`>${label}</text>`);
     }
-  });
-
-  it('map 空间图例:origin 过 §5.1,只有宽度乘 s', () => {
-    const { document, layout } = setup();
-    const geo = document.geo;
-    const legend = layout.items.find((item): item is LegendItem => item.kind === 'legend');
-    if (legend === undefined) throw new Error('缺少图例');
-    legend.space = 'map';
-    legend.x = 20;
-    legend.y = 10;
-    const result = composeFinalSvg(document, layout);
-    const map = normalizePage(layout).map;
-    const s = map.width_pt / geo.base.width_pt;
-    const x = map.x + 20 * s;
-    const y = map.y + 10 * s;
-    const width = legend.width_pt * s;
-    expect(result.svg).toContain(
-      `<rect x="${num(x)}" y="${num(y)}" width="${num(width)}" height="100.8"`,
-    );
-    // 标题字号/行高不随 s 缩放
-    expect(result.svg).toContain(`font-size="${num(legend.title_size_pt)}"`);
   });
 });
 
@@ -393,35 +368,15 @@ describe('composeFinalSvg:colorbar(§5.5)', () => {
     expect(svg).toContain('<stop offset="1" stop-color="#ffffff"/>');
     expect(svg).toContain(
       `<rect x="${num(colorbar.x)}" y="${num(colorbar.y)}" ` +
-        `width="${num(colorbar.width_pt)}" height="${num(colorbar.height_pt)}" ` +
+        `width="${num(colorbar.width_mm)}" height="${num(colorbar.height_mm)}" ` +
         `fill="url(#mapdoc-cbar-${colorbar.id})"/>`,
     );
-    // 标题基线 = y - 4,单位后缀由 colorbarTitleText 补
+    // 标题基线 = y - 1.4mm,单位后缀由 colorbarTitleText 补
     expect(svg).toContain('>高程 (m)</text>');
-    expect(svg).toContain(`y="${num(colorbar.y - 4)}"`);
+    expect(svg).toContain(`y="${num(colorbar.y - 1.4)}"`);
     for (const value of document.geo.relief?.ticks ?? []) {
       expect(svg).toContain(`>${num(value)}</text>`);
     }
-  });
-
-  it('map 空间色标:宽高乘 s,原点过 §5.1', () => {
-    const { document, layout } = setup();
-    const geo = document.geo;
-    const colorbar = layout.items.find((item): item is ColorbarItem => item.kind === 'colorbar');
-    if (colorbar === undefined) throw new Error('缺少色标');
-    colorbar.space = 'map';
-    colorbar.x = 20;
-    colorbar.y = 50;
-    const result = composeFinalSvg(document, layout);
-    const map = normalizePage(layout).map;
-    const s = map.width_pt / geo.base.width_pt;
-    expect(result.svg).toContain(
-      `<rect x="${num(map.x + 20 * s)}" y="${num(map.y + 50 * s)}" ` +
-        `width="${num(colorbar.width_pt * s)}" height="${num(colorbar.height_pt * s)}" ` +
-        `fill="url(#mapdoc-cbar-${colorbar.id})"/>`,
-    );
-    // 字号仍是 pt
-    expect(result.svg).toContain(`font-size="${num(colorbar.label_size_pt)}"`);
   });
 
   it('geo.relief 为 null 而 layout 还有 colorbar 时抛「色标需要 geo.relief」', () => {
@@ -436,12 +391,12 @@ describe('composeFinalSvg:图框/刻度(§5.2)', () => {
     const { document, layout, result } = setup();
     const geo = document.geo;
     const map = normalizePage(layout).map;
-    const s = map.width_pt / geo.base.width_pt;
-    const mapHeight = (map.width_pt * geo.base.height_pt) / geo.base.width_pt;
+    const s = map.width_mm / geo.base.width_pt;
+    const mapHeight = (map.width_mm * geo.base.height_pt) / geo.base.width_pt;
     const mapBottom = map.y + mapHeight;
     const svg = result.svg;
     expect(svg).toContain(
-      `<rect x="28" y="72" width="${num(map.width_pt)}" height="${num(mapHeight)}" fill="none" stroke="#000000" stroke-width="0.8"/>`,
+      `<rect x="10" y="25.5" width="${num(map.width_mm)}" height="${num(mapHeight)}" fill="none" stroke="#000000" stroke-width="${num(layout.frame.width_mm)}"/>`,
     );
     // 第一条经度刻度(bottom)
     const lon = geo.graticule.lon[0];
@@ -449,11 +404,11 @@ describe('composeFinalSvg:图框/刻度(§5.2)', () => {
     const px = map.x + lon.x * s;
     expect(svg).toContain(
       `<line x1="${num(px)}" y1="${num(mapBottom)}" x2="${num(px)}" ` +
-        `y2="${num(mapBottom + layout.frame.tick_length_pt)}" ` +
-        `stroke="#444444" stroke-width="0.8"/>`,
+        `y2="${num(mapBottom + layout.frame.tick_length_mm)}" ` +
+        `stroke="#444444" stroke-width="${num(layout.frame.width_mm)}"/>`,
     );
     expect(svg).toContain(
-      `y="${num(mapBottom + layout.frame.tick_length_pt + layout.frame.tick_gap_pt + layout.frame.tick_font_size_pt)}"`,
+      `y="${num(mapBottom + layout.frame.tick_length_mm + layout.frame.tick_gap_mm + layout.frame.tick_font_size_mm)}"`,
     );
     expect(svg).toContain('>0°</text>');
     // 纬度刻度:left 侧从 map.x 向左,标签 anchor=end
@@ -461,8 +416,8 @@ describe('composeFinalSvg:图框/刻度(§5.2)', () => {
     if (lat === undefined) throw new Error('缺少纬度刻度');
     const py = map.y + lat.y * s;
     expect(svg).toContain(
-      `<line x1="28" y1="${num(py)}" x2="${num(28 - layout.frame.tick_length_pt)}" ` +
-        `y2="${num(py)}" stroke="#444444" stroke-width="0.8"/>`,
+      `<line x1="10" y1="${num(py)}" x2="${num(10 - layout.frame.tick_length_mm)}" ` +
+        `y2="${num(py)}" stroke="#444444" stroke-width="${num(layout.frame.width_mm)}"/>`,
     );
     expect(svg).toContain('text-anchor="end"');
   });
@@ -510,12 +465,14 @@ describe('composeFinalSvg:错误路径', () => {
     const { document, layout } = setup();
     layout.map.x = 28.00049;
     const result = composeFinalSvg(document, layout);
-    // 28.00049 -> 28(3 位小数),translate 用规范化后的值
+    const normalized = normalizePage(layout);
+    const scale = num(normalized.map.width_mm / document.geo.base.width_pt);
+    // 28.00049 -> 28(3 位小数),translate/scale 用规范化后的值
     expect(result.svg).toContain(
       '<g id="mapdoc-map" clip-path="url(#mapdoc-map-clip)" ' +
-        'transform="translate(28,72) scale(3.099)">',
+        `transform="translate(${num(normalized.map.x)},${num(normalized.map.y)}) scale(${scale})">`,
     );
-    expect(normalizePage(layout).map.x).toBe(28);
+    expect(normalized.map.x).toBe(28);
   });
 });
 

@@ -36,6 +36,7 @@ export function makeGeo(): Geo {
     base: {
       sha256: BASE_SHA256,
       view_box: [0, 0, 200, 100],
+      // geo 契约单位仍是 pt(底图/地名设计尺寸),page 块才是 mm
       width_pt: 200,
       height_pt: 100,
     },

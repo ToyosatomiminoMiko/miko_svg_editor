@@ -7,7 +7,7 @@
  */
 
 import { createControlGroup, create_element } from 'miko_ui';
-import { PAGE_COLORBAR_HEIGHT_PT, PAGE_COLORBAR_WIDTH_PT } from '../config/page';
+import { PAGE_COLORBAR_HEIGHT_MM, PAGE_COLORBAR_WIDTH_MM } from '../config/page';
 import { itemById, type ColorbarItem } from '../core/page';
 import type { SidebarContext } from './page-sidebar-context';
 
@@ -46,30 +46,30 @@ export function buildColorbarFields(ctx: SidebarContext, item: ColorbarItem): HT
   ctx.controls.addNumberRow(
     basics,
     'prop.cbarWidth',
-    '宽(pt)',
+    '宽(mm)',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'colorbar' ? target.width_pt : PAGE_COLORBAR_WIDTH_PT;
+      return target?.kind === 'colorbar' ? target.width_mm : PAGE_COLORBAR_WIDTH_MM;
     },
     (value) =>
       ctx.handlers.onChange((layout) => {
         const target = itemById(layout, item.id);
-        if (target?.kind === 'colorbar') target.width_pt = value;
+        if (target?.kind === 'colorbar') target.width_mm = value;
       }),
     { min: 1, step: 1 },
   );
   ctx.controls.addNumberRow(
     basics,
     'prop.cbarHeight',
-    '高(pt)',
+    '高(mm)',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'colorbar' ? target.height_pt : PAGE_COLORBAR_HEIGHT_PT;
+      return target?.kind === 'colorbar' ? target.height_mm : PAGE_COLORBAR_HEIGHT_MM;
     },
     (value) =>
       ctx.handlers.onChange((layout) => {
         const target = itemById(layout, item.id);
-        if (target?.kind === 'colorbar') target.height_pt = value;
+        if (target?.kind === 'colorbar') target.height_mm = value;
       }),
     { min: 1, step: 1 },
   );
@@ -79,12 +79,12 @@ export function buildColorbarFields(ctx: SidebarContext, item: ColorbarItem): HT
     '标题字号',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'colorbar' ? target.title_size_pt : 8;
+      return target?.kind === 'colorbar' ? target.title_size_mm : 8;
     },
     (value) =>
       ctx.handlers.onChange((layout) => {
         const target = itemById(layout, item.id);
-        if (target?.kind === 'colorbar') target.title_size_pt = value;
+        if (target?.kind === 'colorbar') target.title_size_mm = value;
       }),
     { min: 0.5, step: 0.5 },
   );
@@ -94,12 +94,12 @@ export function buildColorbarFields(ctx: SidebarContext, item: ColorbarItem): HT
     '刻度字号',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'colorbar' ? target.label_size_pt : 7;
+      return target?.kind === 'colorbar' ? target.label_size_mm : 7;
     },
     (value) =>
       ctx.handlers.onChange((layout) => {
         const target = itemById(layout, item.id);
-        if (target?.kind === 'colorbar') target.label_size_pt = value;
+        if (target?.kind === 'colorbar') target.label_size_mm = value;
       }),
     { min: 0.5, step: 0.5 },
   );

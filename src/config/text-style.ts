@@ -16,10 +16,10 @@
  */
 
 import {
-  PAGE_NOTE_SIZE_PT,
-  PAGE_SOURCE_SIZE_PT,
-  PAGE_SUBTITLE_SIZE_PT,
-  PAGE_TITLE_SIZE_PT,
+  PAGE_NOTE_SIZE_MM,
+  PAGE_SOURCE_SIZE_MM,
+  PAGE_SUBTITLE_SIZE_MM,
+  PAGE_TITLE_SIZE_MM,
 } from './page';
 
 /* ---------------- 地图地名:语义角色表 ---------------- */
@@ -84,8 +84,8 @@ export const MAP_LABEL_STYLE = {
   line_height: 1,
   /** 描边颜色(光晕) */
   halo_color: '#ffffff',
-  /** 描边宽度(纸面 pt,不随地图缩放) */
-  halo_width_pt: 0.5,
+  /** 描边宽度(纸面 mm,不随地图缩放) */
+  halo_width_mm: 0.18,
   /**
    * 「文字块垂直中心 -> 第一行基线」的经验比例.
    * 为什么是 0.36:旧实现把同一偏移直接烤进 map 坐标(`0.36*size - (n-1)*step/2`),
@@ -107,7 +107,7 @@ export interface PageTextStyle {
   readonly letter_spacing_em: number;
   readonly line_height: number;
   /** null = 默认不开光晕 */
-  readonly halo: { readonly color: string; readonly width_pt: number } | null;
+  readonly halo: { readonly color: string; readonly width_mm: number } | null;
 }
 
 /**
@@ -167,33 +167,33 @@ export const PAGE_TEXT_STYLES: Record<PageTextRole, PageTextStyle> = {
 };
 
 /** 侧栏/新建文字打开光晕时的默认描边(颜色与宽度) */
-export const TEXT_HALO = { color: '#ffffff', width_pt: 0 } as const;
+export const TEXT_HALO = { color: '#ffffff', width_mm: 0 } as const;
 
 /* ---------------- 样式设置:分类元信息 ---------------- */
 
 /**
- * 新建标注/手动地名文字的默认字号(pt).
+ * 新建标注/手动地名文字的默认字号(mm).
  * 为什么单独一条:工具栏「文字」新建出来的 item 与默认排版共用同一套固定字号;
  * 统一放在分类元信息旁边,新建入口不再各自写死 10.
  */
-export const PAGE_TEXT_NEW_FONT_SIZE_PT = 10;
+export const PAGE_TEXT_NEW_FONT_SIZE_MM = 3.5;
 
 /**
- * 页面文字分类的固定默认字号(pt).
+ * 页面文字分类的固定默认字号(mm).
  * 为什么不再乘纸张比例:用户要求取消页面文字的「大小缩放」--标题/副标题/注记/来源在
  * A5/A4/A3 上保持同一字号,换纸张时只重排位置与图例/色标尺寸;字号要变就在样式窗口改.
  */
-export const PAGE_TEXT_DEFAULT_FONT_SIZE_PT: Record<PageTextRole, number> = {
-  title: PAGE_TITLE_SIZE_PT,
-  subtitle: PAGE_SUBTITLE_SIZE_PT,
-  annotation: PAGE_TEXT_NEW_FONT_SIZE_PT,
-  note: PAGE_NOTE_SIZE_PT,
-  source: PAGE_SOURCE_SIZE_PT,
-  label: PAGE_TEXT_NEW_FONT_SIZE_PT,
+export const PAGE_TEXT_DEFAULT_FONT_SIZE_MM: Record<PageTextRole, number> = {
+  title: PAGE_TITLE_SIZE_MM,
+  subtitle: PAGE_SUBTITLE_SIZE_MM,
+  annotation: PAGE_TEXT_NEW_FONT_SIZE_MM,
+  note: PAGE_NOTE_SIZE_MM,
+  source: PAGE_SOURCE_SIZE_MM,
+  label: PAGE_TEXT_NEW_FONT_SIZE_MM,
 };
 
-/** 地图地名在拿不到底图字号时的兜底字号(pt,纸面) */
-export const MAP_LABEL_DEFAULT_FONT_SIZE_PT = 10;
+/** 地图地名在拿不到底图字号时的兜底字号(mm,纸面) */
+export const MAP_LABEL_DEFAULT_FONT_SIZE_MM = 3.5;
 
 /** 样式设置窗口里的分类 id:页面文字角色 + 地图地名角色(两套枚举不相交) */
 export type TextStyleCategoryId = PageTextRole | MapLabelRole;

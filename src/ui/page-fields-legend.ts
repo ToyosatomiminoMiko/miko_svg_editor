@@ -15,7 +15,7 @@ import {
   createSwitch,
   nextWidgetId,
 } from 'miko_ui';
-import { PAGE_LEGEND_DEFAULTS, PAGE_NEW_LEGEND_WIDTH_PT } from '../config/page';
+import { PAGE_LEGEND_DEFAULTS, PAGE_NEW_LEGEND_WIDTH_MM } from '../config/page';
 import { itemById, type LegendEntry, type LegendItem } from '../core/page';
 import type { SidebarContext } from './page-sidebar-context';
 
@@ -25,7 +25,7 @@ function defaultLegendEntry(): LegendEntry {
     label: '新条目',
     shape: 'line',
     stroke: '#4a4a4a',
-    width_pt: 1,
+    width_mm: 1,
     dash: null,
     fill: null,
     opacity: 1,
@@ -62,30 +62,30 @@ export function buildLegendFields(ctx: SidebarContext, item: LegendItem): HTMLEl
   ctx.controls.addNumberRow(
     basics,
     'prop.legendWidth',
-    '宽度(pt)',
+    '宽度(mm)',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'legend' ? target.width_pt : PAGE_NEW_LEGEND_WIDTH_PT;
+      return target?.kind === 'legend' ? target.width_mm : PAGE_NEW_LEGEND_WIDTH_MM;
     },
     (value) =>
       ctx.handlers.onChange((layout) => {
         const target = itemById(layout, item.id);
-        if (target?.kind === 'legend') target.width_pt = value;
+        if (target?.kind === 'legend') target.width_mm = value;
       }),
     { min: 1, step: 1 },
   );
   ctx.controls.addNumberRow(
     basics,
     'prop.legendFont',
-    '字号(pt)',
+    '字号(mm)',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'legend' ? target.font_size_pt : PAGE_LEGEND_DEFAULTS.font_size_pt;
+      return target?.kind === 'legend' ? target.font_size_mm : PAGE_LEGEND_DEFAULTS.font_size_mm;
     },
     (value) =>
       ctx.handlers.onChange((layout) => {
         const target = itemById(layout, item.id);
-        if (target?.kind === 'legend') target.font_size_pt = value;
+        if (target?.kind === 'legend') target.font_size_mm = value;
       }),
     { min: 0.5, step: 0.5 },
   );
@@ -95,27 +95,27 @@ export function buildLegendFields(ctx: SidebarContext, item: LegendItem): HTMLEl
     '标题字号',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'legend' ? target.title_size_pt : PAGE_LEGEND_DEFAULTS.title_size_pt;
+      return target?.kind === 'legend' ? target.title_size_mm : PAGE_LEGEND_DEFAULTS.title_size_mm;
     },
     (value) =>
       ctx.handlers.onChange((layout) => {
         const target = itemById(layout, item.id);
-        if (target?.kind === 'legend') target.title_size_pt = value;
+        if (target?.kind === 'legend') target.title_size_mm = value;
       }),
     { min: 0.5, step: 0.5 },
   );
   ctx.controls.addNumberRow(
     basics,
     'prop.legendRowHeight',
-    '行高(pt)',
+    '行高(mm)',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'legend' ? target.row_height_pt : PAGE_LEGEND_DEFAULTS.row_height_pt;
+      return target?.kind === 'legend' ? target.row_height_mm : PAGE_LEGEND_DEFAULTS.row_height_mm;
     },
     (value) =>
       ctx.handlers.onChange((layout) => {
         const target = itemById(layout, item.id);
-        if (target?.kind === 'legend') target.row_height_pt = value;
+        if (target?.kind === 'legend') target.row_height_mm = value;
       }),
     { min: 1, step: 1 },
   );
@@ -125,12 +125,12 @@ export function buildLegendFields(ctx: SidebarContext, item: LegendItem): HTMLEl
     '内边距',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'legend' ? target.padding_pt : PAGE_LEGEND_DEFAULTS.padding_pt;
+      return target?.kind === 'legend' ? target.padding_mm : PAGE_LEGEND_DEFAULTS.padding_mm;
     },
     (value) =>
       ctx.handlers.onChange((layout) => {
         const target = itemById(layout, item.id);
-        if (target?.kind === 'legend') target.padding_pt = value;
+        if (target?.kind === 'legend') target.padding_mm = value;
       }),
     { min: 0, step: 0.5 },
   );
@@ -141,13 +141,13 @@ export function buildLegendFields(ctx: SidebarContext, item: LegendItem): HTMLEl
     () => {
       const target = itemById(ctx.getLayout(), item.id);
       return target?.kind === 'legend'
-        ? target.swatch_width_pt
-        : PAGE_LEGEND_DEFAULTS.swatch_width_pt;
+        ? target.swatch_width_mm
+        : PAGE_LEGEND_DEFAULTS.swatch_width_mm;
     },
     (value) =>
       ctx.handlers.onChange((layout) => {
         const target = itemById(layout, item.id);
-        if (target?.kind === 'legend') target.swatch_width_pt = value;
+        if (target?.kind === 'legend') target.swatch_width_mm = value;
       }),
     { min: 1, step: 1 },
   );
@@ -157,12 +157,12 @@ export function buildLegendFields(ctx: SidebarContext, item: LegendItem): HTMLEl
     '色块间距',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'legend' ? target.swatch_gap_pt : PAGE_LEGEND_DEFAULTS.swatch_gap_pt;
+      return target?.kind === 'legend' ? target.swatch_gap_mm : PAGE_LEGEND_DEFAULTS.swatch_gap_mm;
     },
     (value) =>
       ctx.handlers.onChange((layout) => {
         const target = itemById(layout, item.id);
-        if (target?.kind === 'legend') target.swatch_gap_pt = value;
+        if (target?.kind === 'legend') target.swatch_gap_mm = value;
       }),
     { min: 0, step: 1 },
   );
@@ -217,12 +217,12 @@ export function buildLegendFields(ctx: SidebarContext, item: LegendItem): HTMLEl
     '框线宽',
     () => {
       const target = itemById(ctx.getLayout(), item.id);
-      return target?.kind === 'legend' ? target.frame.width_pt : 0.8;
+      return target?.kind === 'legend' ? target.frame.width_mm : 0.8;
     },
     (value) =>
       ctx.handlers.onChange((layout) => {
         const target = itemById(layout, item.id);
-        if (target?.kind === 'legend') target.frame.width_pt = value;
+        if (target?.kind === 'legend') target.frame.width_mm = value;
       }),
     { min: 0, step: 0.1 },
   );

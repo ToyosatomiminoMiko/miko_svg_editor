@@ -133,10 +133,37 @@ function pageValueOf(parsed: ParsedGeo): unknown {
 }
 
 /**
+ * 是否是旧版 pt 口径的 page 块(本版不再兼容,静默回退默认排版).
+ *
+ * 为什么单独识别:旧 page 块的 paper 用 `width_pt/height_pt`,item 带 `space`/`*_pt` 字段;
+ * 这些字段在新契约里都不存在,校验必然失败.旧文件不迁移也不该用「page 块不合法」的告警
+ * 制造噪音(用户已确认不向后兼容),所以这一类直接当「没有 pages 块」处理.
+ * 注意只认 pt/space 这类结构性旧字段:其它不合法 page 块仍然告警(用户能知道排版丢了).
+ */
+function isLegacyPtPage(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const paper = value['paper'];
+  if (isRecord(paper)) {
+    if (typeof paper['width_pt'] === 'number' || typeof paper['height_pt'] === 'number') {
+      return true;
+    }
+  }
+  const items = value['items'];
+  if (!Array.isArray(items)) return false;
+  return items.some(
+    (item) =>
+      isRecord(item) &&
+      (Object.hasOwn(item, 'space') ||
+        Object.hasOwn(item, 'wrap_width_pt') ||
+        Object.hasOwn(item, 'font_size_pt')),
+  );
+}
+
+/**
  * 生成初始排版:page 块存在且通过校验就用它(已导出态,不标脏),否则回退默认排版(标脏).
  *
  * page 块不合法不拒绝整个文件:地理数据仍然可用,用户只是丢了一次排版;
- * 给出告警并回退默认版式,比「文件打不开」更可恢复.
+ * 给出告警并回退默认版式,比「文件打不开」更可恢复.旧 pt 口径 page 块除外(不迁移,不告警).
  */
 function buildPageLayout(
   geo: Geo,
@@ -147,7 +174,7 @@ function buildPageLayout(
   const makeDefault = (): PageLayout => defaultPageLayout(geo, { measureText });
   let layout: PageLayout;
   let dirty: boolean;
-  if (pageValue === null || pageValue === undefined) {
+  if (pageValue === null || pageValue === undefined || isLegacyPtPage(pageValue)) {
     layout = makeDefault();
     dirty = true;
   } else {
@@ -184,7 +211,7 @@ function buildPageLayout(
     dirty = true;
   }
 
-  // 注记/来源自动折行是派生量:旧 page 块没有 text/wrap_width_pt,或手改过 lines,
+  // 注记/来源自动折行是派生量:缺 text/wrap_width_mm 或手改过 lines,
   // 打开时按当前字号/字距与存储宽度统一重排;与样式统一/居中纠偏分开告警.
   const rewrapped = enforceAutoWrap(layout, measureText);
   if (rewrapped > 0) {

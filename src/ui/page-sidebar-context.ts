@@ -23,6 +23,8 @@ export interface PageSidebarHandlers {
   onDelete(id: number): void;
   /** 轻提示(状态行):纸张改变时说明元素不会被自动重排 */
   notify(message: string): void;
+  /** 显示/隐藏页边距高亮(页面面板的边距输入框聚焦时打开,离开时关闭) */
+  onMarginGuideChange(visible: boolean): void;
   /**
    * 拉起「样式设置」窗口(单条 item 不再有样式字段,统一按分类改).
    * 带分类时窗口直接定位到该分类(侧栏选中文字时传它的 role 分类);不带则沿用上次分类.

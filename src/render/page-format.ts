@@ -68,7 +68,7 @@ export function fontWeightValue(fontWeight: number): string | undefined {
 }
 
 /**
- * 字距属性:`letter_spacing_em × font_size_pt` 的 3 位小数(纸面 pt);0 返回 undefined.
+ * 字距属性:`letter_spacing_em × font_size_mm` 的 3 位小数(纸面 mm);0 返回 undefined.
  * 为什么乘字号:CSS/SVG 的 letter-spacing 是绝对长度,而契约里字距按 em 存储;
  * 乘字号后与文本宽度(`textBlockWidth`)的加宽量同源.
  */

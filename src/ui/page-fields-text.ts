@@ -13,7 +13,7 @@
  * anchor 恒为 middle).此时改对齐不会生效,禁用比让用户白点一次更清楚;关闭开关后恢复可用.
  * 为什么注记/来源文本域读写 `text` 而不是 `lines`:自动折行时 `lines` 是派生量,直接编辑它会把
  * 自动折出来的断行当成手动换行;文本域显示/写回原始内容,折行由编辑器的 `enforceAutoWrap`
- * 统一重算.注记/来源还多一组「自动换行」--「折行宽度(pt)」数字字段,改宽度立刻重排.
+ * 统一重算.注记/来源还多一组「自动换行」--「折行宽度(mm)」数字字段,改宽度立刻重排.
  * 为什么「打开样式设置」要带分类:窗口有 20 个分类,侧栏选中某条文字时用户想改的就是它
  * 所属的那一类;不带分类则窗口停在上次选中的分类,用户还得自己找.
  * 为什么单独成模块:文字字段仍是最多的一块(内容文本域 + 角色分段 + 对齐 + 旋转),
@@ -30,7 +30,7 @@ import {
   createSegmented,
   nextWidgetId,
 } from 'miko_ui';
-import { PAGE_AUTO_WRAP_MIN_PT } from '../config/page';
+import { PAGE_AUTO_WRAP_MIN_MM } from '../config/page';
 import { TEXT_STYLE_CATEGORY_META, type TextStyleCategoryId } from '../config/text-style';
 import {
   isAutoWrapTextItem,
@@ -93,10 +93,10 @@ export function buildTextFields(ctx: SidebarContext, item: TextItem): HTMLElemen
     ctx.controls.addNumberRow(
       wrapRow,
       'prop.wrapWidth',
-      '折行宽度(pt)',
+      '折行宽度(mm)',
       () => {
         const target = itemById(ctx.getLayout(), item.id);
-        if (target?.kind !== 'text') return PAGE_AUTO_WRAP_MIN_PT;
+        if (target?.kind !== 'text') return PAGE_AUTO_WRAP_MIN_MM;
         // 与 enforceAutoWrap / 选中框同一口径:显示的就是实际折行(以及选中框宽度)用的宽度
         return (
           effectiveAutoWrapWidth(ctx.getLayout(), target) ??
@@ -107,9 +107,9 @@ export function buildTextFields(ctx: SidebarContext, item: TextItem): HTMLElemen
         ctx.handlers.onChange((layout) => {
           const target = itemById(layout, item.id);
           if (target?.kind !== 'text') return;
-          target.wrap_width_pt = value;
+          target.wrap_width_mm = value;
         }),
-      { min: PAGE_AUTO_WRAP_MIN_PT, step: 1 },
+      { min: PAGE_AUTO_WRAP_MIN_MM, step: 1 },
     );
     fragments.push(
       createControlGroup(
@@ -128,7 +128,7 @@ export function buildTextFields(ctx: SidebarContext, item: TextItem): HTMLElemen
   }
 
   // 页面文字可以换角色;地图地名 item 的 role 是生成端语义(固定 'label'),不提供切换.
-  if (item.space === 'page') {
+  if (item.geo_label_id === null) {
     const roleSegmented = createSegmented<TextRole>({
       columns: 3,
       ariaLabel: '文字角色',
@@ -194,7 +194,7 @@ export function buildTextFields(ctx: SidebarContext, item: TextItem): HTMLElemen
   fragments.push(createControlGroup('旋转', rotationGrid));
 
   // 面板底部:样式编辑的唯一入口(窗口状态由 app 持有,这里只转发打开动作 + 当前分类)
-  const isMap = item.space === 'map';
+  const isMap = item.geo_label_id !== null;
   const mapCategory = isMap ? textCategoryOfItem(item, ctx.getGeo()) : null;
   const styleButton = createButton({
     text:
@@ -252,7 +252,8 @@ function buildAlignGroup(ctx: SidebarContext, item: TextItem): HTMLElement {
   /** 左右居中打开时 anchor 恒为 middle,对齐分段禁用(禁用态随每次 sync 同步) */
   const syncAnchorState = (): void => {
     const target = itemById(ctx.getLayout(), item.id);
-    const centered = target?.kind === 'text' && target.space === 'page' && target.center_h === true;
+    const centered =
+      target?.kind === 'text' && target.geo_label_id === null && target.center_h === true;
     anchorSegmented.element.classList.toggle('is-disabled', centered);
     anchorSegmented.element.querySelectorAll('button').forEach((button) => {
       button.disabled = centered;

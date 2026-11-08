@@ -58,10 +58,10 @@ import {
 } from '../config/text-style';
 import type { Geo, Halo, PageLayout, TextItem } from '../core/page';
 import {
-  defaultTextFontSizePt,
+  defaultTextFontSizeMm,
   defaultTextStyleFields,
   itemsOfTextCategory,
-  mapCategoryDefaultFontSizePt,
+  mapCategoryDefaultFontSizeMm,
   mapScaleOf,
   readTextCategoryStyle,
   type ResolvedTextStyle,
@@ -451,14 +451,14 @@ export class StyleSettingsWindow {
     const grid = create_element({ tag: 'div' }, { class: 'page-field-grid' });
     this.addNumberRow(
       grid,
-      '字号(pt)',
-      () => this.readStyle().font_size_pt,
-      (value) => this.apply({ font_size_pt: value }),
+      '字号(mm)',
+      () => this.readStyle().font_size_mm,
+      (value) => this.apply({ font_size_mm: value }),
       {
         min: 1,
         max: 500,
         step: 0.5,
-        reset: { field: 'font_size_pt', readDefault: () => this.defaultFontSizePt() },
+        reset: { field: 'font_size_mm', readDefault: () => this.defaultFontSizePt() },
       },
     );
     return createControlGroup('字号', grid);
@@ -560,25 +560,25 @@ export class StyleSettingsWindow {
       (value) => {
         const halo = this.readStyle().halo;
         if (halo === null) return;
-        this.apply({ halo: { color: value, width_pt: halo.width_pt } });
+        this.apply({ halo: { color: value, width_mm: halo.width_mm } });
       },
     );
     const width = this.addNumberRow(
       grid,
-      '光晕宽度(pt)',
-      () => this.readStyle().halo?.width_pt ?? this.defaultHalo().width_pt,
+      '光晕宽度(mm)',
+      () => this.readStyle().halo?.width_mm ?? this.defaultHalo().width_mm,
       (value) => {
         const halo = this.readStyle().halo;
         if (halo === null) return;
-        this.apply({ halo: { color: halo.color, width_pt: value } });
+        this.apply({ halo: { color: halo.color, width_mm: value } });
       },
       {
         min: 0,
         max: 20,
         step: 0.5,
         reset: {
-          field: 'halo_width_pt',
-          readDefault: () => this.defaultHalo().width_pt,
+          field: 'halo_width_mm',
+          readDefault: () => this.defaultHalo().width_mm,
           isStructurallyDisabled: () => this.readStyle().halo === null,
         },
       },
@@ -785,7 +785,7 @@ export class StyleSettingsWindow {
     if (meta.kind !== 'page') return false;
     return (
       Math.abs(
-        this.readStyle().font_size_pt - defaultTextFontSizePt(this.selected, this.getLayout()),
+        this.readStyle().font_size_mm - defaultTextFontSizeMm(this.selected, this.getLayout()),
       ) > 0.0005
     );
   }
@@ -856,13 +856,13 @@ export class StyleSettingsWindow {
     const layout = this.getLayout();
     if (meta.kind === 'map') {
       const geo = this.getGeo();
-      return mapCategoryDefaultFontSizePt(
+      return mapCategoryDefaultFontSizeMm(
         this.selected as MapLabelRole,
         geo,
         mapScaleOf(geo, layout),
       );
     }
-    return defaultTextFontSizePt(this.selected, layout);
+    return defaultTextFontSizeMm(this.selected, layout);
   }
 
   /** 实时预览:用当前分类样式重画示例文字(halo 副本先画,填充副本后画,与渲染层同口径) */
@@ -872,7 +872,7 @@ export class StyleSettingsWindow {
     const style = this.readStyle();
     const items = itemsOfTextCategory(layout, this.getGeo(), this.selected);
     const lines = this.previewLinesOf(meta, items);
-    const fontSize = style.font_size_pt;
+    const fontSize = style.font_size_mm;
     const step = fontSize * Math.max(0.5, style.line_height);
     const blockHeight = step * (lines.length - 1) + fontSize;
     const viewHeight = Math.max(PREVIEW_MIN_HEIGHT, Math.ceil(blockHeight + 28));
@@ -895,7 +895,7 @@ export class StyleSettingsWindow {
       if (haloPass && halo !== null) {
         attributes.fill = halo.color;
         attributes.stroke = halo.color;
-        attributes['stroke-width'] = previewNumber(halo.width_pt);
+        attributes['stroke-width'] = previewNumber(halo.width_mm);
         attributes['paint-order'] = 'stroke';
       } else {
         attributes.fill = style.color;
@@ -1004,8 +1004,8 @@ export class StyleSettingsWindow {
   /** 光晕打开时的默认值:地图分类跟 `MAP_LABEL_STYLE`,页面分类跟 `TEXT_HALO` */
   private defaultHalo(): Halo {
     return TEXT_STYLE_CATEGORY_META[this.selected].kind === 'map'
-      ? { color: MAP_LABEL_STYLE.halo_color, width_pt: MAP_LABEL_STYLE.halo_width_pt }
-      : { color: TEXT_HALO.color, width_pt: TEXT_HALO.width_pt };
+      ? { color: MAP_LABEL_STYLE.halo_color, width_mm: MAP_LABEL_STYLE.halo_width_mm }
+      : { color: TEXT_HALO.color, width_mm: TEXT_HALO.width_mm };
   }
 
   /** 释放上一批字段控件(重建/destroy 前调用):先解绑控件,再清空登记 */

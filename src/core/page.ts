@@ -21,18 +21,15 @@ import {
   PAGE_MAX_ITEMS,
   PAGE_MAX_TEXT_LINE_CHARS,
   PAGE_MAX_TEXT_LINES,
-  PAGE_MIN_MAP_WIDTH_PT,
-  PAGE_PAPER_MAX_PT,
-  PAGE_PAPER_MIN_PT,
+  PAGE_MIN_MAP_WIDTH_MM,
+  PAGE_PAPER_MAX_MM,
+  PAGE_PAPER_MIN_MM,
 } from '../config/page';
 import type { PaperOrientation, PaperPresetId } from '../config/page';
 import { MAP_LABEL_ROLES, PAGE_TEXT_STYLES, isTextStyleCategoryId } from '../config/text-style';
 import type { MapLabelRole, PageTextRole, TextStyleCategoryId } from '../config/text-style';
 
 /* =========================== 基础类型 =========================== */
-
-/** 元素所在坐标空间:page = 纸张坐标(pt);map = 底图坐标(viewBox 坐标) */
-export type ItemSpace = 'page' | 'map';
 
 /** 文字锚点 */
 export type TextAnchor = 'start' | 'middle' | 'end';
@@ -46,17 +43,16 @@ export type LegendShape = 'line' | 'rect' | 'point';
 /** 图例点标记 */
 export type LegendMarker = 'star' | 'square' | 'circle';
 
-/** 文字光晕(先描边后填充) */
+/** 文字光晕(先描边后填充);宽度是纸张长度(mm) */
 export interface Halo {
   color: string;
-  width_pt: number;
+  width_mm: number;
 }
 
-/** 所有元素的公共字段:id 唯一,kind 判别,space 坐标空间 */
+/** 所有元素的公共字段:id 唯一,kind 判别;坐标一律是纸张坐标(mm,原点 = 纸张左上角) */
 interface ItemBase {
   id: number;
   kind: string;
-  space: ItemSpace;
 }
 
 /** 文字元素(契约 §4.1 text) */
@@ -66,7 +62,7 @@ export interface TextItem extends ItemBase {
   x: number;
   y: number;
   lines: string[];
-  font_size_pt: number;
+  font_size_mm: number;
   /** null = 用 layout.style.font_family */
   font_family: string | null;
   color: string;
@@ -82,33 +78,33 @@ export interface TextItem extends ItemBase {
   /**
    * 来源 `geo.labels[].id` 的关联(地图地名 item 必填;页面文字恒为 null).
    * 用途:判断 item 属于哪个地图地名分类(查 label.role);分类统一样式时回算底图原始字号
-   * (回「分类默认统一字号」).没有它就无法确定分类,所以不是可选的兼容字段:
-   * `validatePage` 要求 map 空间必须是非空 id 且在 `geo.labels` 里存在,page 空间必须为 null.
+   * (回「分类默认统一字号」);也是「地图地名」的唯一标记(手动新增的页面文字恒为 null).
+   * `validatePage` 要求非 null 时必须是本次 `geo.labels` 里存在的 id.
    */
   geo_label_id: string | null;
   /**
-   * 「左右居中」约束开关(只对 `space === 'page'` 有意义).
-   * true 时水平锚点恒为纸张中心 `paper.width_pt / 2`,`anchor` 恒为 `'middle'`:
+   * 「左右居中」约束开关(只对页面文字有意义).
+   * true 时水平锚点恒为纸张中心 `paper.width_mm / 2`,`anchor` 恒为 `'middle'`:
    * 纸张宽度/方向改变后不需要重新生成排版也能保持标题/来源居中;拖拽只能改 y.
-   * 约束是派生值,`normalizePage` 每次都会把 x/anchor 拉回一致;map 空间必须为 false
-   * (地图地名的位置由底图数据决定,不能被纸张宽度覆盖).
+   * 约束是派生值,`normalizePage` 每次都会把 x/anchor 拉回一致;地图地名必须为 false
+   * (位置由底图数据决定,不能被纸张宽度覆盖).
    */
   center_h: boolean;
   /**
    * 自动折行的原始内容(含手动换行 `\n`);null = 不自动折行,`lines` 即真值.
-   * 为什么要有它:自动折行时 `lines` 是派生量(`text` 按 `wrap_width_pt` 折出来的结果),
+   * 为什么要有它:自动折行时 `lines` 是派生量(`text` 按 `wrap_width_mm` 折出来的结果),
    * 若只存折好的 `lines`,用户把宽度改宽或改回原样时无法还原段落边界(手动换行会被当成
    * 硬折行).所以开启自动折行的注记/来源同时存原始内容,`lines` 只用于渲染/导出.
    */
   text: string | null;
   /**
-   * 自动折行宽度(pt);null = 不自动折行.目前只有**纸张空间的注记与来源**
+   * 自动折行宽度(mm);null = 不自动折行.目前只有**页面文字的注记与来源**
    * (`role === 'note' | 'source'`)允许非 null,其它文字元素必须是 null(校验会拒绝).
    * 是派生约束的真值:内容/字号/字重/字距/该宽度任一变化后,编辑器都会调用
    * `core/page-layout.ts` 的 `enforceAutoWrap` 重算 `lines`;导出写盘也带上它,
    * 重新打开时用同一个宽度复现折行(幂等).
    */
-  wrap_width_pt: number | null;
+  wrap_width_mm: number | null;
 }
 
 /** 图例条目(契约 §3 legend.entries / §4.1 legend.entries) */
@@ -117,7 +113,8 @@ export interface LegendEntry {
   shape: LegendShape;
   /** null = 不描边(point 标记可能只填充) */
   stroke: string | null;
-  width_pt: number;
+  /** 线宽(mm) */
+  width_mm: number;
   dash: number[] | null;
   fill: string | null;
   opacity: number;
@@ -128,7 +125,7 @@ export interface LegendEntry {
 export interface LegendFrame {
   show: boolean;
   stroke: string;
-  width_pt: number;
+  width_mm: number;
   fill: string;
   opacity: number;
 }
@@ -136,66 +133,76 @@ export interface LegendFrame {
 /** 图例元素:高度由 §5.4 公式派生,不落 layout */
 export interface LegendItem extends ItemBase {
   kind: 'legend';
-  /** 契约把 space 定义为公共字段;page/map 都允许(map 空间由渲染侧缩放尺寸) */
-  space: ItemSpace;
   x: number;
   y: number;
-  width_pt: number;
+  width_mm: number;
   title: string;
   entries: LegendEntry[];
-  font_size_pt: number;
-  title_size_pt: number;
-  row_height_pt: number;
-  padding_pt: number;
-  swatch_width_pt: number;
-  swatch_gap_pt: number;
+  font_size_mm: number;
+  title_size_mm: number;
+  row_height_mm: number;
+  padding_mm: number;
+  swatch_width_mm: number;
+  swatch_gap_mm: number;
   frame: LegendFrame;
 }
 
 /** 色标元素:配色/刻度来自 geo.relief,layout 只存摆放与文字 */
 export interface ColorbarItem extends ItemBase {
   kind: 'colorbar';
-  /** 同 LegendItem.space:map 空间时成品合成按地图缩放比缩放宽高 */
-  space: ItemSpace;
   x: number;
   y: number;
-  width_pt: number;
-  height_pt: number;
+  width_mm: number;
+  height_mm: number;
   title: string;
   unit: string;
   show_title: boolean;
   show_ticks: boolean;
-  title_size_pt: number;
-  label_size_pt: number;
+  title_size_mm: number;
+  label_size_mm: number;
 }
 
 export type PageItem = TextItem | LegendItem | ColorbarItem;
 
-/** 纸张(preset/orientation 只用于 UI 记忆) */
+/** 纸张(preset/orientation 只用于 UI 记忆;locked = 纸张尺寸已锁定) */
 export interface PagePaper {
   preset: PaperPresetId;
   orientation: PaperOrientation;
-  width_pt: number;
-  height_pt: number;
+  width_mm: number;
+  height_mm: number;
+  /** true = 「页面」面板的预设/方向/宽高全部冻结,只留解锁入口(落盘,重新打开仍锁定) */
+  locked: boolean;
+}
+
+/**
+ * 页边距(mm):四边到纸张边缘的距离,默认全 0.
+ * 为什么在 page 块里:页边距是出版物版心的声明,导出/重新打开要能恢复;
+ * 它不参与排版计算(不约束已放置元素),只在编辑时画内容框高亮,供用户把内容挪进版心.
+ */
+export interface PageMargin {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
 }
 
 /** 地图摆放:高度由宽度 × 底图纵横比派生(§5.1) */
 export interface MapPlacement {
   x: number;
   y: number;
-  width_pt: number;
+  width_mm: number;
 }
 
 /** 图框与刻度(§5.2) */
 export interface PageFrame {
   show: boolean;
   stroke: string;
-  width_pt: number;
+  width_mm: number;
   ticks: boolean;
-  tick_length_pt: number;
-  tick_font_size_pt: number;
+  tick_length_mm: number;
+  tick_font_size_mm: number;
   tick_color: string;
-  tick_gap_pt: number;
+  tick_gap_mm: number;
 }
 
 /** 页面级样式 */
@@ -209,12 +216,12 @@ export interface PageStyle {
  * 一个文字分类的样式覆盖(`page.text_style[分类]`).
  * 为什么字段全部可选:覆盖表只存用户显式改过的字段,默认值仍在 `config/text-style.ts`,
  * 不复制进文件(否则改代码默认值对旧文件永远不生效);`halo: null` 表示显式关光晕,
- * 与「没有该键(用分类默认)」是两种语义.地图分类缺省 `font_size_pt` = 用该分类的默认
+ * 与「没有该键(用分类默认)」是两种语义.地图分类缺省 `font_size_mm` = 用该分类的默认
  * 统一字号(该分类全部地名原始字号中位数 × 地图缩放);出现数字 = 用户覆盖的统一字号.
  * 无论哪种情况,同一地图分类下全部 item 的字号都相等(§12.1).
  */
 export interface TextStyleOverride {
-  font_size_pt?: number;
+  font_size_mm?: number;
   color?: string;
   italic?: boolean;
   font_weight?: number;
@@ -233,6 +240,7 @@ export type TextStyleOverrides = Partial<Record<TextStyleCategoryId, TextStyleOv
  */
 export interface PageLayout {
   paper: PagePaper;
+  margin: PageMargin;
   map: MapPlacement;
   frame: PageFrame;
   style: PageStyle;
@@ -402,7 +410,7 @@ function roundNumbersDeep<T>(value: T): T {
 
 /**
  * 深拷贝并收敛 `page.text_style`:非对象 -> `{}`;未知分类/未知字段丢弃;空覆盖对象丢弃;
- * 地图分类的 `font_size_pt: null`(旧数据兼容)等价于没有该键(= 分类默认统一字号).
+ * 地图分类缺省 `font_size_mm` = 该分类的默认统一字号(见 core/text-style.ts).
  *
  * 为什么只做类型收敛,不校验取值范围:`page` 块是编辑器自己的产物,打开时已由
  * `validatePage` 严格校验;`normalizePage` 只保证「text_style 一定存在且形状可安全消费」,
@@ -416,7 +424,7 @@ export function cloneTextStyleOverrides(value: unknown): TextStyleOverrides {
   for (const [key, raw] of Object.entries(value)) {
     if (!isTextStyleCategoryId(key) || !isObject(raw)) continue;
     const override: TextStyleOverride = {};
-    if (isFiniteNumber(raw.font_size_pt)) override.font_size_pt = raw.font_size_pt;
+    if (isFiniteNumber(raw.font_size_mm)) override.font_size_mm = raw.font_size_mm;
     if (typeof raw.color === 'string') override.color = raw.color;
     if (typeof raw.italic === 'boolean') override.italic = raw.italic;
     if (isFiniteNumber(raw.font_weight)) override.font_weight = raw.font_weight;
@@ -427,9 +435,9 @@ export function cloneTextStyleOverrides(value: unknown): TextStyleOverrides {
     } else if (
       isObject(raw.halo) &&
       typeof raw.halo.color === 'string' &&
-      isFiniteNumber(raw.halo.width_pt)
+      isFiniteNumber(raw.halo.width_mm)
     ) {
-      override.halo = { color: raw.halo.color, width_pt: raw.halo.width_pt };
+      override.halo = { color: raw.halo.color, width_mm: raw.halo.width_mm };
     }
     if (Object.keys(override).length > 0) out[key] = override;
   }
@@ -449,9 +457,9 @@ export function textContentOf(item: TextItem): string {
   return item.text ?? item.lines.join('\n');
 }
 
-/** 只有纸张空间的注记/来源参与自动折行(标题/地名等仍按 lines 渲染,不重排) */
+/** 只有注记/来源参与自动折行(标题/地名等仍按 lines 渲染,不重排) */
 export function isAutoWrapTextItem(item: TextItem): boolean {
-  return item.space === 'page' && (item.role === 'note' || item.role === 'source');
+  return item.role === 'note' || item.role === 'source';
 }
 
 /**
@@ -461,14 +469,14 @@ export function isAutoWrapTextItem(item: TextItem): boolean {
  * 为什么做成可重复调用的纯函数而不是只在打开时做一次:纸张宽度/方向被侧栏改动后,
  * 约束必须立刻重新贴合(用户预期开关=持续约束,而不是「点一次居中」);导出前
  * `normalizePage` 也会再调一次,保证落盘的 x 与 paper 宽度永远一致.
- * 为什么 map 空间 item 不参与:地图地名位置是底图数据(geo.labels),纸张变宽不应改变
- * 地名在地图上的相对位置;`validatePage` 也禁止 map 空间开启该开关.
+ * 为什么地图地名不参与:位置是底图数据(geo.labels),纸张变宽不应改变它在图上的相对位置;
+ * `validatePage` 也禁止地图地名(geo_label_id 非 null)开启该开关.
  */
 export function enforceHorizontalCenter(layout: PageLayout): number {
-  const centerX = roundToPageDecimals(layout.paper.width_pt / 2);
+  const centerX = roundToPageDecimals(layout.paper.width_mm / 2);
   let changed = 0;
   for (const item of layout.items) {
-    if (item.kind !== 'text' || item.space !== 'page' || item.center_h !== true) continue;
+    if (item.kind !== 'text' || item.geo_label_id !== null || item.center_h !== true) continue;
     if (item.x === centerX && item.anchor === 'middle') continue;
     item.x = centerX;
     item.anchor = 'middle';
@@ -478,17 +486,37 @@ export function enforceHorizontalCenter(layout: PageLayout): number {
 }
 
 /**
+ * 规范化页边距:四个方向都收敛到「有限且 >= 0 且不超过对应纸张边长」,坏值落 0.
+ * 为什么在这里夹取而不是校验报错:页边距只是版心参考线,不参与排版;手改文件把它写大
+ * 不该让整份排版回退默认值.校验层仍会拒绝 <0 / 非有限值.
+ */
+function normalizeMargin(margin: PageMargin | undefined, paper: PagePaper): PageMargin {
+  const clamp = (value: unknown, limit: number): number =>
+    isFiniteNumber(value) && value > 0 ? Math.min(roundToPageDecimals(value), limit) : 0;
+  return {
+    top: clamp(margin?.top, paper.height_mm),
+    right: clamp(margin?.right, paper.width_mm),
+    bottom: clamp(margin?.bottom, paper.height_mm),
+    left: clamp(margin?.left, paper.width_mm),
+  };
+}
+
+/**
  * 规范化 layout(3 位小数,新对象);保存前与摘要前都走它.
- * 除数字口径外还补几处兜底:`text_style` 缺省/坏结构 -> `{}`,text item 的 `geo_label_id`
- * 坏值 -> `null`,text item 的 `center_h` 缺省/坏值 -> `false`,自动折行字段
- * (`text` / `wrap_width_pt`)缺省/坏值 -> `null` 且只允许出现在纸张空间的注记/来源上;
+ * 除数字口径外还补几处兜底:`text_style` 缺省/坏结构 -> `{}`,页边距坏值 -> 0 并夹到纸张内,
+ * `paper.locked` 缺省/坏值 -> false,text item 的 `geo_label_id` 坏值 -> `null`,
+ * text item 的 `center_h` 缺省/坏值 -> false(地图地名恒 false),自动折行字段
+ * (`text` / `wrap_width_mm`)缺省/坏值 -> null 且只允许出现在注记/来源上;
  * 随后执行一次居中约束,保证 x/anchor 与 center_h 自洽(下游一律按「字段一定存在」消费).
  * 折行本身不在这里算:折行要用字体测量,由 `core/page-layout.ts` 的 `enforceAutoWrap` 负责.
  */
 export function normalizePage(layout: PageLayout): PageLayout {
   const rounded = roundNumbersDeep(layout);
+  const paper: PagePaper = { ...rounded.paper, locked: rounded.paper.locked === true };
   const normalized: PageLayout = {
     ...rounded,
+    paper,
+    margin: normalizeMargin(rounded.margin, paper),
     text_style: cloneTextStyleOverrides(rounded.text_style),
     items: rounded.items.map((item) => {
       if (item.kind !== 'text') return item;
@@ -496,13 +524,13 @@ export function normalizePage(layout: PageLayout): PageLayout {
       return {
         ...item,
         geo_label_id: normalizeGeoLabelId(item.geo_label_id),
-        // 居中只对纸张空间有意义;地图 item 上残留的 true 一律收敛成 false
-        center_h: item.space === 'page' && item.center_h === true,
-        // 自动折行只有页面注记/来源能用;其它 item / 坏值一律清掉,避免落盘出现无意义的字段.
+        // 居中只对页面文字有意义;地图地名上残留的 true 一律收敛成 false
+        center_h: item.geo_label_id === null && item.center_h === true,
+        // 自动折行只有注记/来源能用;其它 item / 坏值一律清掉,避免落盘出现无意义的字段.
         text: autoWrap && typeof item.text === 'string' ? item.text : null,
-        wrap_width_pt:
-          autoWrap && isFiniteNumber(item.wrap_width_pt) && item.wrap_width_pt > 0
-            ? item.wrap_width_pt
+        wrap_width_mm:
+          autoWrap && isFiniteNumber(item.wrap_width_mm) && item.wrap_width_mm > 0
+            ? item.wrap_width_mm
             : null,
       };
     }),
@@ -714,8 +742,6 @@ const isBoolean = (value: unknown): value is boolean => typeof value === 'boolea
 const isTextAnchor = (value: unknown): value is TextAnchor =>
   value === 'start' || value === 'middle' || value === 'end';
 
-const isItemSpace = (value: unknown): value is ItemSpace => value === 'page' || value === 'map';
-
 /** 页面文字角色:键集来自 config/text-style.ts 的 PAGE_TEXT_STYLES(单一真源) */
 const isTextRole = (value: unknown): value is TextRole =>
   typeof value === 'string' && Object.hasOwn(PAGE_TEXT_STYLES, value);
@@ -744,7 +770,7 @@ const nullableDash = (value: unknown): boolean =>
     value.length === 2 &&
     value.every((entry) => isFiniteNumber(entry) && entry > 0));
 
-/** 可选光晕:null 或 {color,width_pt} */
+/** 可选光晕:null 或 {color,width_mm} */
 function checkHalo(value: unknown, path: string, errors: string[]): void {
   if (value === null) return;
   if (!isObject(value)) {
@@ -752,15 +778,16 @@ function checkHalo(value: unknown, path: string, errors: string[]): void {
     return;
   }
   if (!isColor(value.color)) errors.push(`${path}.color: 必须是 #rrggbb`);
-  if (!isFiniteNumber(value.width_pt) || value.width_pt <= 0) {
-    errors.push(`${path}.width_pt: 必须是正数`);
+  if (!isFiniteNumber(value.width_mm) || value.width_mm <= 0) {
+    errors.push(`${path}.width_mm: 必须是正数`);
   }
 }
 
 /**
- * 校验分类覆盖里的 `halo`(§1.1):null 或 `{ color: #rrggbb, width_pt: 0..20 }`.
- * 与 item 的 halo 口径不同:覆盖允许 `width_pt: 0`(显式关光晕但保留颜色),
+ * 校验分类覆盖里的 `halo`(§1.1):null 或 `{ color: #rrggbb, width_mm: 0..7 }`.
+ * 与 item 的 halo 口径不同:覆盖允许 `width_mm: 0`(显式关光晕但保留颜色),
  * 因为覆盖的 null 另有语义(删除覆盖回到默认),0 宽是「有光晕配置但不可见」.
+ * 7mm 上限 = 旧 20pt 口径,足够覆盖任何描边,又能拦住明显的手误.
  */
 function validateTextStyleHalo(value: unknown, path: string, errors: string[]): void {
   if (value === null) return;
@@ -771,9 +798,9 @@ function validateTextStyleHalo(value: unknown, path: string, errors: string[]): 
   for (const [field, raw] of Object.entries(value)) {
     if (field === 'color') {
       if (!isColor(raw)) errors.push(`${path}.color: 必须是 #rrggbb`);
-    } else if (field === 'width_pt') {
-      if (!isFiniteNumber(raw) || raw < 0 || raw > 20) {
-        errors.push(`${path}.width_pt: 必须是 0..20 的有限数字`);
+    } else if (field === 'width_mm') {
+      if (!isFiniteNumber(raw) || raw < 0 || raw > 7) {
+        errors.push(`${path}.width_mm: 必须是 0..7 的有限数字`);
       }
     } else {
       errors.push(`${path}.${field}: 未知字段`);
@@ -781,12 +808,12 @@ function validateTextStyleHalo(value: unknown, path: string, errors: string[]): 
   }
   // halo 只要出现对象就必须两个字段齐全(与 item halo 同一口径)
   if (!Object.hasOwn(value, 'color')) errors.push(`${path}.color: 缺少字段`);
-  if (!Object.hasOwn(value, 'width_pt')) errors.push(`${path}.width_pt: 缺少字段`);
+  if (!Object.hasOwn(value, 'width_mm')) errors.push(`${path}.width_mm: 缺少字段`);
 }
 
 /**
  * 校验一个分类的样式覆盖(§1.1):字段名只允许 7 个已知键,取值范围固定.
- * `font_size_pt` 只接受 1..500 的数字(页面分类与地图分类同一口径):字号恒为绝对值,
+ * `font_size_mm` 只接受 0.35..180 的数字(页面分类与地图分类同一口径):字号恒为绝对值,
  * 不再是「null = 跟随旧数据」的可选字段.
  */
 function validateTextStyleOverride(value: unknown, path: string, errors: string[]): void {
@@ -796,9 +823,9 @@ function validateTextStyleOverride(value: unknown, path: string, errors: string[
   }
   for (const [field, raw] of Object.entries(value)) {
     switch (field) {
-      case 'font_size_pt':
-        if (!isFiniteNumber(raw) || raw < 1 || raw > 500) {
-          errors.push(`${path}.font_size_pt: 必须是 1..500 的有限数字`);
+      case 'font_size_mm':
+        if (!isFiniteNumber(raw) || raw < 0.35 || raw > 180) {
+          errors.push(`${path}.font_size_mm: 必须是 0.35..180 的有限数字`);
         }
         break;
       case 'color':
@@ -840,7 +867,6 @@ function validateItem(value: unknown, index: number, errors: string[], geo?: Geo
     return;
   }
   if (!isPositiveInteger(value.id)) errors.push(`${path}.id: 必须是正整数`);
-  if (!isItemSpace(value.space)) errors.push(`${path}.space: 必须是 "page" 或 "map"`);
 
   if (value.kind === 'text') validateTextItem(value, path, errors, geo);
   else if (value.kind === 'legend') validateLegendItem(value, path, errors);
@@ -870,8 +896,8 @@ function validateTextItem(
       }
     });
   }
-  if (!isFiniteNumber(item.font_size_pt) || item.font_size_pt <= 0) {
-    errors.push(`${path}.font_size_pt: 必须是正数`);
+  if (!isFiniteNumber(item.font_size_mm) || item.font_size_mm <= 0) {
+    errors.push(`${path}.font_size_mm: 必须是正数`);
   }
   if (item.font_family !== null && typeof item.font_family !== 'string') {
     errors.push(`${path}.font_family: 必须是字体串或 null`);
@@ -883,11 +909,11 @@ function validateTextItem(
     errors.push(`${path}.line_height: 必须是正数`);
   }
   if (!isBoolean(item.italic)) errors.push(`${path}.italic: 必须是布尔值`);
-  // center_h:纸张空间可开关;地图地名位置属于底图数据,禁止用纸张宽度覆盖.
+  // center_h:页面文字可开关;地图地名位置属于底图数据,禁止用纸张宽度覆盖.
   if (!isBoolean(item.center_h)) {
     errors.push(`${path}.center_h: 必须是布尔值`);
-  } else if (item.space === 'map' && item.center_h) {
-    errors.push(`${path}.center_h: 地图标注不能启用左右居中`);
+  } else if (item.center_h && item.geo_label_id !== null) {
+    errors.push(`${path}.center_h: 地图地名不能启用左右居中`);
   }
   if (
     !isFiniteNumber(item.font_weight) ||
@@ -905,29 +931,27 @@ function validateTextItem(
     errors.push(`${path}.letter_spacing_em: 必须是 -1..2 的有限数字`);
   }
   checkHalo(item.halo, `${path}.halo`, errors);
-  // geo_label_id 是分类真值,不是可选兼容字段:map 空间必须有 id(提供 geo 时还要能查到),
-  // page 空间必须为 null.缺字段的旧 page 块不走迁移,直接判不合法 -> 回退默认排版.
-  if (item.space === 'map') {
+  // geo_label_id 是「地图地名」的唯一标记与分类真值:非 null 时必须是本次 geo.labels 里
+  // 存在的 id;手动新增的页面文字必须为 null(geo_label_id 是必填字段,不是可选兼容字段).
+  if (item.geo_label_id === undefined) {
+    errors.push(`${path}.geo_label_id: 缺少字段`);
+  } else if (item.geo_label_id !== null) {
     if (typeof item.geo_label_id !== 'string' || item.geo_label_id.length === 0) {
-      errors.push(`${path}.geo_label_id: 地图地名必须是非空来源 id`);
+      errors.push(`${path}.geo_label_id: 必须是非空来源 id 或 null`);
     } else if (geo !== null && geo !== undefined) {
       if (!geo.labels.some((label) => label.id === item.geo_label_id)) {
         errors.push(`${path}.geo_label_id: 在 geo.labels 里找不到 id ${item.geo_label_id}`);
       }
     }
-  } else if (item.space === 'page') {
-    if (item.geo_label_id !== null) {
-      errors.push(`${path}.geo_label_id: 页面文字必须为 null`);
-    }
   }
-  // 自动折行字段只属于「纸张空间 + 注记/来源」;缺省(旧 page 块)视为未开启,由 normalize 落 null,
+  // 自动折行字段只属于注记/来源;缺省视为未开启,由 normalize 落 null,
   // 打开流程再按默认宽度补齐(normalizePage 不依赖字体测量,不能在这里折行).
-  const autoWrapItem = item.space === 'page' && (item.role === 'note' || item.role === 'source');
-  const wrapWidth = item.wrap_width_pt;
+  const autoWrapItem = item.role === 'note' || item.role === 'source';
+  const wrapWidth = item.wrap_width_mm;
   if (wrapWidth !== undefined && wrapWidth !== null) {
-    if (!autoWrapItem) errors.push(`${path}.wrap_width_pt: 只有页面注记/来源支持自动折行`);
+    if (!autoWrapItem) errors.push(`${path}.wrap_width_mm: 只有注记/来源支持自动折行`);
     else if (!isFiniteNumber(wrapWidth) || wrapWidth <= 0) {
-      errors.push(`${path}.wrap_width_pt: 必须是正数`);
+      errors.push(`${path}.wrap_width_mm: 必须是正数`);
     }
   }
   const rawText = item.text;
@@ -941,19 +965,19 @@ function validateLegendItem(item: Record<string, unknown>, path: string, errors:
   for (const key of [
     'x',
     'y',
-    'width_pt',
-    'font_size_pt',
-    'title_size_pt',
-    'row_height_pt',
-    'padding_pt',
-    'swatch_width_pt',
-    'swatch_gap_pt',
+    'width_mm',
+    'font_size_mm',
+    'title_size_mm',
+    'row_height_mm',
+    'padding_mm',
+    'swatch_width_mm',
+    'swatch_gap_mm',
   ] as const) {
     if (!isFiniteNumber(item[key])) errors.push(`${path}.${key}: 必须是有限数字`);
   }
-  if (isFiniteNumber(item.width_pt) && item.width_pt <= 0)
-    errors.push(`${path}.width_pt: 必须大于 0`);
-  for (const key of ['font_size_pt', 'title_size_pt', 'row_height_pt', 'padding_pt'] as const) {
+  if (isFiniteNumber(item.width_mm) && item.width_mm <= 0)
+    errors.push(`${path}.width_mm: 必须大于 0`);
+  for (const key of ['font_size_mm', 'title_size_mm', 'row_height_mm', 'padding_mm'] as const) {
     const value = item[key];
     if (isFiniteNumber(value) && value < 0) errors.push(`${path}.${key}: 不能为负`);
   }
@@ -973,8 +997,8 @@ function validateLegendItem(item: Record<string, unknown>, path: string, errors:
   } else {
     if (!isBoolean(frame.show)) errors.push(`${path}.frame.show: 必须是布尔值`);
     if (!isColor(frame.stroke)) errors.push(`${path}.frame.stroke: 必须是 #rrggbb`);
-    if (!isFiniteNumber(frame.width_pt) || frame.width_pt <= 0) {
-      errors.push(`${path}.frame.width_pt: 必须是正数`);
+    if (!isFiniteNumber(frame.width_mm) || frame.width_mm <= 0) {
+      errors.push(`${path}.frame.width_mm: 必须是正数`);
     }
     if (!isColor(frame.fill)) errors.push(`${path}.frame.fill: 必须是 #rrggbb`);
     if (!isFiniteNumber(frame.opacity) || frame.opacity < 0 || frame.opacity > 1) {
@@ -991,8 +1015,8 @@ function validateLegendEntry(entry: unknown, path: string, errors: string[]): vo
   if (typeof entry.label !== 'string') errors.push(`${path}.label: 必须是字符串`);
   if (!isLegendShape(entry.shape)) errors.push(`${path}.shape: 必须是 line/rect/point`);
   if (!nullableColor(entry.stroke)) errors.push(`${path}.stroke: 必须是 #rrggbb 或 null`);
-  if (!isFiniteNumber(entry.width_pt) || entry.width_pt <= 0) {
-    errors.push(`${path}.width_pt: 必须是正数`);
+  if (!isFiniteNumber(entry.width_mm) || entry.width_mm <= 0) {
+    errors.push(`${path}.width_mm: 必须是正数`);
   }
   if (!nullableDash(entry.dash)) errors.push(`${path}.dash: 必须是 null 或 2 个正数`);
   if (!nullableColor(entry.fill)) errors.push(`${path}.fill: 必须是 #rrggbb 或 null`);
@@ -1008,14 +1032,14 @@ function validateColorbarItem(item: Record<string, unknown>, path: string, error
   for (const key of [
     'x',
     'y',
-    'width_pt',
-    'height_pt',
-    'title_size_pt',
-    'label_size_pt',
+    'width_mm',
+    'height_mm',
+    'title_size_mm',
+    'label_size_mm',
   ] as const) {
     if (!isFiniteNumber(item[key])) errors.push(`${path}.${key}: 必须是有限数字`);
   }
-  for (const key of ['width_pt', 'height_pt', 'title_size_pt', 'label_size_pt'] as const) {
+  for (const key of ['width_mm', 'height_mm', 'title_size_mm', 'label_size_mm'] as const) {
     const value = item[key];
     if (isFiniteNumber(value) && value <= 0) errors.push(`${path}.${key}: 必须大于 0`);
   }
@@ -1051,11 +1075,27 @@ export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
     if (paper.orientation !== 'portrait' && paper.orientation !== 'landscape') {
       errors.push('paper.orientation: 必须是 portrait/landscape');
     }
-    for (const key of ['width_pt', 'height_pt'] as const) {
+    for (const key of ['width_mm', 'height_mm'] as const) {
       const size = paper[key];
       if (!isFiniteNumber(size)) errors.push(`paper.${key}: 必须是有限数字`);
-      else if (size < PAGE_PAPER_MIN_PT || size > PAGE_PAPER_MAX_PT) {
-        errors.push(`paper.${key}: 必须在 ${PAGE_PAPER_MIN_PT}..${PAGE_PAPER_MAX_PT}pt`);
+      else if (size < PAGE_PAPER_MIN_MM || size > PAGE_PAPER_MAX_MM) {
+        errors.push(`paper.${key}: 必须在 ${PAGE_PAPER_MIN_MM}..${PAGE_PAPER_MAX_MM}mm`);
+      }
+    }
+    // locked = 页面面板的纸张尺寸锁;必须是布尔值(缺省不算合法,旧 pt page 块因此整体回退).
+    if (!isBoolean(paper.locked)) errors.push('paper.locked: 必须是布尔值');
+  }
+
+  // 页边距:四边到纸张边缘的距离(mm),必须非负有限;允许为 0.
+  // 这里不要求四边之和小于纸张(内容框可能被压成 0),normalizePage 会夹到纸张内.
+  const margin = value.margin;
+  if (!isObject(margin)) {
+    errors.push('margin: 必须是对象');
+  } else {
+    for (const key of ['top', 'right', 'bottom', 'left'] as const) {
+      const side = margin[key];
+      if (!isFiniteNumber(side) || side < 0) {
+        errors.push(`margin.${key}: 必须是非负有限数字`);
       }
     }
   }
@@ -1066,9 +1106,9 @@ export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
   } else {
     if (!isFiniteNumber(map.x)) errors.push('map.x: 必须是有限数字');
     if (!isFiniteNumber(map.y)) errors.push('map.y: 必须是有限数字');
-    if (!isFiniteNumber(map.width_pt)) errors.push('map.width_pt: 必须是有限数字');
-    else if (map.width_pt <= PAGE_MIN_MAP_WIDTH_PT) {
-      errors.push(`map.width_pt: 必须大于 ${PAGE_MIN_MAP_WIDTH_PT}`);
+    if (!isFiniteNumber(map.width_mm)) errors.push('map.width_mm: 必须是有限数字');
+    else if (map.width_mm <= PAGE_MIN_MAP_WIDTH_MM) {
+      errors.push(`map.width_mm: 必须大于 ${PAGE_MIN_MAP_WIDTH_MM}`);
     }
   }
 
@@ -1080,7 +1120,7 @@ export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
     if (!isBoolean(frame.ticks)) errors.push('frame.ticks: 必须是布尔值');
     if (!isColor(frame.stroke)) errors.push('frame.stroke: 必须是 #rrggbb');
     if (!isColor(frame.tick_color)) errors.push('frame.tick_color: 必须是 #rrggbb');
-    for (const key of ['width_pt', 'tick_length_pt', 'tick_font_size_pt', 'tick_gap_pt'] as const) {
+    for (const key of ['width_mm', 'tick_length_mm', 'tick_font_size_mm', 'tick_gap_mm'] as const) {
       const entry = frame[key];
       if (!isFiniteNumber(entry) || entry < 0) errors.push(`frame.${key}: 必须是非负数`);
     }
@@ -1141,23 +1181,23 @@ export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
   // 越界只告警:契约 §4「map.x/y 有限即可(越界只告警)」
   if (
     isObject(paper) &&
-    isFiniteNumber(paper.width_pt) &&
-    isFiniteNumber(paper.height_pt) &&
+    isFiniteNumber(paper.width_mm) &&
+    isFiniteNumber(paper.height_mm) &&
     isObject(map) &&
     isFiniteNumber(map.x) &&
     isFiniteNumber(map.y) &&
-    isFiniteNumber(map.width_pt)
+    isFiniteNumber(map.width_mm)
   ) {
     const ratio =
       geo !== null && geo !== undefined && geo.base.width_pt > 0
         ? geo.base.height_pt / geo.base.width_pt
         : null;
-    const mapHeight = ratio === null ? 0 : map.width_pt * ratio;
+    const mapHeight = ratio === null ? 0 : map.width_mm * ratio;
     if (
       map.x < 0 ||
       map.y < 0 ||
-      map.x + map.width_pt > paper.width_pt ||
-      map.y + mapHeight > paper.height_pt
+      map.x + map.width_mm > paper.width_mm ||
+      map.y + mapHeight > paper.height_mm
     ) {
       warnings.push('地图超出纸张范围(预览会显示在纸外,成品会被裁掉)');
     }

@@ -16,12 +16,12 @@
 
 import {
   PAGE_FIT_PADDING_RATIO,
-  PAGE_KEY_MOVE_LARGE_PT,
-  PAGE_KEY_MOVE_PT,
+  PAGE_KEY_MOVE_LARGE_MM,
+  PAGE_KEY_MOVE_MM,
   PAGE_LEGEND_DEFAULTS,
-  PAGE_NEW_COLORBAR_HEIGHT_PT,
-  PAGE_NEW_COLORBAR_WIDTH_PT,
-  PAGE_NEW_LEGEND_WIDTH_PT,
+  PAGE_NEW_COLORBAR_HEIGHT_MM,
+  PAGE_NEW_COLORBAR_WIDTH_MM,
+  PAGE_NEW_LEGEND_WIDTH_MM,
   PAGE_WHEEL_ZOOM_SENSITIVITY,
   PAGE_ZOOM_MAX,
   PAGE_ZOOM_MIN,
@@ -43,7 +43,7 @@ import {
   type TextItem,
   type TextRole,
 } from '../core/page';
-import { enforceAutoWrap, mapTransform } from '../core/page-layout';
+import { enforceAutoWrap, remapMapLabelItems } from '../core/page-layout';
 import {
   applyCategoryStyleToItem,
   applyTextStyle,
@@ -53,7 +53,7 @@ import {
   type TextStylePatch,
 } from '../core/text-style';
 import {
-  PAGE_TEXT_DEFAULT_FONT_SIZE_PT,
+  PAGE_TEXT_DEFAULT_FONT_SIZE_MM,
   PAGE_TEXT_STYLES,
   type TextStyleCategoryId,
 } from '../config/text-style';
@@ -99,7 +99,6 @@ type Gesture =
       readonly startPageY: number;
       readonly originX: number;
       readonly originY: number;
-      readonly space: 'page' | 'map';
     };
 
 /** 编辑器依赖(全部由 `app/page-main.ts` 注入) */
@@ -136,6 +135,8 @@ export class PageEditor {
   private spaceDown = false;
   private gesture: Gesture | null = null;
   private started = false;
+  /** 是否显示页边距高亮(边距输入框聚焦时由侧栏打开) */
+  private marginGuide = false;
 
   constructor(deps: PageEditorDeps) {
     this.svg = deps.svg;
@@ -218,10 +219,27 @@ export class PageEditor {
    *   漏在任何编辑入口都会让长行溢出纸面,所以放在统一出口而不是各处补.
    */
   applyPageChange(mutate: (layout: PageLayout, geo: Geo) => void): void {
+    const previousMap = { ...this.layout.map };
     mutate(this.layout, this.geo);
+    // 地图摆放变了:底图地名(geo_label_id 非 null)按同一仿射变换整批搬移,
+    // 保持「地名跟着地图走」的既有行为;手动页面文字不动.
+    if (
+      previousMap.x !== this.layout.map.x ||
+      previousMap.y !== this.layout.map.y ||
+      previousMap.width_mm !== this.layout.map.width_mm
+    ) {
+      remapMapLabelItems(this.layout, this.geo, previousMap);
+    }
     enforceHorizontalCenter(this.layout);
     enforceAutoWrap(this.layout, this.measureText.width);
     this.dirty = true;
+    this.renderAll();
+  }
+
+  /** 打开/关闭页边距高亮(侧栏边距输入框聚焦时调用) */
+  setMarginGuide(visible: boolean): void {
+    if (this.marginGuide === visible) return;
+    this.marginGuide = visible;
     this.renderAll();
   }
 
@@ -330,23 +348,23 @@ export class PageEditor {
   /** 适应页面:纸张四周留 4% 空白 */
   fitPage(): void {
     const pad =
-      Math.max(this.layout.paper.width_pt, this.layout.paper.height_pt) * PAGE_FIT_PADDING_RATIO;
+      Math.max(this.layout.paper.width_mm, this.layout.paper.height_mm) * PAGE_FIT_PADDING_RATIO;
     this.view = {
       x: -pad,
       y: -pad,
-      w: this.layout.paper.width_pt + pad * 2,
-      h: this.layout.paper.height_pt + pad * 2,
+      w: this.layout.paper.width_mm + pad * 2,
+      h: this.layout.paper.height_mm + pad * 2,
     };
     this.applyView();
   }
 
   /** 1:1:1pt = 1 屏幕像素,以纸张中心为锚点 */
   actualSize(): void {
-    const width = this.svg.clientWidth > 0 ? this.svg.clientWidth : this.layout.paper.width_pt;
-    const height = this.svg.clientHeight > 0 ? this.svg.clientHeight : this.layout.paper.height_pt;
+    const width = this.svg.clientWidth > 0 ? this.svg.clientWidth : this.layout.paper.width_mm;
+    const height = this.svg.clientHeight > 0 ? this.svg.clientHeight : this.layout.paper.height_mm;
     this.view = {
-      x: this.layout.paper.width_pt / 2 - width / 2,
-      y: this.layout.paper.height_pt / 2 - height / 2,
+      x: this.layout.paper.width_mm / 2 - width / 2,
+      y: this.layout.paper.height_mm / 2 - height / 2,
       w: width,
       h: height,
     };
@@ -376,37 +394,32 @@ export class PageEditor {
     this.applyPageChange((layout) => {
       newId = allocateItemId(layout);
       const paper = layout.paper;
-      const margin = layout.map.x;
-      const rightX = Math.min(
-        Math.max(
-          layout.map.x + layout.map.width_pt + 16,
-          paper.width_pt - margin - PAGE_NEW_LEGEND_WIDTH_PT,
-        ),
-        paper.width_pt - margin - 20,
+      const { margin } = layout;
+      // 右栏顶部:优先贴版心右边线,至少与地图留 5.6mm;图例宽夹在 [14, 61]mm.
+      const rightEdge = paper.width_mm - margin.right;
+      const rightX = Math.max(
+        layout.map.x + layout.map.width_mm + 5.6,
+        rightEdge - PAGE_NEW_LEGEND_WIDTH_MM,
       );
-      const width = Math.max(
-        40,
-        Math.min(PAGE_NEW_LEGEND_WIDTH_PT, paper.width_pt - margin - rightX),
-      );
+      const width = Math.max(14, Math.min(PAGE_NEW_LEGEND_WIDTH_MM, rightEdge - rightX));
       const legend: LegendItem = {
         id: newId,
         kind: 'legend',
-        space: 'page',
-        x: rightX,
+        x: Math.min(rightX, rightEdge - width),
         y: layout.map.y,
-        width_pt: width,
+        width_mm: width,
         title: '图例',
         entries: [],
-        font_size_pt: PAGE_LEGEND_DEFAULTS.font_size_pt,
-        title_size_pt: PAGE_LEGEND_DEFAULTS.title_size_pt,
-        row_height_pt: PAGE_LEGEND_DEFAULTS.row_height_pt,
-        padding_pt: PAGE_LEGEND_DEFAULTS.padding_pt,
-        swatch_width_pt: PAGE_LEGEND_DEFAULTS.swatch_width_pt,
-        swatch_gap_pt: PAGE_LEGEND_DEFAULTS.swatch_gap_pt,
+        font_size_mm: PAGE_LEGEND_DEFAULTS.font_size_mm,
+        title_size_mm: PAGE_LEGEND_DEFAULTS.title_size_mm,
+        row_height_mm: PAGE_LEGEND_DEFAULTS.row_height_mm,
+        padding_mm: PAGE_LEGEND_DEFAULTS.padding_mm,
+        swatch_width_mm: PAGE_LEGEND_DEFAULTS.swatch_width_mm,
+        swatch_gap_mm: PAGE_LEGEND_DEFAULTS.swatch_gap_mm,
         frame: {
           show: true,
           stroke: PAGE_LEGEND_DEFAULTS.frame_stroke,
-          width_pt: PAGE_LEGEND_DEFAULTS.frame_width_pt,
+          width_mm: PAGE_LEGEND_DEFAULTS.frame_width_mm,
           fill: PAGE_LEGEND_DEFAULTS.frame_fill,
           opacity: PAGE_LEGEND_DEFAULTS.frame_opacity,
         },
@@ -427,22 +440,26 @@ export class PageEditor {
     this.applyPageChange((layout) => {
       newId = allocateItemId(layout);
       const paper = layout.paper;
-      const x = paper.width_pt - 72;
-      const height = Math.min(PAGE_NEW_COLORBAR_HEIGHT_PT, Math.max(60, paper.height_pt - 120));
+      const { margin } = layout;
+      const rightEdge = paper.width_mm - margin.right;
+      const x = rightEdge - PAGE_NEW_COLORBAR_WIDTH_MM;
+      const height = Math.min(
+        PAGE_NEW_COLORBAR_HEIGHT_MM,
+        Math.max(21, paper.height_mm - margin.top - margin.bottom - 42),
+      );
       const colorbar: ColorbarItem = {
         id: newId,
         kind: 'colorbar',
-        space: 'page',
         x,
-        y: Math.max(40, paper.height_pt * 0.4),
-        width_pt: PAGE_NEW_COLORBAR_WIDTH_PT,
-        height_pt: height,
+        y: Math.max(margin.top + 14, paper.height_mm * 0.4),
+        width_mm: PAGE_NEW_COLORBAR_WIDTH_MM,
+        height_mm: height,
         title: relief.title || '色标',
         unit: relief.unit,
         show_title: true,
         show_ticks: true,
-        title_size_pt: 8,
-        label_size_pt: 7,
+        title_size_mm: 2.8,
+        label_size_mm: 2.5,
       };
       layout.items.push(colorbar);
     });
@@ -458,6 +475,7 @@ export class PageEditor {
       selectedId: this.selectedId,
       measureText: this.measureText,
       interactive: true,
+      marginGuide: this.marginGuide,
     });
     this.sidebar.sync(this.layout, this.geo, this.selectedId);
     this.updateChrome();
@@ -552,7 +570,6 @@ export class PageEditor {
       startPageY: page.y,
       originX: item.x,
       originY: item.y,
-      space: item.space,
     };
     this.svg.setPointerCapture(event.pointerId);
     this.svg.classList.add('is-dragging');
@@ -586,12 +603,7 @@ export class PageEditor {
       else dx = 0;
     }
     // 左右居中约束:水平位置由纸张宽度决定,拖拽只改 y(要水平移动先关开关)
-    if (item.kind === 'text' && item.space === 'page' && item.center_h) dx = 0;
-    if (gesture.space === 'map') {
-      const transform = mapTransform(this.geo, this.layout.map);
-      dx /= transform.s;
-      dy /= transform.s;
-    }
+    if (item.kind === 'text' && item.geo_label_id === null && item.center_h) dx = 0;
     item.x = roundToPageDecimals(gesture.originX + dx);
     item.y = roundToPageDecimals(gesture.originY + dy);
     this.dirty = true;
@@ -633,7 +645,7 @@ export class PageEditor {
 
   /** 以纸张坐标 anchor 为中心缩放(缩放范围见 config PAGE_ZOOM_MIN/MAX) */
   private zoomAt(factor: number, anchor: { x: number; y: number }): void {
-    const width = this.svg.clientWidth > 0 ? this.svg.clientWidth : this.layout.paper.width_pt;
+    const width = this.svg.clientWidth > 0 ? this.svg.clientWidth : this.layout.paper.width_mm;
     const minWidth = width / PAGE_ZOOM_MAX;
     const maxWidth = width / PAGE_ZOOM_MIN;
     const nextWidth = Math.min(maxWidth, Math.max(minWidth, this.view.w / factor));
@@ -684,7 +696,7 @@ export class PageEditor {
     }
     if (event.key.startsWith('Arrow')) {
       if (this.selectedId === null) return;
-      const step = event.shiftKey ? PAGE_KEY_MOVE_LARGE_PT : PAGE_KEY_MOVE_PT;
+      const step = event.shiftKey ? PAGE_KEY_MOVE_LARGE_MM : PAGE_KEY_MOVE_MM;
       const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
       const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
       if (dx === 0 && dy === 0) return;
@@ -715,11 +727,9 @@ export class PageEditor {
     if (id === null) return;
     const item = itemById(this.layout, id);
     if (!item) return;
-    if (item.kind === 'text' && item.space === 'page' && item.center_h) dxPage = 0;
-    const scale = item.space === 'map' ? mapTransform(this.geo, this.layout.map).s : 1;
-    if (scale <= 0) return;
-    item.x = roundToPageDecimals(item.x + dxPage / scale);
-    item.y = roundToPageDecimals(item.y + dyPage / scale);
+    if (item.kind === 'text' && item.geo_label_id === null && item.center_h) dxPage = 0;
+    item.x = roundToPageDecimals(item.x + dxPage);
+    item.y = roundToPageDecimals(item.y + dyPage);
     this.dirty = true;
     this.renderAll();
   }
@@ -737,12 +747,11 @@ export class PageEditor {
     const item: TextItem = {
       id,
       kind: 'text',
-      space: 'page',
       role,
-      x: paper.width_pt / 2,
-      y: paper.height_pt / 2,
+      x: paper.width_mm / 2,
+      y: paper.height_mm / 2,
       lines: ['新文字'],
-      font_size_pt: PAGE_TEXT_DEFAULT_FONT_SIZE_PT[role],
+      font_size_mm: PAGE_TEXT_DEFAULT_FONT_SIZE_MM[role],
       font_family: null,
       color: style.color,
       anchor: 'middle',
@@ -758,7 +767,7 @@ export class PageEditor {
       // 自动折行字段先留空:若 role 是注记/来源,`applyPageChange` 里的 enforceAutoWrap
       // 会补默认宽度并把原始内容折成 lines(其它角色则一直保持 null)
       text: null,
-      wrap_width_pt: null,
+      wrap_width_mm: null,
     };
     const placed = this.placeNewText(item, layout, role);
     applyCategoryStyleToItem(layout, this.geo, placed);
@@ -770,13 +779,18 @@ export class PageEditor {
     const paper = layout.paper;
     switch (role) {
       case 'title':
-        return { ...item, y: layout.map.y - 26, lines: ['新标题'] };
+        return { ...item, y: Math.max(5.2, layout.map.y - 9.2), lines: ['新标题'] };
       case 'subtitle':
-        return { ...item, y: layout.map.y - 10, lines: ['副标题'] };
+        return { ...item, y: Math.max(11.2, layout.map.y - 3.5), lines: ['副标题'] };
       case 'source':
-        return { ...item, y: paper.height_pt - 14, lines: ['来源说明'] };
+        return { ...item, y: paper.height_mm - layout.margin.bottom - 4.9, lines: ['来源说明'] };
       case 'note':
-        return { ...item, x: paper.width_pt - 210, lines: ['新注记'], anchor: 'start' };
+        return {
+          ...item,
+          x: paper.width_mm - layout.margin.right - 74,
+          lines: ['新注记'],
+          anchor: 'start',
+        };
       case 'label':
       case 'annotation':
       default:

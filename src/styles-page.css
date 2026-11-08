@@ -137,6 +137,12 @@
   opacity: 0.5;
 }
 
+/* 纸张尺寸锁:整块(分段/方向/宽高)变淡;按钮与输入框的 disabled 由 TS 设置 */
+.page-sidebar .page-segmented-row.is-disabled,
+.page-sidebar .control-group.is-disabled {
+  opacity: 0.5;
+}
+
 .page-fatal {
   position: absolute;
   inset: 0;
@@ -925,7 +931,22 @@
   pointer-events: none;
 }
 
-/* 命中盒:几何 = 同一 §5.7 框 + config PAGE_HIT_TOLERANCE_PT 的指针容差;
+/* 页边距高亮(只在编辑边距时出现):外侧边距带 + 内容框虚线;纯编辑辅助,不进成品 */
+.page-margin-band {
+  fill: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  pointer-events: none;
+}
+
+.page-margin-box {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 1;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+/* 命中盒:几何 = 同一 §5.7 框 + config PAGE_HIT_TOLERANCE_MM 的指针容差;
    透明,只吃指针事件,不参与任何视觉. */
 .page-hit-box {
   fill: transparent;

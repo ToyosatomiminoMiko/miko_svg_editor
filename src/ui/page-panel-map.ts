@@ -16,7 +16,7 @@ export function buildMapPanel(body: HTMLElement, ctx: SidebarContext): void {
   ctx.controls.addNumberRow(
     positionRow,
     'map.x',
-    'x(pt)',
+    'x(mm)',
     () => ctx.getLayout().map.x,
     (value) => ctx.handlers.onChange((layout) => (layout.map.x = value)),
     { step: 1 },
@@ -24,7 +24,7 @@ export function buildMapPanel(body: HTMLElement, ctx: SidebarContext): void {
   ctx.controls.addNumberRow(
     positionRow,
     'map.y',
-    'y(pt)',
+    'y(mm)',
     () => ctx.getLayout().map.y,
     (value) => ctx.handlers.onChange((layout) => (layout.map.y = value)),
     { step: 1 },
@@ -32,9 +32,9 @@ export function buildMapPanel(body: HTMLElement, ctx: SidebarContext): void {
   ctx.controls.addNumberRow(
     positionRow,
     'map.width',
-    '宽(pt)',
-    () => ctx.getLayout().map.width_pt,
-    (value) => ctx.handlers.onChange((layout) => (layout.map.width_pt = value)),
+    '宽(mm)',
+    () => ctx.getLayout().map.width_mm,
+    (value) => ctx.handlers.onChange((layout) => (layout.map.width_mm = value)),
     { min: 2, step: 1 },
   );
   body.append(positionRow);
@@ -71,32 +71,32 @@ export function buildMapPanel(body: HTMLElement, ctx: SidebarContext): void {
     frameStyleRow,
     'map.strokeWidth',
     '图框线宽',
-    () => ctx.getLayout().frame.width_pt,
-    (value) => ctx.handlers.onChange((layout) => (layout.frame.width_pt = value)),
+    () => ctx.getLayout().frame.width_mm,
+    (value) => ctx.handlers.onChange((layout) => (layout.frame.width_mm = value)),
     { min: 0, step: 0.1 },
   );
   ctx.controls.addNumberRow(
     frameStyleRow,
     'map.tickLength',
     '刻度长',
-    () => ctx.getLayout().frame.tick_length_pt,
-    (value) => ctx.handlers.onChange((layout) => (layout.frame.tick_length_pt = value)),
+    () => ctx.getLayout().frame.tick_length_mm,
+    (value) => ctx.handlers.onChange((layout) => (layout.frame.tick_length_mm = value)),
     { min: 0, step: 0.5 },
   );
   ctx.controls.addNumberRow(
     frameStyleRow,
     'map.tickFont',
     '刻度字号',
-    () => ctx.getLayout().frame.tick_font_size_pt,
-    (value) => ctx.handlers.onChange((layout) => (layout.frame.tick_font_size_pt = value)),
+    () => ctx.getLayout().frame.tick_font_size_mm,
+    (value) => ctx.handlers.onChange((layout) => (layout.frame.tick_font_size_mm = value)),
     { min: 1, step: 0.5 },
   );
   ctx.controls.addNumberRow(
     frameStyleRow,
     'map.tickGap',
     '刻度间距',
-    () => ctx.getLayout().frame.tick_gap_pt,
-    (value) => ctx.handlers.onChange((layout) => (layout.frame.tick_gap_pt = value)),
+    () => ctx.getLayout().frame.tick_gap_mm,
+    (value) => ctx.handlers.onChange((layout) => (layout.frame.tick_gap_mm = value)),
     { min: 0, step: 0.5 },
   );
   ctx.controls.addColorRow(

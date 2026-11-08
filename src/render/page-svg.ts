@@ -12,7 +12,7 @@
  * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
-import { PAGE_HIT_TOLERANCE_PT } from '../config/page';
+import { PAGE_HIT_TOLERANCE_MM } from '../config/page';
 import type {
   ColorbarItem,
   Geo,
@@ -26,10 +26,9 @@ import {
   colorbarLayout,
   fallbackTextMeasure,
   frameTickLayout,
-  itemBoundsPt,
-  itemPlacement,
+  itemBoundsMm,
   legendLayout,
-  mapHeightPt,
+  mapHeightMm,
   textLayout,
 } from '../core/page-layout';
 import type { ItemBounds } from '../core/page-layout';
@@ -57,6 +56,8 @@ export interface PageSvgOptions {
   readonly measureText?: TextMeasure;
   /** 是否给元素挂命中标记;导出/静态预览可关掉 */
   readonly interactive?: boolean;
+  /** 是否显示页边距高亮(编辑边距时由 app 层打开) */
+  readonly marginGuide?: boolean;
 }
 
 /** 根 SVG 内固定分层;重复渲染只更新内容,不复建底图 image */
@@ -65,6 +66,8 @@ interface PageLayers {
   readonly paper: SVGRectElement;
   readonly baseImage: SVGImageElement;
   readonly frame: SVGGElement;
+  /** 页边距高亮层(内容框 + 外侧边距带);只在编辑页边距时显示 */
+  readonly marginGuide: SVGGElement;
   readonly overlay: SVGGElement;
   readonly selection: SVGGElement;
 }
@@ -98,11 +101,12 @@ function ensureLayers(root: SVGSVGElement): PageLayers {
   const paper = svg('rect', { class: 'page-paper' });
   const baseImage = svg('image', { class: 'page-base-image', preserveAspectRatio: 'none' });
   const frame = svg('g', { class: 'page-frame' });
+  const marginGuide = svg('g', { class: 'page-margin-guide' });
   const overlay = svg('g', { class: 'page-overlay' });
   const selection = svg('g', { class: 'page-selection' });
-  root.replaceChildren(defs, paper, baseImage, frame, overlay, selection);
+  root.replaceChildren(defs, paper, baseImage, frame, marginGuide, overlay, selection);
 
-  const layers: PageLayers = { defs, paper, baseImage, frame, overlay, selection };
+  const layers: PageLayers = { defs, paper, baseImage, frame, marginGuide, overlay, selection };
   layersByRoot.set(root, layers);
   return layers;
 }
@@ -127,25 +131,25 @@ function createTextLines(
   options: TextVisualOptions,
 ): SVGTextElement[] {
   const fontFamily = item.font_family ?? options.fontFamily;
-  const step = item.font_size_pt * item.line_height;
+  const step = item.font_size_mm * item.line_height;
   return item.lines.map((line, index) => {
     const attributes: Record<string, string> = {
       x: formatPageNumber(layout.px),
       y: formatPageNumber(layout.py + index * step),
       'text-anchor': style.anchor,
       'font-family': fontFamily,
-      'font-size': fontSizeValue(item.font_size_pt),
+      'font-size': fontSizeValue(item.font_size_mm),
     };
     if (item.italic) attributes['font-style'] = 'italic';
     const fontWeight = fontWeightValue(item.font_weight);
     if (fontWeight !== undefined) attributes['font-weight'] = fontWeight;
-    const letterSpacing = letterSpacingValue(item.letter_spacing_em, item.font_size_pt);
+    const letterSpacing = letterSpacingValue(item.letter_spacing_em, item.font_size_mm);
     if (letterSpacing !== undefined) attributes['letter-spacing'] = letterSpacing;
     attributes.fill = style.color;
     if (options.halo) {
       attributes.fill = item.halo?.color ?? style.color;
       attributes.stroke = item.halo?.color ?? style.color;
-      attributes['stroke-width'] = formatPageNumber(item.halo?.width_pt ?? 0);
+      attributes['stroke-width'] = formatPageNumber(item.halo?.width_mm ?? 0);
       attributes['paint-order'] = 'stroke';
     }
     return svg('text', attributes, line);
@@ -153,27 +157,22 @@ function createTextLines(
 }
 
 /**
- * 命中盒:item 声明几何框(§5.7)四周加 `PAGE_HIT_TOLERANCE_PT` 的指针容差.
+ * 命中盒:item 声明几何框(§5.7)四周加 `PAGE_HIT_TOLERANCE_MM` 的指针容差.
  * 透明,只吃指针事件;容差只是交互精度,不进入选中框(选中框画原样的声明框).
  */
 function createHitBox(bounds: ItemBounds): SVGRectElement {
   return svg('rect', {
     class: 'page-hit-box',
-    x: formatPageNumber(bounds.x - PAGE_HIT_TOLERANCE_PT),
-    y: formatPageNumber(bounds.y - PAGE_HIT_TOLERANCE_PT),
-    width: formatPageNumber(bounds.width + PAGE_HIT_TOLERANCE_PT * 2),
-    height: formatPageNumber(bounds.height + PAGE_HIT_TOLERANCE_PT * 2),
+    x: formatPageNumber(bounds.x - PAGE_HIT_TOLERANCE_MM),
+    y: formatPageNumber(bounds.y - PAGE_HIT_TOLERANCE_MM),
+    width: formatPageNumber(bounds.width + PAGE_HIT_TOLERANCE_MM * 2),
+    height: formatPageNumber(bounds.height + PAGE_HIT_TOLERANCE_MM * 2),
   });
 }
 
 /** 一个 text 元素(含光晕/旋转/命中) */
-function renderTextItem(
-  item: TextItem,
-  layout: PageLayout,
-  geo: Geo,
-  options: PageSvgOptions,
-): SVGGElement {
-  const text = textLayout(item, geo, layout);
+function renderTextItem(item: TextItem, layout: PageLayout, options: PageSvgOptions): SVGGElement {
+  const text = textLayout(item);
   const group = svg('g', {
     class: 'page-item page-item-text',
     'data-page-item': String(item.id),
@@ -207,7 +206,7 @@ function renderTextItem(
   // 它画在组的坐标系里,因此与文字共用同一个 rotate transform(旋转文字的命中区不会错位).
   if (options.interactive !== false) {
     group.append(
-      createHitBox(itemBoundsPt(item, layout, geo, options.measureText ?? fallbackTextMeasure)),
+      createHitBox(itemBoundsMm(item, layout, options.measureText ?? fallbackTextMeasure)),
     );
   }
   return group;
@@ -234,7 +233,7 @@ function createLegendSwatch(
         x2: formatPageNumber(x1),
         y2: y,
         stroke,
-        'stroke-width': formatPageNumber(entry.width_pt),
+        'stroke-width': formatPageNumber(entry.width_mm),
         opacity,
       };
       const dash = dashArray(entry.dash);
@@ -250,7 +249,7 @@ function createLegendSwatch(
         height: formatPageNumber(height),
         fill,
         stroke,
-        'stroke-width': formatPageNumber(entry.width_pt),
+        'stroke-width': formatPageNumber(entry.width_mm),
         opacity,
       };
       return svg('rect', attributes);
@@ -260,7 +259,7 @@ function createLegendSwatch(
       const attributes: Record<string, string> = {
         fill,
         stroke,
-        'stroke-width': formatPageNumber(entry.width_pt),
+        'stroke-width': formatPageNumber(entry.width_mm),
         opacity,
       };
       switch (entry.marker ?? 'circle') {
@@ -303,13 +302,10 @@ function createLegendSwatch(
 function renderLegendItem(
   item: LegendItem,
   layout: PageLayout,
-  geo: Geo,
   options: PageSvgOptions,
 ): SVGGElement {
-  const placement = itemPlacement(item, layout, geo);
-  const effective: LegendItem = { ...item, x: placement.x, y: placement.y };
-  const legend = legendLayout(effective, placement.scale);
-  const width = item.width_pt * placement.scale;
+  const legend = legendLayout(item);
+  const width = item.width_mm;
 
   const group = svg('g', {
     class: 'page-item page-item-legend',
@@ -318,14 +314,14 @@ function renderLegendItem(
   if (item.frame.show) {
     group.append(
       svg('rect', {
-        x: formatPageNumber(effective.x),
-        y: formatPageNumber(effective.y),
+        x: formatPageNumber(item.x),
+        y: formatPageNumber(item.y),
         width: formatPageNumber(width),
         height: formatPageNumber(legend.height),
         fill: item.frame.fill,
         'fill-opacity': opacityValue(item.frame.opacity),
         stroke: item.frame.stroke,
-        'stroke-width': formatPageNumber(item.frame.width_pt),
+        'stroke-width': formatPageNumber(item.frame.width_mm),
       }),
     );
   }
@@ -336,7 +332,7 @@ function renderLegendItem(
         {
           x: formatPageNumber(legend.titleX),
           y: formatPageNumber(legend.titleBaseline),
-          'font-size': fontSizeValue(item.title_size_pt),
+          'font-size': fontSizeValue(item.title_size_mm),
           'font-family': layout.style.font_family,
           'text-anchor': 'middle',
           fill: layout.style.color,
@@ -352,7 +348,7 @@ function renderLegendItem(
       createLegendSwatch(
         entry,
         { x0: row.swatchX0, x1: row.swatchX1, centerY: row.centerY },
-        item.font_size_pt,
+        item.font_size_mm,
       ),
     );
     group.append(
@@ -361,7 +357,7 @@ function renderLegendItem(
         {
           x: formatPageNumber(row.labelX),
           y: formatPageNumber(row.labelBaseline),
-          'font-size': fontSizeValue(item.font_size_pt),
+          'font-size': fontSizeValue(item.font_size_mm),
           'font-family': layout.style.font_family,
           'text-anchor': 'start',
           fill: layout.style.color,
@@ -373,7 +369,7 @@ function renderLegendItem(
   // 预览命中区:图例通常只有描边,直接点空白列也要能选中;几何 = §5.7 声明框 + 指针容差
   if (options.interactive !== false) {
     group.append(
-      createHitBox(itemBoundsPt(item, layout, geo, options.measureText ?? fallbackTextMeasure)),
+      createHitBox(itemBoundsMm(item, layout, options.measureText ?? fallbackTextMeasure)),
     );
   }
   return group;
@@ -388,9 +384,6 @@ function renderColorbarItem(
   geo: Geo,
   options: PageSvgOptions,
 ): SVGGElement {
-  const placement = itemPlacement(item, layout, geo);
-  const effective: ColorbarItem = { ...item, x: placement.x, y: placement.y };
-
   const group = svg('g', {
     class: 'page-item page-item-colorbar',
     'data-page-item': String(item.id),
@@ -399,12 +392,12 @@ function renderColorbarItem(
   // 直接跳过该元素而不是让预览崩溃(导出 composeFinalSvg 会给出明确错误).
   const relief = geo.relief;
   if (relief === null) return group;
-  const bar = colorbarLayout(effective, relief, placement.scale);
+  const bar = colorbarLayout(item, relief);
 
   group.append(
     svg('rect', {
-      x: formatPageNumber(effective.x),
-      y: formatPageNumber(effective.y),
+      x: formatPageNumber(item.x),
+      y: formatPageNumber(item.y),
       width: formatPageNumber(bar.width),
       height: formatPageNumber(bar.height),
       fill: `url(#${colorbarGradientId(item.id)})`,
@@ -418,7 +411,7 @@ function renderColorbarItem(
         {
           x: formatPageNumber(bar.titleX),
           y: formatPageNumber(bar.titleBaseline),
-          'font-size': fontSizeValue(item.title_size_pt),
+          'font-size': fontSizeValue(item.title_size_mm),
           'font-family': layout.style.font_family,
           'text-anchor': 'middle',
           fill: layout.style.color,
@@ -443,7 +436,7 @@ function renderColorbarItem(
         {
           x: formatPageNumber(tick.labelX),
           y: formatPageNumber(tick.labelBaseline),
-          'font-size': fontSizeValue(item.label_size_pt),
+          'font-size': fontSizeValue(item.label_size_mm),
           'font-family': layout.style.font_family,
           'text-anchor': 'start',
           fill: layout.style.color,
@@ -454,7 +447,7 @@ function renderColorbarItem(
   }
   if (options.interactive !== false) {
     group.append(
-      createHitBox(itemBoundsPt(item, layout, geo, options.measureText ?? fallbackTextMeasure)),
+      createHitBox(itemBoundsMm(item, layout, options.measureText ?? fallbackTextMeasure)),
     );
   }
   return group;
@@ -466,18 +459,18 @@ function renderColorbarItem(
 function renderFrame(layer: SVGGElement, layout: PageLayout, geo: Geo, fontFamily: string): void {
   const children: SVGElement[] = [];
   const { frame, map } = layout;
-  const height = mapHeightPt(geo, map);
+  const height = mapHeightMm(geo, map);
   if (frame.show) {
     children.push(
       svg('rect', {
         class: 'page-frame-rect',
         x: formatPageNumber(map.x),
         y: formatPageNumber(map.y),
-        width: formatPageNumber(map.width_pt),
+        width: formatPageNumber(map.width_mm),
         height: formatPageNumber(height),
         fill: 'none',
         stroke: frame.stroke,
-        'stroke-width': formatPageNumber(frame.width_pt),
+        'stroke-width': formatPageNumber(frame.width_mm),
       }),
     );
   }
@@ -491,8 +484,8 @@ function renderFrame(layer: SVGGElement, layout: PageLayout, geo: Geo, fontFamil
           x2: formatPageNumber(tick.x2),
           y2: formatPageNumber(tick.y2),
           stroke: frame.tick_color,
-          // 与成品合成一致:刻度短线线宽取 frame.width_pt(不是 SVG 默认 1)
-          'stroke-width': formatPageNumber(frame.width_pt),
+          // 与成品合成一致:刻度短线线宽取 frame.width_mm(不是 SVG 默认 1)
+          'stroke-width': formatPageNumber(frame.width_mm),
         }),
         svg(
           'text',
@@ -500,7 +493,7 @@ function renderFrame(layer: SVGGElement, layout: PageLayout, geo: Geo, fontFamil
             class: 'page-frame-tick-label',
             x: formatPageNumber(tick.textX),
             y: formatPageNumber(tick.textY),
-            'font-size': fontSizeValue(frame.tick_font_size_pt),
+            'font-size': fontSizeValue(frame.tick_font_size_mm),
             'font-family': fontFamily,
             'text-anchor': tick.anchor,
             fill: frame.tick_color,
@@ -511,6 +504,74 @@ function renderFrame(layer: SVGGElement, layout: PageLayout, geo: Geo, fontFamil
     }
   }
   layer.replaceChildren(...children);
+}
+
+/* =========================== 页边距高亮 =========================== */
+
+/**
+ * 页边距高亮(只在编辑页边距时显示):外侧四条「边距带」+ 内容框虚线.
+ * 为什么用层而不是受控元素:它是纯编辑辅助,不参与命中/选中,也不进成品;
+ * 几何直接由 page.margin 推出(纸张坐标 mm),与落盘/重新打开完全同源.
+ */
+function renderMarginGuide(layer: SVGGElement, layout: PageLayout, visible: boolean): void {
+  layer.replaceChildren();
+  if (!visible) return;
+  const { margin, paper } = layout;
+  const width = Math.max(0, paper.width_mm - margin.left - margin.right);
+  const height = Math.max(0, paper.height_mm - margin.top - margin.bottom);
+  const bands: SVGElement[] = [];
+  if (margin.top > 0) {
+    bands.push(
+      svg('rect', {
+        class: 'page-margin-band',
+        x: '0',
+        y: '0',
+        width: formatPageNumber(paper.width_mm),
+        height: formatPageNumber(margin.top),
+      }),
+    );
+  }
+  if (margin.bottom > 0) {
+    bands.push(
+      svg('rect', {
+        class: 'page-margin-band',
+        x: '0',
+        y: formatPageNumber(paper.height_mm - margin.bottom),
+        width: formatPageNumber(paper.width_mm),
+        height: formatPageNumber(margin.bottom),
+      }),
+    );
+  }
+  if (margin.left > 0) {
+    bands.push(
+      svg('rect', {
+        class: 'page-margin-band',
+        x: '0',
+        y: formatPageNumber(margin.top),
+        width: formatPageNumber(margin.left),
+        height: formatPageNumber(height),
+      }),
+    );
+  }
+  if (margin.right > 0) {
+    bands.push(
+      svg('rect', {
+        class: 'page-margin-band',
+        x: formatPageNumber(paper.width_mm - margin.right),
+        y: formatPageNumber(margin.top),
+        width: formatPageNumber(margin.right),
+        height: formatPageNumber(height),
+      }),
+    );
+  }
+  const box = svg('rect', {
+    class: 'page-margin-box',
+    x: formatPageNumber(margin.left),
+    y: formatPageNumber(margin.top),
+    width: formatPageNumber(width),
+    height: formatPageNumber(height),
+  });
+  layer.append(...bands, box);
 }
 
 /* =========================== 渐变定义 =========================== */
@@ -550,7 +611,7 @@ function renderGradientDefs(defs: SVGDefsElement, layout: PageLayout, geo: Geo):
 /* =========================== 选中框(§5.7) =========================== */
 
 /**
- * 选中框 = 该项的声明几何框 `itemBoundsPt()`(纸张坐标,未旋转).
+ * 选中框 = 该项的声明几何框 `itemBoundsMm()`(纸张坐标,未旋转).
  * 为什么不用 getBBox:它不含元素自身的 transform(旋转文字会画在锚点附近而错位),还会把
  * 命中盒一起算进包围盒(于是框变成外扩容差);声明框由 geo.json 的 page 块 + §5 公式 + CSS 字体
  * 度量推出,与预览/导出同源,且能单测.
@@ -559,7 +620,6 @@ function renderGradientDefs(defs: SVGDefsElement, layout: PageLayout, geo: Geo):
 function renderSelection(
   layer: SVGGElement,
   layout: PageLayout,
-  geo: Geo,
   selectedId: number | null,
   measure: TextMeasure,
 ): void {
@@ -567,7 +627,7 @@ function renderSelection(
   if (selectedId === null) return;
   const item = layout.items.find((candidate) => candidate.id === selectedId);
   if (!item) return;
-  const bounds = itemBoundsPt(item, layout, geo, measure);
+  const bounds = itemBoundsMm(item, layout, measure);
   const box = svg('rect', {
     class: 'page-selection-box',
     x: formatPageNumber(bounds.x),
@@ -608,26 +668,27 @@ export function renderPageSvg(
 
   layers.paper.setAttribute('x', '0');
   layers.paper.setAttribute('y', '0');
-  layers.paper.setAttribute('width', formatPageNumber(layout.paper.width_pt));
-  layers.paper.setAttribute('height', formatPageNumber(layout.paper.height_pt));
+  layers.paper.setAttribute('width', formatPageNumber(layout.paper.width_mm));
+  layers.paper.setAttribute('height', formatPageNumber(layout.paper.height_mm));
   layers.paper.setAttribute('fill', layout.style.paper_color);
 
   layers.baseImage.setAttribute('x', formatPageNumber(layout.map.x));
   layers.baseImage.setAttribute('y', formatPageNumber(layout.map.y));
-  layers.baseImage.setAttribute('width', formatPageNumber(layout.map.width_pt));
-  layers.baseImage.setAttribute('height', formatPageNumber(mapHeightPt(geo, layout.map)));
+  layers.baseImage.setAttribute('width', formatPageNumber(layout.map.width_mm));
+  layers.baseImage.setAttribute('height', formatPageNumber(mapHeightMm(geo, layout.map)));
   layers.baseImage.setAttribute('href', options.baseUrl);
   layers.baseImage.setAttribute('preserveAspectRatio', 'none');
 
   renderFrame(layers.frame, layout, geo, layout.style.font_family);
+  renderMarginGuide(layers.marginGuide, layout, options.marginGuide === true);
   renderGradientDefs(layers.defs, layout, geo);
 
   const items = layout.items.map((item: PageItem) => {
     switch (item.kind) {
       case 'text':
-        return renderTextItem(item, layout, geo, options);
+        return renderTextItem(item, layout, options);
       case 'legend':
-        return renderLegendItem(item, layout, geo, options);
+        return renderLegendItem(item, layout, options);
       case 'colorbar':
         return renderColorbarItem(item, layout, geo, options);
     }
@@ -638,7 +699,6 @@ export function renderPageSvg(
   renderSelection(
     layers.selection,
     layout,
-    geo,
     options.selectedId,
     options.measureText ?? fallbackTextMeasure,
   );

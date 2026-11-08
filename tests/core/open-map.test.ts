@@ -221,7 +221,7 @@ function replaceMarkerPage(svg: string, page: string): string {
 /** layout 里的地图地名文字 item(保持 items 顺序) */
 function mapTextItems(layout: PageLayout): TextItem[] {
   return layout.items.filter(
-    (item): item is TextItem => item.kind === 'text' && item.space === 'map',
+    (item): item is TextItem => item.kind === 'text' && item.geo_label_id !== null,
   );
 }
 
@@ -249,7 +249,7 @@ describe('打开合法 page 块:逐条残留样式按分类重建(唯一真源)'
     const tampered = structuredClone(layout);
     for (const item of tampered.items) {
       if (item.kind !== 'text') continue;
-      item.font_size_pt = 40;
+      item.font_size_mm = 40;
       item.color = '#ff00ff';
     }
     const geoText = serializeMapDocFile(document.geo, tampered);
@@ -271,10 +271,10 @@ describe('打开合法 page 块:逐条残留样式按分类重建(唯一真源)'
       const expected = freshTexts[index]!;
       expect(item.kind).toBe('text');
       if (item.kind !== 'text' || expected.kind !== 'text') return;
-      if (item.space === 'map') {
-        expect(item.font_size_pt).toBeCloseTo(expected.font_size_pt, 3);
+      if (item.geo_label_id !== null) {
+        expect(item.font_size_mm).toBeCloseTo(expected.font_size_mm, 3);
       } else {
-        expect(item.font_size_pt).toBe(40);
+        expect(item.font_size_mm).toBe(40);
       }
       expect(item.color).toBe(expected.color);
       expect(item.line_height).toBe(expected.line_height);
@@ -329,10 +329,10 @@ describe('openMapFromUploads:左右居中约束在打开时贴合纸张中心', 
     expect(opened.warnings.some((warning) => warning.includes('左右居中约束'))).toBe(true);
     const openedTitle = opened.layout.items.find(
       (item): item is TextItem =>
-        item.kind === 'text' && item.space === 'page' && item.role === 'title',
+        item.kind === 'text' && item.geo_label_id === null && item.role === 'title',
     );
     if (openedTitle === undefined) throw new Error('打开结果缺少标题');
-    expect(openedTitle.x).toBe(roundToPageDecimals(opened.layout.paper.width_pt / 2));
+    expect(openedTitle.x).toBe(roundToPageDecimals(opened.layout.paper.width_mm / 2));
     expect(openedTitle.anchor).toBe('middle');
 
     // 纠偏后导出的文件再打开必须干净(幂等:约束已经落成纸张中心)
@@ -344,15 +344,15 @@ describe('openMapFromUploads:左右居中约束在打开时贴合纸张中心', 
 });
 
 describe('打开时页面文字字号保持(纸张改宽不重排的导出->打开幂等)', () => {
-  it('只改 paper.width_pt 不重排:重开不因 resync 按新纸面默认字号改写而标脏', () => {
+  it('只改 paper.width_mm 不重排:重开不因 resync 按新纸面默认字号改写而标脏', () => {
     const { document, layout } = fixture();
     const resized = structuredClone(layout);
     const titleBefore = resized.items.find(
       (item): item is TextItem => item.kind === 'text' && item.role === 'title',
     );
     if (titleBefore === undefined) throw new Error('fixture 缺少标题');
-    const titleSize = titleBefore.font_size_pt;
-    resized.paper.width_pt = 700; // 模拟侧栏改宽(排版不会自动重排)
+    const titleSize = titleBefore.font_size_mm;
+    resized.paper.width_mm = 700; // 模拟侧栏改宽(排版不会自动重排)
     const geoText = serializeMapDocFile(document.geo, resized);
 
     const opened = openMapFromUploads([svgUpload(BASE_SVG_TEXT), geoUpload(geoText)]);
@@ -363,7 +363,48 @@ describe('打开时页面文字字号保持(纸张改宽不重排的导出->打�
     );
     if (title === undefined) throw new Error('打开结果缺少标题');
     // 页面字号沿用文件里的旧纸面值;位置按新纸张宽度由居中约束贴合
-    expect(title.font_size_pt).toBe(titleSize);
+    expect(title.font_size_mm).toBe(titleSize);
     expect(title.x).toBe(roundToPageDecimals(700 / 2));
+  });
+});
+
+describe('旧 pt page 块:不迁移,不告警,直接回退默认排版', () => {
+  it('paper 用 width_pt/height_pt 的旧 page 块被静默忽略', () => {
+    const geo = makeGeo();
+    const legacyPage = {
+      paper: {
+        preset: 'A4',
+        orientation: 'landscape',
+        width_pt: 841.889764,
+        height_pt: 595.275591,
+      },
+      map: { x: 28, y: 72, width_pt: 400 },
+      frame: {
+        show: true,
+        stroke: '#000000',
+        width_pt: 0.8,
+        ticks: true,
+        tick_length_pt: 5,
+        tick_font_size_pt: 7,
+        tick_color: '#444444',
+        tick_gap_pt: 2,
+      },
+      style: {
+        paper_color: '#ffffff',
+        font_family: 'monospace',
+        color: '#111111',
+      },
+      items: [],
+      seq: 1,
+    };
+    const text = `${JSON.stringify({ ...geo, page: legacyPage }, null, 2)}\n`;
+    const opened = openMapFromUploads([
+      svgUpload(BASE_SVG_TEXT),
+      geoUpload(text, 'fixture.geo.json'),
+    ]);
+    expect(opened.dirty).toBe(true);
+    expect(opened.warnings.some((warning) => warning.includes('page 排版块不合法'))).toBe(false);
+    expect(opened.layout.paper.width_mm).toBe(297);
+    expect(opened.layout.margin).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
   });
 });

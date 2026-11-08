@@ -28,7 +28,7 @@ export interface PageToolbarHandlers {
   exportSvg(): void;
   /** 缩放显示整页 */
   fitPage(): void;
-  /** 1:1(1pt = 1 CSS px) */
+  /** 1:1(1mm = 1 CSS px) */
   actualSize(): void;
   /** 添加普通文字(annotation) */
   addText(): void;
@@ -119,7 +119,7 @@ export function buildPageToolbar(root: HTMLElement, handlers: PageToolbarHandler
   });
   add(viewRow, {
     text: '1:1',
-    title: '1pt = 1 屏幕像素',
+    title: '1mm = 1 屏幕像素',
     run: () => handlers.actualSize(),
   });
 

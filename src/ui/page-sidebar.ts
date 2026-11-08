@@ -224,8 +224,9 @@ export class PageSidebar {
   /** 刷新地图派生高度读数与全部控件值(控件内部跳过聚焦中的输入框) */
   private refreshControls(): void {
     if (this.mapHeightEl) {
-      const height = (this.layout.map.width_pt * this.geo.base.height_pt) / this.geo.base.width_pt;
-      this.mapHeightEl.textContent = `地图高度(派生):${height.toFixed(1)}pt`;
+      // geo.base 是 pt 契约,page 块是 mm:横向用同一个地图缩放比换算成纸张 mm.
+      const height = (this.layout.map.width_mm * this.geo.base.height_pt) / this.geo.base.width_pt;
+      this.mapHeightEl.textContent = `地图高度(派生):${height.toFixed(1)}mm`;
     }
     this.controls.refreshControls();
   }

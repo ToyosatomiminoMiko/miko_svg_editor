@@ -13,44 +13,45 @@
  */
 
 import {
-  PAGE_AUTO_WRAP_MIN_PT,
-  PAGE_COLORBAR_GAP_PT,
-  PAGE_COLORBAR_HEIGHT_PT,
-  PAGE_COLORBAR_LABEL_GAP_PT,
-  PAGE_COLORBAR_LABEL_SIZE_PT,
-  PAGE_COLORBAR_TICK_LENGTH_PT,
-  PAGE_COLORBAR_TITLE_SIZE_PT,
-  PAGE_COLORBAR_WIDTH_PT,
-  PAGE_DEFAULT_COLUMN_GAP_PT,
+  PAGE_AUTO_WRAP_MIN_MM,
+  PAGE_COLORBAR_GAP_MM,
+  PAGE_COLORBAR_HEIGHT_MM,
+  PAGE_COLORBAR_LABEL_GAP_MM,
+  PAGE_COLORBAR_LABEL_SIZE_MM,
+  PAGE_COLORBAR_TICK_LENGTH_MM,
+  PAGE_COLORBAR_TITLE_SIZE_MM,
+  PAGE_COLORBAR_WIDTH_MM,
+  PAGE_DEFAULT_COLUMN_GAP_MM,
   PAGE_DEFAULT_FONT_FAMILY,
-  PAGE_DEFAULT_MAP_TOP_PT,
-  PAGE_DEFAULT_MARGIN_PT,
+  PAGE_DEFAULT_INSET_MM,
+  PAGE_DEFAULT_MAP_TOP_MM,
+  PAGE_DEFAULT_MARGIN_MM,
   PAGE_DEFAULT_PAPER_COLOR,
-  PAGE_DEFAULT_PAPER_HEIGHT_PT,
-  PAGE_DEFAULT_PAPER_WIDTH_PT,
-  PAGE_DEFAULT_RIGHT_COLUMN_MAX_PT,
-  PAGE_DEFAULT_RIGHT_COLUMN_MIN_PT,
+  PAGE_DEFAULT_PAPER_HEIGHT_MM,
+  PAGE_DEFAULT_PAPER_WIDTH_MM,
+  PAGE_DEFAULT_RIGHT_COLUMN_MAX_MM,
+  PAGE_DEFAULT_RIGHT_COLUMN_MIN_MM,
   PAGE_DEFAULT_TEXT_COLOR,
   PAGE_FRAME_DEFAULTS,
   PAGE_LEGEND_DEFAULTS,
   PAGE_MAX_TEXT_LINE_CHARS,
   PAGE_MAX_TEXT_LINES,
-  PAGE_MIN_COLORBAR_HEIGHT_PT,
-  PAGE_MIN_MAP_WIDTH_PT,
-  PAGE_NOTE_SIZE_PT,
-  PAGE_NOTES_GAP_PT,
-  PAGE_SOURCE_RESERVED_PT,
-  PAGE_SOURCE_SIZE_PT,
-  PAGE_SUBTITLE_BASELINE_OFFSET_PT,
-  PAGE_SUBTITLE_SIZE_PT,
+  PAGE_MIN_COLORBAR_HEIGHT_MM,
+  PAGE_MIN_MAP_WIDTH_MM,
+  PAGE_NOTE_SIZE_MM,
+  PAGE_NOTES_GAP_MM,
+  PAGE_SOURCE_RESERVED_MM,
+  PAGE_SOURCE_SIZE_MM,
+  PAGE_SUBTITLE_BASELINE_MM,
+  PAGE_SUBTITLE_SIZE_MM,
   PAGE_TEXT_FALLBACK_ASCENT_RATIO,
   PAGE_TEXT_FALLBACK_DESCENT_RATIO,
-  PAGE_TITLE_BASELINE_OFFSET_PT,
-  PAGE_TITLE_SIZE_PT,
+  PAGE_TITLE_BASELINE_MM,
+  PAGE_TITLE_SIZE_MM,
   layoutScaleForPaper,
 } from '../config/page';
 import { MAP_LABEL_STYLE, PAGE_TEXT_STYLES } from '../config/text-style';
-import { mapCategoryDefaultFontSizePt, resolveTextStyleFields } from './text-style';
+import { mapCategoryDefaultFontSizeMm, resolveTextStyleFields } from './text-style';
 import type { ResolvedTextStyleFields } from './text-style';
 import { cloneTextStyleOverrides, isAutoWrapTextItem, roundToPageDecimals } from './page';
 import type { MeasureText, TextMeasure } from './types';
@@ -62,7 +63,6 @@ import type {
   GeoRelief,
   GraticuleSide,
   Halo,
-  ItemSpace,
   LegendEntry,
   LegendItem,
   MapPlacement,
@@ -79,6 +79,12 @@ import type {
 
 /* =========================== 底图 -> 纸张(§5.1) =========================== */
 
+/**
+ * geo 契约里的物理长度(线宽/虚线间距)是 pt,page 块统一 mm.
+ * 1pt = 25.4/72 mm;只用于把 geo 图例样式换算成页面条目(mm),页面块内部不再出现 pt.
+ */
+const PT_TO_MM = 25.4 / 72;
+
 /** 底图坐标 -> 纸张坐标的仿射参数:page = (tx + x*s, ty + y*s) */
 export interface PageTransform {
   readonly s: number;
@@ -86,14 +92,14 @@ export interface PageTransform {
   readonly ty: number;
 }
 
-/** 地图像素比:map.height = map.width_pt × base.height_pt / base.width_pt */
-export function mapHeightPt(geo: Geo, map: MapPlacement): number {
-  return (map.width_pt * geo.base.height_pt) / geo.base.width_pt;
+/** 地图高度:mm,由宽度 × 底图纵横比派生(§5.1) */
+export function mapHeightMm(geo: Geo, map: MapPlacement): number {
+  return (map.width_mm * geo.base.height_pt) / geo.base.width_pt;
 }
 
 /** §5.1:s = map.width / base.width;tx/ty 让 map.x/y 对齐到 viewBox 左上角 */
 export function mapTransform(geo: Geo, map: MapPlacement): PageTransform {
-  const s = map.width_pt / geo.base.width_pt;
+  const s = map.width_mm / geo.base.width_pt;
   const [viewX = 0, viewY = 0] = geo.base.view_box;
   return { s, tx: map.x - viewX * s, ty: map.y - viewY * s };
 }
@@ -106,7 +112,7 @@ export function mapPointToPage(
   return { x: transform.tx + point.x * transform.s, y: transform.ty + point.y * transform.s };
 }
 
-/** 纸张坐标点 -> 底图坐标点(拖拽写回 map 空间 item 用) */
+/** 纸张坐标点 -> 底图坐标点(只在把地图地名换算回底图坐标时用,如「以地图为基准重算」) */
 export function pagePointToMap(
   transform: PageTransform,
   point: { readonly x: number; readonly y: number },
@@ -117,6 +123,38 @@ export function pagePointToMap(
   };
 }
 
+/**
+ * 地图摆放变化后,把底图地名(id 非 null 的文字 item)按新旧地图变换的仿射关系整批搬移.
+ *
+ * 为什么需要:地名打开时已换算成纸张坐标(单一坐标系),但视觉上它属于地图;用户改
+ * 地图 x/y/宽时,地名必须跟着地图走,否则会与底图脱节.做法是把当前纸张坐标先反算回
+ * 底图坐标(`pagePointToMap`),再按新变换正算回纸张坐标:
+ *   p' = newTransform(pagePointToMap(oldTransform, p))
+ * 这样用户手动拖过地名(纸张坐标偏移)也会保留相对地图的位置.
+ * 返回被改动的条数(编辑器据此决定是否重绘/标脏).
+ */
+export function remapMapLabelItems(
+  layout: PageLayout,
+  geo: Geo,
+  previousMap: MapPlacement,
+): number {
+  const oldTransform = mapTransform(geo, previousMap);
+  const newTransform = mapTransform(geo, layout.map);
+  let changed = 0;
+  for (const item of layout.items) {
+    if (item.kind !== 'text' || item.geo_label_id === null) continue;
+    const base = pagePointToMap(oldTransform, item);
+    const next = mapPointToPage(newTransform, base);
+    const x = roundToPageDecimals(next.x);
+    const y = roundToPageDecimals(next.y);
+    if (x === item.x && y === item.y) continue;
+    item.x = x;
+    item.y = y;
+    changed += 1;
+  }
+  return changed;
+}
+
 /* =========================== 文本测量 =========================== */
 
 /**
@@ -124,8 +162,8 @@ export function pagePointToMap(
  * 为什么 weight 为 400 时省略字重:保持旧串 `"12px family"` 的格式,未改字重的既有写法
  * (canvas 测量,字体串快照)不产生无意义差异;非 400 才写成 `"700 12px family"`(CSS font 语法).
  */
-export function fontShorthand(sizePt: number, fontFamily: string, weight = 400): string {
-  const size = Math.max(0, sizePt);
+export function fontShorthand(sizeMm: number, fontFamily: string, weight = 400): string {
+  const size = Math.max(0, sizeMm);
   return weight === 400 ? `${size}px ${fontFamily}` : `${weight} ${size}px ${fontFamily}`;
 }
 
@@ -309,17 +347,17 @@ function measureWithLetterSpacing(measure: MeasureText, spacingPt: number): Meas
 }
 
 /**
- * 自动折行宽度的默认值:按 item 的水平锚点从页边距推可用宽度,夹到可读下限.
- * 用途:旧 page 块(没有 `wrap_width_pt`),侧栏把角色切成注记/来源,以及读不到存储值时
- * 补一个合理的初始宽度.
- * 为什么按锚点分:注记默认 `anchor=start`,文字从 x 向右排,可用宽度 = 右页边距 - x;
+ * 自动折行宽度的默认值:按 item 的水平锚点从**页边距**推可用宽度,夹到可读下限.
+ * 用途:缺少 `wrap_width_mm` 的注记/来源(切换角色,旧数据)补一个合理的初始宽度.
+ * 为什么按锚点分:注记默认 `anchor=start`,文字从 x 向右排,可用宽度 = 右页边距线 - x;
  * 来源默认 `center_h=true`(`anchor` 被居中约束固定为 `middle`),文字块以 x 为中心向两侧
- * 展开,可用宽度 = 2 × min(x - 左页边距, 右页边距 - x).只按单侧宽度算会让居中文案
+ * 展开,可用宽度 = 2 × min(x - 左页边距线, 右页边距线 - x).只按单侧宽度算会让居中文案
  * (如页底来源)只用半页宽折行,导出后明显偏窄.
+ * 页边距在这里参与计算是「版心」语义:内容应落在版心内,而不是贴纸边.
  */
 export function defaultAutoWrapWidth(layout: PageLayout, item: TextItem): number {
-  const left = PAGE_DEFAULT_MARGIN_PT;
-  const right = layout.paper.width_pt - PAGE_DEFAULT_MARGIN_PT;
+  const left = layout.margin.left;
+  const right = layout.paper.width_mm - layout.margin.right;
   const toLeft = item.x - left;
   const toRight = right - item.x;
   const available =
@@ -328,23 +366,23 @@ export function defaultAutoWrapWidth(layout: PageLayout, item: TextItem): number
       : item.anchor === 'end'
         ? toLeft
         : toRight;
-  return roundToPageDecimals(Math.max(PAGE_AUTO_WRAP_MIN_PT, available));
+  return roundToPageDecimals(Math.max(PAGE_AUTO_WRAP_MIN_MM, available));
 }
 
 /**
- * 自动折行的有效宽度(pt):`wrap_width_pt`(缺省按锚点从页边距推导)夹到下限并收敛到落盘精度;
+ * 自动折行的有效宽度(mm):`wrap_width_mm`(缺省按锚点从页边距推导)夹到下限并收敛到落盘精度;
  * 不参与自动折行的 item 返回 null.
  *
  * 为什么要有这个单一入口:同一个「折行宽度」被三处消费--`enforceAutoWrap` 实际折行,侧栏
- * 「折行宽度(pt)」的读数,选中框/命中盒的横向声明框(`itemBoundsPt`).三处各写一份推导会漂移
- * (例如旧文件 `wrap_width_pt` 为 null 时回退口径不一致,或面板显示 5pt 而折行实际按 20pt 下限),
+ * 「折行宽度(mm)」的读数,选中框/命中盒的横向声明框(`itemBoundsMm`).三处各写一份推导会漂移
+ * (例如缺字段时回退口径不一致,或面板显示 2mm 而折行实际按 7mm 下限),
  * 所以统一从这里取数.注意它描述的是「文字允许铺开的横向带宽」,不是某一行的实际前进宽度:
  * 自动折行保证每行前进宽度 <= 该值,两者在几何上不等价.
  */
 export function effectiveAutoWrapWidth(layout: PageLayout, item: TextItem): number | null {
   if (!isAutoWrapTextItem(item)) return null;
   return roundToPageDecimals(
-    Math.max(PAGE_AUTO_WRAP_MIN_PT, item.wrap_width_pt ?? defaultAutoWrapWidth(layout, item)),
+    Math.max(PAGE_AUTO_WRAP_MIN_MM, item.wrap_width_mm ?? defaultAutoWrapWidth(layout, item)),
   );
 }
 
@@ -354,14 +392,14 @@ function sameTextLines(left: readonly string[], right: readonly string[]): boole
 }
 
 /**
- * 强制执行「自动折行」:保证纸张空间的注记/来源有 `text` / `wrap_width_pt`,并按当前
+ * 强制执行「自动折行」:保证注记/来源有 `text` / `wrap_width_mm`,并按当前
  * 原始内容 + 字号/字重/字距 + 折行宽度重算 `lines`;其它文字元素清掉这两个字段.
  *
  * 为什么做成可重复调用的纯函数而不是只在创建时折一次:内容/字号/字距/宽度任一变化后都必须
  * 重排,否则长行会溢出纸面;做成「每次修改后统一执行」比在每个编辑入口各算一次更不容易漏.
  * 幂等口径:宽度先收敛到 3 位小数(与 page 落盘口径一致)再折行,所以「导出 -> 重新打开」
  * 用同一个宽度复现同一批 lines,不会把文件误标脏.
- * 为什么来源还要改 y:来源是「页底说明」,默认排版的最后一行基线贴在页边距上;折行后行数变化
+ * 为什么来源还要改 y:来源是「页底说明」,默认排版的最后一行基线贴在版心底线上;折行后行数变化
  * 时保持最后一行基线不动(块向上长),否则多出来的行会画到纸面之外,变短的内容也会浮离页底.
  * 注记是「首行基线固定」的块,行数变化只向下长,所以只重算 lines.
  * `measure` 只用于宽度;无 DOM 的 node 单测走 `fallbackMeasureText`.
@@ -377,17 +415,17 @@ export function enforceAutoWrap(
     // 1) 折行宽度:与侧栏读数/选中框共用 `effectiveAutoWrapWidth`,不走第二套回退口径
     const width = effectiveAutoWrapWidth(layout, item);
     if (width === null) {
-      // 自动折行只属于页面注记/来源:换角色/换坐标空间后残留的字段一律清掉.
+      // 自动折行只属于注记/来源:换角色后残留的字段一律清掉.
       // 用 typeof 判断而不是 `!== null`:从 JSON 读进来的旧 item 这两个键可能整个缺失(undefined).
-      if (typeof item.text === 'string' || item.wrap_width_pt !== null) {
+      if (typeof item.text === 'string' || item.wrap_width_mm !== null) {
         item.text = null;
-        item.wrap_width_pt = null;
+        item.wrap_width_mm = null;
         changed += 1;
       }
       continue;
     }
-    if (item.wrap_width_pt !== width) {
-      item.wrap_width_pt = width;
+    if (item.wrap_width_mm !== width) {
+      item.wrap_width_mm = width;
       changed += 1;
     }
     // 2) 原始内容:旧 page 块没有 text(undefined)时,把当前 lines 当段落(手动换行保留)
@@ -398,11 +436,11 @@ export function enforceAutoWrap(
     }
     // 3) 重算 lines:字号/字重/字距都影响前进宽度;行高只影响行距,不参与折行
     const font = fontShorthand(
-      item.font_size_pt,
+      item.font_size_mm,
       item.font_family ?? layout.style.font_family,
       item.font_weight,
     );
-    const spacingPt = item.letter_spacing_em * item.font_size_pt;
+    const spacingPt = item.letter_spacing_em * item.font_size_mm;
     const wrapped = wrapParagraphs(
       [raw],
       font,
@@ -415,10 +453,11 @@ export function enforceAutoWrap(
       // 再用「最后一行不越过页底边距」兜底:字号/行高也变了时按旧行数差平移会有误差,
       // 加上字号变大后每行更高,不做兜底会把最后一行推到纸面外.
       if (item.role === 'source') {
-        const step = item.font_size_pt * item.line_height;
+        const step = item.font_size_mm * item.line_height;
         const shifted = roundToPageDecimals(item.y - (lines.length - item.lines.length) * step);
+        // 页底兜底用「纸张底边减去页边距」:设了页边距说明用户要求内容不越过版心.
         const bottomLimit = roundToPageDecimals(
-          layout.paper.height_pt - PAGE_DEFAULT_MARGIN_PT - (lines.length - 1) * step,
+          layout.paper.height_mm - layout.margin.bottom - (lines.length - 1) * step,
         );
         item.y = Math.min(shifted, bottomLimit);
       }
@@ -441,8 +480,8 @@ export function textBlockWidth(
   measure: MeasureText = fallbackMeasureText,
   fontFamily: string = PAGE_DEFAULT_FONT_FAMILY,
 ): number {
-  const font = fontShorthand(item.font_size_pt, item.font_family ?? fontFamily, item.font_weight);
-  const spacing = item.letter_spacing_em * item.font_size_pt;
+  const font = fontShorthand(item.font_size_mm, item.font_family ?? fontFamily, item.font_weight);
+  const spacing = item.letter_spacing_em * item.font_size_mm;
   let width = 0;
   for (const line of item.lines) {
     const chars = [...line].length;
@@ -468,13 +507,14 @@ export interface TextLayout {
   readonly lines: readonly TextLineLayout[];
 }
 
-/** 文本起始点:page 空间直接用;map 空间过 §5.1(字号不随地图缩放,契约 §5.3) */
-export function textLayout(item: TextItem, geo: Geo, layout: PageLayout): TextLayout {
-  const transform = mapTransform(geo, layout.map);
-  const origin = item.space === 'map' ? mapPointToPage(transform, item) : { x: item.x, y: item.y };
-  const step = item.font_size_pt * item.line_height;
-  const lines = item.lines.map((text, index) => ({ text, y: origin.y + index * step }));
-  return { px: origin.x, py: origin.y, lines };
+/**
+ * 文本起始点 = item.x/item.y(纸张坐标,已是 mm,不再有任何坐标空间变换);
+ * 第 i 行基线 y = py + i × 字号 × line_height(契约 §5.3).
+ */
+export function textLayout(item: TextItem): TextLayout {
+  const step = item.font_size_mm * item.line_height;
+  const lines = item.lines.map((text, index) => ({ text, y: item.y + index * step }));
+  return { px: item.x, py: item.y, lines };
 }
 
 /* =========================== 图框/刻度(§5.2) =========================== */
@@ -502,14 +542,14 @@ export interface FrameTickLayout {
 export function frameTickLayout(layout: PageLayout, geo: Geo): FrameTickLayout[] {
   const { paper, map, frame } = layout;
   const transform = mapTransform(geo, map);
-  const height = mapHeightPt(geo, map);
+  const height = mapHeightMm(geo, map);
   const mapBottom = map.y + height;
-  const mapRight = map.x + map.width_pt;
+  const mapRight = map.x + map.width_mm;
   const result: FrameTickLayout[] = [];
 
   for (const tick of geo.graticule.lon) {
     const px = transform.tx + tick.x * transform.s;
-    if (px < 0 || px > paper.width_pt) continue;
+    if (px < 0 || px > paper.width_mm) continue;
     const side: GraticuleSide = tick.side === 'top' ? 'top' : 'bottom';
     if (side === 'bottom') {
       result.push({
@@ -519,9 +559,9 @@ export function frameTickLayout(layout: PageLayout, geo: Geo): FrameTickLayout[]
         x1: px,
         y1: mapBottom,
         x2: px,
-        y2: mapBottom + frame.tick_length_pt,
+        y2: mapBottom + frame.tick_length_mm,
         textX: px,
-        textY: mapBottom + frame.tick_length_pt + frame.tick_gap_pt + frame.tick_font_size_pt,
+        textY: mapBottom + frame.tick_length_mm + frame.tick_gap_mm + frame.tick_font_size_mm,
         anchor: 'middle',
       });
     } else {
@@ -532,9 +572,9 @@ export function frameTickLayout(layout: PageLayout, geo: Geo): FrameTickLayout[]
         x1: px,
         y1: map.y,
         x2: px,
-        y2: map.y - frame.tick_length_pt,
+        y2: map.y - frame.tick_length_mm,
         textX: px,
-        textY: map.y - frame.tick_length_pt - frame.tick_gap_pt,
+        textY: map.y - frame.tick_length_mm - frame.tick_gap_mm,
         anchor: 'middle',
       });
     }
@@ -542,7 +582,7 @@ export function frameTickLayout(layout: PageLayout, geo: Geo): FrameTickLayout[]
 
   for (const tick of geo.graticule.lat) {
     const py = transform.ty + tick.y * transform.s;
-    if (py < 0 || py > paper.height_pt) continue;
+    if (py < 0 || py > paper.height_mm) continue;
     const side: GraticuleSide = tick.side === 'right' ? 'right' : 'left';
     if (side === 'left') {
       result.push({
@@ -551,10 +591,10 @@ export function frameTickLayout(layout: PageLayout, geo: Geo): FrameTickLayout[]
         label: tick.label,
         x1: map.x,
         y1: py,
-        x2: map.x - frame.tick_length_pt,
+        x2: map.x - frame.tick_length_mm,
         y2: py,
-        textX: map.x - frame.tick_length_pt - frame.tick_gap_pt,
-        textY: py + frame.tick_font_size_pt * 0.35,
+        textX: map.x - frame.tick_length_mm - frame.tick_gap_mm,
+        textY: py + frame.tick_font_size_mm * 0.35,
         anchor: 'end',
       });
     } else {
@@ -564,10 +604,10 @@ export function frameTickLayout(layout: PageLayout, geo: Geo): FrameTickLayout[]
         label: tick.label,
         x1: mapRight,
         y1: py,
-        x2: mapRight + frame.tick_length_pt,
+        x2: mapRight + frame.tick_length_mm,
         y2: py,
-        textX: mapRight + frame.tick_length_pt + frame.tick_gap_pt,
-        textY: py + frame.tick_font_size_pt * 0.35,
+        textX: mapRight + frame.tick_length_mm + frame.tick_gap_mm,
+        textY: py + frame.tick_font_size_mm * 0.35,
         anchor: 'start',
       });
     }
@@ -596,32 +636,28 @@ export interface LegendLayout {
   readonly rows: readonly LegendRowLayout[];
 }
 
-/**
- * §5.4 图例布局.
- * @param sizeScale 仅 map 空间的图例用:契约未定义,成品合成把 width_pt 乘 s,
- *                  这里同样只缩放宽度(行高/字号保持 pt),保持预览与成品口径一致.
- */
-export function legendLayout(item: LegendItem, sizeScale = 1): LegendLayout {
-  const padding = item.padding_pt;
-  const width = item.width_pt * sizeScale;
-  const rowHeight = Math.max(item.row_height_pt, item.font_size_pt * 1.5);
-  const titleHeight = item.title.length > 0 ? item.title_size_pt * 1.4 : 0;
+/** §5.4 图例布局(高度由内容派生,不落 layout) */
+export function legendLayout(item: LegendItem): LegendLayout {
+  const padding = item.padding_mm;
+  const width = item.width_mm;
+  const rowHeight = Math.max(item.row_height_mm, item.font_size_mm * 1.5);
+  const titleHeight = item.title.length > 0 ? item.title_size_mm * 1.4 : 0;
   const height = padding * 2 + titleHeight + item.entries.length * rowHeight;
   const rows: LegendRowLayout[] = item.entries.map((_entry, index) => {
     const centerY = item.y + padding + titleHeight + rowHeight * (index + 0.5);
     const swatchX0 = item.x + padding;
-    const swatchX1 = swatchX0 + item.swatch_width_pt;
+    const swatchX1 = swatchX0 + item.swatch_width_mm;
     return {
       centerY,
       swatchX0,
       swatchX1,
-      labelX: swatchX1 + item.swatch_gap_pt,
-      labelBaseline: centerY + item.font_size_pt * 0.35,
+      labelX: swatchX1 + item.swatch_gap_mm,
+      labelBaseline: centerY + item.font_size_mm * 0.35,
     };
   });
   return {
     height,
-    titleBaseline: item.y + padding + item.title_size_pt,
+    titleBaseline: item.y + padding + item.title_size_mm,
     titleX: item.x + width / 2,
     rows,
   };
@@ -655,19 +691,13 @@ export function colorbarTitleText(item: ColorbarItem): string {
   return `${item.title} (${unit})`;
 }
 
-/**
- * §5.5 色标布局.
- * @param sizeScale 仅 map 空间的色标用:宽度/高度乘 s(字号保持 pt,预览与成品一致).
- */
-export function colorbarLayout(
-  item: ColorbarItem,
-  relief: GeoRelief,
-  sizeScale = 1,
-): ColorbarLayout {
-  const width = item.width_pt * sizeScale;
-  const height = item.height_pt * sizeScale;
+/** §5.5 色标布局(色带/刻度只读 geo.relief,不落 layout) */
+export function colorbarLayout(item: ColorbarItem, relief: GeoRelief): ColorbarLayout {
+  const width = item.width_mm;
+  const height = item.height_mm;
   const titleX = item.x + width / 2;
-  const titleBaseline = item.y - 4;
+  // 标题基线在色条上方 1.4mm(旧版 4pt 的 mm 口径),不参与自动排版推导.
+  const titleBaseline = item.y - 1.4;
   const ticks: ColorbarTickLayout[] = [];
   const span = relief.vmax - relief.vmin;
   if (item.show_ticks && Number.isFinite(span) && span !== 0) {
@@ -678,9 +708,9 @@ export function colorbarLayout(
         value,
         ty,
         x1: item.x + width,
-        x2: item.x + width + PAGE_COLORBAR_TICK_LENGTH_PT,
-        labelX: item.x + width + PAGE_COLORBAR_LABEL_GAP_PT,
-        labelBaseline: ty + item.label_size_pt * 0.35,
+        x2: item.x + width + PAGE_COLORBAR_TICK_LENGTH_MM,
+        labelX: item.x + width + PAGE_COLORBAR_LABEL_GAP_MM,
+        labelBaseline: ty + item.label_size_mm * 0.35,
       });
     }
   }
@@ -695,29 +725,6 @@ export function colorbarLayout(
 }
 
 /* =========================== item 几何框(§5.7,选中框/命中盒) =========================== */
-
-/** 图例/色标在纸张坐标里的摆放;`scale` 只作用于图例/色标的尺寸(字号保持 pt) */
-export interface ItemPlacement {
-  readonly x: number;
-  readonly y: number;
-  readonly scale: number;
-}
-
-/**
- * 图例/色标的摆放公式(§5.4/§5.5 的共同入口).
- * 为什么抽出来:预览(page-svg),成品(compose)与选中框(itemBoundsPt)三处都需要同一份
- * 坐标换算;各写一份会漂移,契约 §5 也要求几何只在 page-layout 实现一次.
- */
-export function itemPlacement(
-  item: { readonly x: number; readonly y: number; readonly space: ItemSpace },
-  layout: PageLayout,
-  geo: Geo,
-): ItemPlacement {
-  if (item.space !== 'map') return { x: item.x, y: item.y, scale: 1 };
-  const transform = mapTransform(geo, layout.map);
-  const origin = mapPointToPage(transform, item);
-  return { x: origin.x, y: origin.y, scale: transform.s };
-}
 
 /** item 在纸张坐标里的未旋转几何框 + 旋转参数(选中框与命中盒的唯一来源) */
 export interface ItemBounds {
@@ -741,30 +748,29 @@ export interface ItemBounds {
  *   半行距 = max(0, (字号 × line_height − (ascent + descent)) / 2),所以单行文字的
  *   选中框也会随「行高」变高;行高小于字体行盒时不裁字(半行距取 0);
  *   旋转 = §5.3 规定的 `rotate(rotation_deg px py)`;
- * - legend:`rect(x, y, width_pt*s, legendLayout().height)`(§5.4 的声明框);
- * - colorbar:`rect(x, y, width_pt*s, height_pt*s)`(§5.5 的声明框).
+ * - legend:`rect(x, y, width_mm, legendLayout().height)`(§5.4 的声明框);
+ * - colorbar:`rect(x, y, width_mm, height_mm)`(§5.5 的声明框).
  *
  * 为什么自动折行项的横向框用宽度设置而不是各行实际宽度:折行宽度是用户在侧栏设定的几何约束,
  * 也是 `enforceAutoWrap` 折行时用的同一个数;选中框显示它,用户才能直接看到/对上「折行带宽」.
  * 若改用各行实测宽度,短文案的框会缩到文字本身,面板里的宽度设置就没有任何画面反馈.
  * 两者不冲突:自动折行保证每行前进宽度 <= 折行宽度,所以该框始终包住文字;命中盒由同一个
- * `itemBoundsPt` 推出(只加容差),命中范围也随之与可见的折行带宽一致.
+ * `itemBoundsMm` 推出(只加容差),命中范围也随之与可见的折行带宽一致.
  *
  * 为什么不用 DOM `getBBox()`:它不含元素自身的 transform(旋转文字会画在锚点附近而错位),
  * 还会把透明命中盒算进包围盒(框因此变成外扩容差);这里是纯函数,公式来自 §5,
  * 单测可断言,且预览/导出/选中框用同一批函数.
  */
-export function itemBoundsPt(
+export function itemBoundsMm(
   item: PageItem,
   layout: PageLayout,
-  geo: Geo,
   measure: TextMeasure = fallbackTextMeasure,
 ): ItemBounds {
   switch (item.kind) {
     case 'text': {
-      const text = textLayout(item, geo, layout);
+      const text = textLayout(item);
       const font = fontShorthand(
-        item.font_size_pt,
+        item.font_size_mm,
         item.font_family ?? layout.style.font_family,
         item.font_weight,
       );
@@ -775,7 +781,7 @@ export function itemBoundsPt(
         textBlockWidth(item, measure.width, layout.style.font_family);
       const ascent = measure.ascent(font);
       const descent = measure.descent(font);
-      const step = item.font_size_pt * item.line_height;
+      const step = item.font_size_mm * item.line_height;
       // 半行距把 line_height 的额外空间均分到首行上方与末行下方:多行行距由 step 展开,
       // 单行也能从选中框高度看出行高变化.负半行距(行高 < 字体行盒)不裁字.
       const halfLeading = Math.max(0, (step - (ascent + descent)) / 2);
@@ -798,31 +804,27 @@ export function itemBoundsPt(
       };
     }
     case 'legend': {
-      const placement = itemPlacement(item, layout, geo);
-      const effective: LegendItem = { ...item, x: placement.x, y: placement.y };
-      const legend = legendLayout(effective, placement.scale);
+      const legend = legendLayout(item);
       return {
-        x: placement.x,
-        y: placement.y,
-        width: item.width_pt * placement.scale,
+        x: item.x,
+        y: item.y,
+        width: item.width_mm,
         height: legend.height,
         rotation_deg: 0,
-        rotationX: placement.x,
-        rotationY: placement.y,
+        rotationX: item.x,
+        rotationY: item.y,
       };
     }
-    case 'colorbar': {
-      const placement = itemPlacement(item, layout, geo);
+    case 'colorbar':
       return {
-        x: placement.x,
-        y: placement.y,
-        width: item.width_pt * placement.scale,
-        height: item.height_pt * placement.scale,
+        x: item.x,
+        y: item.y,
+        width: item.width_mm,
+        height: item.height_mm,
         rotation_deg: 0,
-        rotationX: placement.x,
-        rotationY: placement.y,
+        rotationX: item.x,
+        rotationY: item.y,
       };
-    }
   }
 }
 
@@ -841,13 +843,14 @@ export interface DefaultPageLayoutOptions {
   readonly text_style?: TextStyleOverrides;
 }
 
-/** A4 横向的默认纸张 */
+/** A4 横向的默认纸张(未锁定) */
 function defaultPaper(): PagePaper {
   return {
     preset: 'A4',
     orientation: 'landscape',
-    width_pt: PAGE_DEFAULT_PAPER_WIDTH_PT,
-    height_pt: PAGE_DEFAULT_PAPER_HEIGHT_PT,
+    width_mm: PAGE_DEFAULT_PAPER_WIDTH_MM,
+    height_mm: PAGE_DEFAULT_PAPER_HEIGHT_MM,
+    locked: false,
   };
 }
 
@@ -862,12 +865,12 @@ function measureLegendColumn(
   fontScale: number,
 ): number {
   const labelFont = fontShorthand(
-    PAGE_LEGEND_DEFAULTS.font_size_pt * fontScale,
+    PAGE_LEGEND_DEFAULTS.font_size_mm * fontScale,
     style.font_family,
     PAGE_TEXT_STYLES.annotation.font_weight,
   );
   const titleFont = fontShorthand(
-    PAGE_LEGEND_DEFAULTS.title_size_pt * fontScale,
+    PAGE_LEGEND_DEFAULTS.title_size_mm * fontScale,
     style.font_family,
     PAGE_TEXT_STYLES.annotation.font_weight,
   );
@@ -877,23 +880,23 @@ function measureLegendColumn(
   }
   const title = geo.suggestions.legend_title || geo.legend.title || '图例';
   const entryWidth =
-    PAGE_LEGEND_DEFAULTS.padding_pt * 2 * fontScale +
-    PAGE_LEGEND_DEFAULTS.swatch_width_pt * fontScale +
-    PAGE_LEGEND_DEFAULTS.swatch_gap_pt * fontScale +
+    PAGE_LEGEND_DEFAULTS.padding_mm * 2 * fontScale +
+    PAGE_LEGEND_DEFAULTS.swatch_width_mm * fontScale +
+    PAGE_LEGEND_DEFAULTS.swatch_gap_mm * fontScale +
     labelWidth;
-  const titleWidth = PAGE_LEGEND_DEFAULTS.padding_pt * 2 * fontScale + measure(title, titleFont);
+  const titleWidth = PAGE_LEGEND_DEFAULTS.padding_mm * 2 * fontScale + measure(title, titleFont);
   return Math.max(entryWidth, titleWidth);
 }
 
 /**
- * 没有图例时的右栏宽度(pt):只放注记/色标,不需要图例列那么宽.
+ * 没有图例时的右栏宽度(mm):只放注记/色标,不需要图例列那么宽.
  *
  * 为什么取 0.7 × 右栏最小宽:横向右栏最小宽是 150pt,只放色标(14pt)时右侧还要容纳
  * 3pt 刻度线 + 5pt 间距 + 数字标签,约 40pt 就够;取 105pt 既够放折行注记,又比图例列
  * 窄,让地图在高度允许时可以多占宽度.乘 k 与其它纸面尺寸同一口径.
  */
 function compactRightColumnWidth(fontScale: number): number {
-  return PAGE_DEFAULT_RIGHT_COLUMN_MIN_PT * 0.7 * fontScale;
+  return PAGE_DEFAULT_RIGHT_COLUMN_MIN_MM * 0.7 * fontScale;
 }
 
 /** 把 geo 图例条目复制成 layout 条目,补齐可选字段 */
@@ -902,8 +905,8 @@ function legendEntriesOf(geo: Geo): LegendEntry[] {
     label: entry.label,
     shape: entry.shape,
     stroke: entry.stroke,
-    width_pt: entry.width_pt,
-    dash: entry.dash === null ? null : [...entry.dash],
+    width_mm: entry.width_pt * PT_TO_MM,
+    dash: entry.dash === null ? null : entry.dash.map((value) => value * PT_TO_MM),
     fill: entry.fill,
     opacity: entry.opacity,
     marker: entry.marker,
@@ -912,13 +915,13 @@ function legendEntriesOf(geo: Geo): LegendEntry[] {
 
 /** 克隆光晕(避免 defaultPageLayout 与 geo 共享可变对象) */
 function haloOf(halo: Halo | null): Halo | null {
-  return halo === null ? null : { color: halo.color, width_pt: halo.width_pt };
+  return halo === null ? null : { color: halo.color, width_mm: halo.width_mm };
 }
 
 /**
  * 文字元素工厂:所有可选字段都显式写出,保证 layout 形状固定.
  * 无覆盖时颜色/斜体/字重/字距/行高/光晕全部来自 `PAGE_TEXT_STYLES[role]`(单一真源);
- * overrides 承载两件事:调用方确有语义差异的字段(锚点/坐标空间),以及 `defaultPageLayout`
+ * overrides 承载两件事:调用方确有语义差异的字段(锚点/自动折行),以及 `defaultPageLayout`
  * 按分类覆盖解析出的样式(解析口径见 `core/text-style.ts`).
  * `halo` 的 undefined 与 null 语义不同:undefined = 用角色默认,null = 显式关光晕,
  * 所以不能用 `??` 合并(默认光晕可能非 null 的角色会吞掉「关光晕」).
@@ -929,12 +932,11 @@ function makeTextItem(
   x: number,
   y: number,
   lines: readonly string[],
-  fontPt: number,
+  fontMm: number,
   overrides: Partial<
     Pick<
       TextItem,
       | 'anchor'
-      | 'space'
       | 'center_h'
       | 'color'
       | 'halo'
@@ -944,7 +946,7 @@ function makeTextItem(
       | 'font_weight'
       | 'letter_spacing_em'
       | 'text'
-      | 'wrap_width_pt'
+      | 'wrap_width_mm'
     >
   > = {},
 ): TextItem {
@@ -952,12 +954,11 @@ function makeTextItem(
   return {
     id,
     kind: 'text',
-    space: overrides.space ?? 'page',
     role,
     x,
     y,
     lines: [...lines],
-    font_size_pt: fontPt,
+    font_size_mm: fontMm,
     font_family: null,
     color: overrides.color ?? style.color,
     anchor: overrides.anchor ?? 'middle',
@@ -973,60 +974,57 @@ function makeTextItem(
     center_h: overrides.center_h ?? false,
     // 自动折行:只有 defaultPageLayout 的注记/来源会显式传这两个字段
     text: overrides.text ?? null,
-    wrap_width_pt: overrides.wrap_width_pt ?? null,
+    wrap_width_mm: overrides.wrap_width_mm ?? null,
   };
 }
 
 /**
- * geo v2 地名 -> map 空间文字元素(把「文字块垂直中心」换算成第一行基线).
+ * geo v2 地名 -> 纸张坐标文字元素(打开时一次性换算,之后就是普通页面文字).
  *
- * 输入约定:`label.y` 是文字块垂直中心(生成端不再算基线);`label.x` 是水平锚点.
- * 换算公式(§4):
- *   step        = size × line_height
- *   offsetPaper = baseline_ratio × size − (行数−1) × step / 2
- *   item.y      = label.y + offsetPaper / mapScale
- * 为什么这么换:旧实现把 `0.36*size - (n-1)*step/2` 直接烤进 map 坐标;v2 把同一偏移换成
- * 纸面 pt 再除以 mapScale 加回去,底图坐标 -> 纸面后的视觉位置与旧图一致(旧图多行按 1.2 行高
- * 等距,整块中心只有 ~1pt 量级位移,可接受).
- * 字号/描边换算:geo 字号按原图 896pt 地图设计,放到 A4 左栏需乘地图缩放 s;字号夹到 4..40pt
- * 避免不可读;描边宽度是纸面常量(不随 s 缩放).
- * 字号(§12.1):地图分类的字号恒统一--`label.role` 的覆盖字号 ?? 分类默认统一字号
- * (该分类全部地名原始字号的中位数 × 地图缩放 s,夹 4..40,保留 1 位小数).不再使用单条
- * label 的字号,同一分类下所有地名 item 逐值相等.
+ * 输入约定:`label.y` 是文字块垂直中心(生成端不算基线);`label.x` 是水平锚点.
+ * 换算公式:
+ *   page          = mapTransform(geo, map)(label)        // 底图坐标 -> 纸张 mm(§5.1)
+ *   step          = size × line_height
+ *   offsetPaper   = baseline_ratio × size − (行数−1) × step / 2
+ *   item.y        = page.y + offsetPaper                 // 文字块中心 -> 第一行基线
+ * 为什么不再保留 map 空间:全项目只有一个坐标系(纸张 mm);地名打开即换算成纸张坐标,
+ * 之后拖拽/改样式都按页面文字处理.移动/缩放地图时由 `remapMapLabelItems` 按仿射变换整批搬移.
+ * 字号/描边换算:geo 的 `font_size_pt` 是底图设计字号(底图坐标单位),乘地图缩放 s 得到
+ * 纸张 mm;分类统一字号 = 覆盖 ?? (该分类全部地名原始字号中位数 × s),夹 1.5..15mm.
+ * 描边宽度是纸张常量(不随 s 缩放).
  * 分类覆盖(§5.2):颜色/斜体/字重/字距/行高/halo 按 `label.role` 查 `layout.text_style`
  * 解析;没有覆盖时逐字段等于 `config/text-style.ts` 的默认值.
  * 行高/字号参与 y 换算,所以必须用解析后的值.
- * 生成端不再给旋转:`rotation_deg` 固定 0(编辑器里仍可旋转).
  */
 function makeLabelItem(
   id: number,
   label: GeoLabel,
   geo: Geo,
-  mapScale: number,
+  transform: PageTransform,
   textStyle: TextStyleOverrides,
 ): TextItem {
   const lines = label.text
     .split('\n')
     .slice(0, PAGE_MAX_TEXT_LINES)
     .map((line) => line.slice(0, PAGE_MAX_TEXT_LINE_CHARS));
-  const scale = mapScale > 0 ? mapScale : 1;
+  const scale = transform.s > 0 ? transform.s : 1;
   // 防御式回退:正常路径已由 validateGeo 保证 role 在枚举内,坏数据由 resolveTextStyleFields
   // 落到 area 的样式(覆盖表里也不存在这个未知分类的键).
   const override = textStyle[label.role];
   const style = resolveTextStyleFields(label.role, override);
   // 分类统一字号:覆盖 ?? 中位数默认值(同一 role 的每条 label 都算出同一个字号)
-  const fontSize = override?.font_size_pt ?? mapCategoryDefaultFontSizePt(label.role, geo, scale);
+  const fontSize = override?.font_size_mm ?? mapCategoryDefaultFontSizeMm(label.role, geo, scale);
   const step = fontSize * style.line_height;
   const offsetPaper = MAP_LABEL_STYLE.baseline_ratio * fontSize - ((lines.length - 1) * step) / 2;
+  const pagePoint = mapPointToPage(transform, label);
   return {
     id,
     kind: 'text',
-    space: 'map',
     role: 'label',
-    x: label.x,
-    y: label.y + offsetPaper / scale,
+    x: pagePoint.x,
+    y: pagePoint.y + offsetPaper,
     lines,
-    font_size_pt: fontSize,
+    font_size_mm: fontSize,
     font_family: null,
     color: style.color,
     anchor: label.anchor,
@@ -1038,11 +1036,11 @@ function makeLabelItem(
     halo: style.halo,
     // 让分类统一样式/回算底图原始字号时能找到来源 label
     geo_label_id: label.id,
-    // 地图地名位置属于底图数据,不受纸张宽度约束
+    // 地图地名位置由底图数据决定,不能被纸张宽度覆盖
     center_h: false,
     // 地图地名不参与自动折行(文字来自底图数据且已经手动分好行)
     text: null,
-    wrap_width_pt: null,
+    wrap_width_mm: null,
   };
 }
 
@@ -1061,8 +1059,8 @@ function makeLabelItem(
  */
 export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = {}): PageLayout {
   const measure = options.measureText ?? fallbackMeasureText;
-  // 初始排版公式的内部间距口径,不是可配置项:生成后所有位置都落在各元素 x/y 上
-  const margin = PAGE_DEFAULT_MARGIN_PT;
+  // 初始版式的内部内缩(mm):与用户页边距无关,只是打开时的一次性起点.
+  const inset = PAGE_DEFAULT_INSET_MM;
   const paper = options.paper === undefined ? defaultPaper() : { ...options.paper };
   const style: PageStyle = {
     paper_color: PAGE_DEFAULT_PAPER_COLOR,
@@ -1087,16 +1085,15 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   const hasRightColumn = hasLegend || hasNotes || hasColorbar;
 
   // 纸张自适应比例 k:图例/色标尺寸与版式间距按它缩放(页面文字字号固定,地名另有地图缩放 s)
-  const k = layoutScaleForPaper(paper.width_pt, paper.height_pt);
-  const columnGap = PAGE_DEFAULT_COLUMN_GAP_PT * k;
-  const sourceReserved = PAGE_SOURCE_RESERVED_PT * k;
-  const titleArea = (PAGE_DEFAULT_MAP_TOP_PT - PAGE_DEFAULT_MARGIN_PT) * k;
-  const notesGap = PAGE_NOTES_GAP_PT * k;
-  const contentWidth = paper.width_pt - margin * 2;
-  const mapTop = margin + titleArea;
+  const k = layoutScaleForPaper(paper.width_mm, paper.height_mm);
+  const columnGap = PAGE_DEFAULT_COLUMN_GAP_MM * k;
+  const sourceReserved = PAGE_SOURCE_RESERVED_MM * k;
+  const notesGap = PAGE_NOTES_GAP_MM * k;
+  const contentWidth = paper.width_mm - inset * 2;
+  const mapTop = PAGE_DEFAULT_MAP_TOP_MM;
   const baseRatio = geo.base.height_pt / geo.base.width_pt;
   // 竖版判定:高度超过宽度 1.05 倍(容忍近方形自定义纸仍走横向)
-  const portrait = paper.height_pt > paper.width_pt * 1.05;
+  const portrait = paper.height_mm > paper.width_mm * 1.05;
 
   /*
    * 分类样式解析:页面文字与地图地名都按 `page.text_style` 的覆盖逐字段取代默认值
@@ -1105,8 +1102,8 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
    */
   const pageStyleOf = (role: TextRole): ResolvedTextStyleFields =>
     resolveTextStyleFields(role, textStyle[role]);
-  const pageFontSizeOf = (role: TextRole, defaultSizePt: number): number =>
-    textStyle[role]?.font_size_pt ?? defaultSizePt;
+  const pageFontSizeOf = (role: TextRole, defaultSizeMm: number): number =>
+    textStyle[role]?.font_size_mm ?? defaultSizeMm;
   /** 解析后的分类样式 -> makeTextItem 的 overrides;color 可另行兜底(注记/来源沿用 style.color) */
   const textOverridesOf = (fields: ResolvedTextStyleFields, color?: string) => ({
     color: color ?? fields.color,
@@ -1120,7 +1117,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   // 注记/来源的解析值同时参与折行测量与块高:覆盖字号/行高后必须按新值重算,
   // 否则右栏会溢出,纵向一排会互相压字(规格 §5.2).
   const noteStyle = pageStyleOf('note');
-  const noteSize = pageFontSizeOf('note', PAGE_NOTE_SIZE_PT);
+  const noteSize = pageFontSizeOf('note', PAGE_NOTE_SIZE_MM);
   const noteLineHeight = noteStyle.line_height;
   const noteColor = textStyle.note?.color ?? style.color;
   // 注记/来源自动折行:字号/字重/字距参与测量,原始文案(手动换行 \n)一起落进 item,
@@ -1129,7 +1126,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   const noteMeasure = measureWithLetterSpacing(measure, noteStyle.letter_spacing_em * noteSize);
   const noteText = geo.suggestions.notes.join('\n');
   const sourceStyle = pageStyleOf('source');
-  const sourceSize = pageFontSizeOf('source', PAGE_SOURCE_SIZE_PT);
+  const sourceSize = pageFontSizeOf('source', PAGE_SOURCE_SIZE_MM);
   const sourceLineHeight = sourceStyle.line_height;
   const sourceColor = textStyle.source?.color ?? style.color;
   // 来源与注记同一套自动折行口径:原始文案 + 折行宽度落进 item,之后由 enforceAutoWrap 重排.
@@ -1140,35 +1137,34 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     sourceStyle.letter_spacing_em * sourceSize,
   );
   const sourceText = geo.suggestions.source;
-  const sourceWrapWidth = roundToPageDecimals(Math.max(PAGE_AUTO_WRAP_MIN_PT, contentWidth));
+  const sourceWrapWidth = roundToPageDecimals(Math.max(PAGE_AUTO_WRAP_MIN_MM, contentWidth));
 
   // 图例最小宽度:先按文字测量,再按纸张比例夹到可读区间.
   // 横向沿用固定 150..260pt 区间(A5 横向已验证);纵向随 k 收缩,避免小纸上图例占比过大.
   const measuredColumn = measureLegendColumn(geo, style, measure, k);
-  const legendColumnMin = PAGE_DEFAULT_RIGHT_COLUMN_MIN_PT * (portrait ? k : 1);
-  const legendColumnMax = PAGE_DEFAULT_RIGHT_COLUMN_MAX_PT * (portrait ? k : 1);
+  const legendColumnMin = PAGE_DEFAULT_RIGHT_COLUMN_MIN_MM * (portrait ? k : 1);
+  const legendColumnMax = PAGE_DEFAULT_RIGHT_COLUMN_MAX_MM * (portrait ? k : 1);
   const legendMinWidth = Math.min(legendColumnMax, Math.max(legendColumnMin, measuredColumn));
 
   /** 图例元素(两套版式共用同一套字号/色块/边框,只有摆放不同) */
   const makeLegendItem = (id: number, x: number, y: number, width: number): LegendItem => ({
     id,
     kind: 'legend',
-    space: 'page',
     x,
     y,
-    width_pt: width,
+    width_mm: width,
     title: legendTitle,
     entries: legendEntriesOf(geo),
-    font_size_pt: PAGE_LEGEND_DEFAULTS.font_size_pt * k,
-    title_size_pt: PAGE_LEGEND_DEFAULTS.title_size_pt * k,
-    row_height_pt: PAGE_LEGEND_DEFAULTS.row_height_pt * k,
-    padding_pt: PAGE_LEGEND_DEFAULTS.padding_pt * k,
-    swatch_width_pt: PAGE_LEGEND_DEFAULTS.swatch_width_pt * k,
-    swatch_gap_pt: PAGE_LEGEND_DEFAULTS.swatch_gap_pt * k,
+    font_size_mm: PAGE_LEGEND_DEFAULTS.font_size_mm * k,
+    title_size_mm: PAGE_LEGEND_DEFAULTS.title_size_mm * k,
+    row_height_mm: PAGE_LEGEND_DEFAULTS.row_height_mm * k,
+    padding_mm: PAGE_LEGEND_DEFAULTS.padding_mm * k,
+    swatch_width_mm: PAGE_LEGEND_DEFAULTS.swatch_width_mm * k,
+    swatch_gap_mm: PAGE_LEGEND_DEFAULTS.swatch_gap_mm * k,
     frame: {
       show: true,
       stroke: PAGE_LEGEND_DEFAULTS.frame_stroke,
-      width_pt: PAGE_LEGEND_DEFAULTS.frame_width_pt * k,
+      width_mm: PAGE_LEGEND_DEFAULTS.frame_width_mm * k,
       fill: PAGE_LEGEND_DEFAULTS.frame_fill,
       opacity: PAGE_LEGEND_DEFAULTS.frame_opacity,
     },
@@ -1185,17 +1181,16 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   ): ColorbarItem => ({
     id,
     kind: 'colorbar',
-    space: 'page',
     x,
     y,
-    width_pt: width,
-    height_pt: height,
+    width_mm: width,
+    height_mm: height,
     title: geo.suggestions.colorbar_title || reliefData.title || '色标',
     unit: reliefData.unit,
     show_title: true,
     show_ticks: true,
-    title_size_pt: PAGE_COLORBAR_TITLE_SIZE_PT * k,
-    label_size_pt: PAGE_COLORBAR_LABEL_SIZE_PT * k,
+    title_size_mm: PAGE_COLORBAR_TITLE_SIZE_MM * k,
+    label_size_mm: PAGE_COLORBAR_LABEL_SIZE_MM * k,
   });
 
   // 右栏预留宽度:有图例时沿用图例列宽(保持既有 demo 版式/数值),只有注记/色标时用窄列.
@@ -1208,13 +1203,13 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   // 地图宽度:横向受右栏与高度双重约束;纵向用满内容宽度
   let mapWidth: number;
   if (portrait) {
-    mapWidth = Math.max(PAGE_MIN_MAP_WIDTH_PT + 1, contentWidth);
+    mapWidth = Math.max(PAGE_MIN_MAP_WIDTH_MM + 1, contentWidth);
   } else {
     const availableWidth =
       reservedRightWidth > 0 ? contentWidth - columnGap - reservedRightWidth : contentWidth;
-    const availableHeight = paper.height_pt - margin - sourceReserved - mapTop;
+    const availableHeight = paper.height_mm - inset - sourceReserved - mapTop;
     const widthByHeight = baseRatio > 0 ? availableHeight / baseRatio : availableWidth;
-    mapWidth = Math.max(PAGE_MIN_MAP_WIDTH_PT + 1, Math.min(availableWidth, widthByHeight));
+    mapWidth = Math.max(PAGE_MIN_MAP_WIDTH_MM + 1, Math.min(availableWidth, widthByHeight));
   }
   const mapHeight = baseRatio > 0 ? mapWidth * baseRatio : 0;
 
@@ -1222,10 +1217,11 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   const items: PageItem[] = [];
   // 居中约束的派生 x:直接按 page 精度(3 位小数)写,保证默认排版与
   // enforceHorizontalCenter/normalizePage 完全自洽(否则 1e-4 的差会被判成「改动」).
-  const pageCenterX = roundToPageDecimals(paper.width_pt / 2);
+  const pageCenterX = roundToPageDecimals(paper.width_mm / 2);
 
   // 1) 标题
-  const titleY = margin + PAGE_TITLE_BASELINE_OFFSET_PT * k;
+  // 标题/副标题基线是纸张绝对坐标(mm),不再相对页边距或再乘 k.
+  const titleY = PAGE_TITLE_BASELINE_MM;
   if (geo.suggestions.title.length > 0) {
     items.push(
       makeTextItem(
@@ -1234,7 +1230,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
         pageCenterX,
         titleY,
         [geo.suggestions.title],
-        pageFontSizeOf('title', PAGE_TITLE_SIZE_PT),
+        pageFontSizeOf('title', PAGE_TITLE_SIZE_MM),
         // 标题默认开启左右居中约束:改纸张宽度时自动贴合中心(§B)
         { ...textOverridesOf(pageStyleOf('title')), center_h: true },
       ),
@@ -1242,7 +1238,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   }
 
   // 2) 副标题
-  const subtitleY = margin + PAGE_SUBTITLE_BASELINE_OFFSET_PT * k;
+  const subtitleY = PAGE_SUBTITLE_BASELINE_MM;
   if (geo.suggestions.subtitle.length > 0) {
     items.push(
       makeTextItem(
@@ -1251,7 +1247,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
         pageCenterX,
         subtitleY,
         [geo.suggestions.subtitle],
-        pageFontSizeOf('subtitle', PAGE_SUBTITLE_SIZE_PT),
+        pageFontSizeOf('subtitle', PAGE_SUBTITLE_SIZE_MM),
         { ...textOverridesOf(pageStyleOf('subtitle')), center_h: true },
       ),
     );
@@ -1264,18 +1260,18 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     // 注记首行基线 = rowY,但文字块上沿还要再高 ascent(回退口径 0.8em),所以让位量 =
     // 刻度标签底部 + 4pt 间隙 + 注记上沿;A4 纵向同时保留原有的 16pt 最小间距.
     const tickLabelBottom =
-      frame.tick_length_pt + frame.tick_gap_pt + frame.tick_font_size_pt * 1.2;
+      frame.tick_length_mm + frame.tick_gap_mm + frame.tick_font_size_mm * 1.2;
     const tickLabelExtent = frame.ticks
-      ? tickLabelBottom + Math.max(16 * k, noteSize * 0.8 + 4)
+      ? tickLabelBottom + Math.max(5.6 * k, noteSize * 0.8 + 1.4)
       : 0;
     const rowY = mapTop + mapHeight + Math.max(notesGap, tickLabelExtent);
     // 图例不存在时不占列:注记从左边距开始,只有色标时仍贴右;间距按实际存在的列计.
     const legendWidth = hasLegend ? legendMinWidth : 0;
     const leadingGap = hasLegend ? columnGap : 0;
-    const colorbarWidth = PAGE_COLORBAR_WIDTH_PT * k;
-    const notesX = margin + legendWidth + leadingGap;
+    const colorbarWidth = PAGE_COLORBAR_WIDTH_MM * k;
+    const notesX = inset + legendWidth + leadingGap;
     const notesWidth = Math.max(
-      40,
+      14,
       contentWidth - legendWidth - leadingGap - (hasColorbar ? colorbarWidth + columnGap : 0),
     );
     const noteWrapWidth = roundToPageDecimals(notesWidth);
@@ -1289,7 +1285,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     // 空图例不生成元素(也就没有空图例框);有图例时高度仍由 §5.4 公式派生.
     let legendHeight = 0;
     if (hasLegend) {
-      const legendItem = makeLegendItem(nextId++, margin, rowY, legendWidth);
+      const legendItem = makeLegendItem(nextId++, inset, rowY, legendWidth);
       items.push(legendItem);
       legendHeight = legendLayout(legendItem).height;
     }
@@ -1301,7 +1297,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
           anchor: 'start',
           ...textOverridesOf(noteStyle, noteColor),
           text: noteText,
-          wrap_width_pt: noteWrapWidth,
+          wrap_width_mm: noteWrapWidth,
         }),
       );
       noteBlockHeight = noteLines.length * noteSize * noteLineHeight;
@@ -1311,25 +1307,25 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
       // 行高 = 图例/注记/色标三块内容的最大高度;色标底部与图例/注记底对齐.
       // 色标标题基线 = colorbarY - 4,必须落在 row 内:给标题预留 title_size*1.4 + 4,
       // 再只在剩余高度里放色条,避免标题画到地图底/经度标签上.
-      const colorbarMaxHeight = PAGE_COLORBAR_HEIGHT_PT * k;
-      const bottomLimit = paper.height_pt - margin - sourceReserved;
-      const availableRow = Math.max(PAGE_MIN_COLORBAR_HEIGHT_PT, bottomLimit - rowY);
-      const colorbarTitleBlock = PAGE_COLORBAR_TITLE_SIZE_PT * k * 1.4 + 4;
+      const colorbarMaxHeight = PAGE_COLORBAR_HEIGHT_MM * k;
+      const bottomLimit = paper.height_mm - inset - sourceReserved;
+      const availableRow = Math.max(PAGE_MIN_COLORBAR_HEIGHT_MM, bottomLimit - rowY);
+      const colorbarTitleBlock = PAGE_COLORBAR_TITLE_SIZE_MM * k * 1.4 + 1.4;
       let rowHeight = Math.max(
         legendHeight,
         noteBlockHeight,
-        PAGE_MIN_COLORBAR_HEIGHT_PT + colorbarTitleBlock,
+        PAGE_MIN_COLORBAR_HEIGHT_MM + colorbarTitleBlock,
       );
       if (rowHeight > availableRow) rowHeight = availableRow;
       const colorbarHeight = Math.max(
-        PAGE_MIN_COLORBAR_HEIGHT_PT,
+        PAGE_MIN_COLORBAR_HEIGHT_MM,
         Math.min(colorbarMaxHeight, rowHeight - colorbarTitleBlock),
       );
       const colorbarY = rowY + rowHeight - colorbarHeight;
       items.push(
         makeColorbarItem(
           nextId++,
-          paper.width_pt - margin - colorbarWidth,
+          paper.width_mm - inset - colorbarWidth,
           colorbarY,
           colorbarWidth,
           colorbarHeight,
@@ -1339,9 +1335,9 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     }
   } else {
     // 3L) 横向:右栏自上而下 = 图例 | 注记 | 色标(缺省块不占位)
-    const rightX = margin + mapWidth + columnGap;
+    const rightX = inset + mapWidth + columnGap;
     const rightWidth = hasRightColumn
-      ? Math.max(reservedRightWidth, paper.width_pt - margin - rightX)
+      ? Math.max(reservedRightWidth, paper.width_mm - inset - rightX)
       : 0;
 
     // 没有图例时注记/色标直接从栏顶开始;有图例时保持既有版式(回归 demo).
@@ -1367,7 +1363,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
           anchor: 'start',
           ...textOverridesOf(noteStyle, noteColor),
           text: noteText,
-          wrap_width_pt: noteWrapWidth,
+          wrap_width_mm: noteWrapWidth,
         }),
       );
       notesBottom = notesY + noteLines.length * noteSize * noteLineHeight;
@@ -1375,22 +1371,22 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
 
     if (hasColorbar && relief !== null) {
       // 色标:高度按剩余空间压缩;不够 40pt 时贴右栏底,与注记留 8pt
-      const colorbarWidth = PAGE_COLORBAR_WIDTH_PT * k;
-      const colorbarMaxHeight = PAGE_COLORBAR_HEIGHT_PT * k;
+      const colorbarWidth = PAGE_COLORBAR_WIDTH_MM * k;
+      const colorbarMaxHeight = PAGE_COLORBAR_HEIGHT_MM * k;
       const colorbarX = rightX + (rightWidth - colorbarWidth) / 2;
-      const bottomLimit = paper.height_pt - margin - sourceReserved;
-      const colorbarGap = PAGE_COLORBAR_GAP_PT * k;
+      const bottomLimit = paper.height_mm - inset - sourceReserved;
+      const colorbarGap = PAGE_COLORBAR_GAP_MM * k;
       let colorbarY = notesBottom + colorbarGap;
       let colorbarHeight = Math.min(colorbarMaxHeight, bottomLimit - colorbarY);
-      if (colorbarHeight < PAGE_MIN_COLORBAR_HEIGHT_PT) {
+      if (colorbarHeight < PAGE_MIN_COLORBAR_HEIGHT_MM) {
         colorbarHeight = Math.min(
           colorbarMaxHeight,
-          Math.max(PAGE_MIN_COLORBAR_HEIGHT_PT, bottomLimit - (notesBottom + 8)),
+          Math.max(PAGE_MIN_COLORBAR_HEIGHT_MM, bottomLimit - (notesBottom + 2.8)),
         );
         colorbarY = bottomLimit - colorbarHeight;
-        if (colorbarY < notesBottom + 8) colorbarY = notesBottom + 8;
+        if (colorbarY < notesBottom + 2.8) colorbarY = notesBottom + 2.8;
       }
-      colorbarHeight = Math.max(PAGE_MIN_COLORBAR_HEIGHT_PT, colorbarHeight);
+      colorbarHeight = Math.max(PAGE_MIN_COLORBAR_HEIGHT_MM, colorbarHeight);
       items.push(
         makeColorbarItem(nextId++, colorbarX, colorbarY, colorbarWidth, colorbarHeight, relief),
       );
@@ -1407,7 +1403,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   if (sourceLines.length > 0) {
     const baselines = sourceLines.length;
     // 块高用解析后的行高,保证多行来源的最后一行仍贴住页边距
-    const firstY = paper.height_pt - margin - (baselines - 1) * sourceSize * sourceLineHeight;
+    const firstY = paper.height_mm - inset - (baselines - 1) * sourceSize * sourceLineHeight;
     items.push(
       makeTextItem(nextId++, 'source', pageCenterX, firstY, sourceLines, sourceSize, {
         anchor: 'middle',
@@ -1415,19 +1411,27 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
         center_h: true,
         ...textOverridesOf(sourceStyle, sourceColor),
         text: sourceText,
-        wrap_width_pt: sourceWrapWidth,
+        wrap_width_mm: sourceWrapWidth,
       }),
     );
   }
 
-  // 5) 地名标注:按 geo 原始绘制顺序铺成 map 空间文字(样式/字号按分类覆盖解析,见 makeLabelItem)
-  const mapScale = geo.base.width_pt > 0 ? mapWidth / geo.base.width_pt : 1;
+  // 5) 地名标注:按 geo 原始绘制顺序铺成**纸张坐标**文字(打开时换算一次;之后就是普通页面文字).
+  //    移动/缩放地图时由 app 层调用 remapMapLabelItems 按仿射变换整批搬移.
+  const transform = mapTransform(geo, { x: inset, y: mapTop, width_mm: mapWidth });
   const labels = [...geo.labels].sort((a, b) => a.order - b.order);
-  for (const label of labels) items.push(makeLabelItem(nextId++, label, geo, mapScale, textStyle));
+  for (const label of labels) items.push(makeLabelItem(nextId++, label, geo, transform, textStyle));
 
   return {
     paper,
-    map: { x: margin, y: mapTop, width_pt: mapWidth },
+    // 页边距是出版版心声明,默认四边 0;它不参与上面的版式计算,只画内容框参考.
+    margin: {
+      top: PAGE_DEFAULT_MARGIN_MM,
+      right: PAGE_DEFAULT_MARGIN_MM,
+      bottom: PAGE_DEFAULT_MARGIN_MM,
+      left: PAGE_DEFAULT_MARGIN_MM,
+    },
+    map: { x: inset, y: mapTop, width_mm: mapWidth },
     frame,
     style,
     // 覆盖表随 layout 持久化(导出进 page.text_style;重新打开继续生效)

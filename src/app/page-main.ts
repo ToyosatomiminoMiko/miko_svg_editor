@@ -166,6 +166,7 @@ function boot(): void {
           editorRef?.deleteItem(id);
         },
         notify: (message) => notifier.info(message),
+        onMarginGuideChange: (visible) => editorRef?.setMarginGuide(visible),
         openStyleSettings: (category) => styleWindow?.open(category),
       });
 

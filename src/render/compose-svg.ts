@@ -45,9 +45,8 @@ import {
 import {
   colorbarLayout,
   frameTickLayout,
-  itemPlacement,
   legendLayout,
-  mapHeightPt,
+  mapHeightMm,
   mapTransform,
   textLayout,
 } from '../core/page-layout';
@@ -134,7 +133,7 @@ interface TextElementOptions {
   /** 字距(em);0 不写 letter-spacing 属性 */
   readonly letterSpacingEm: number;
   /** 非 null 时这是 halo 副本:fill/stroke 都用光晕色并带 paint-order=stroke */
-  readonly halo: { readonly color: string; readonly width_pt: number } | null;
+  readonly halo: { readonly color: string; readonly width_mm: number } | null;
 }
 
 /**
@@ -160,7 +159,7 @@ function textElement(x: number, y: number, value: string, options: TextElementOp
   attributes.push(`fill="${attr(options.fill)}"`);
   if (options.halo !== null) {
     attributes.push(`stroke="${attr(options.halo.color)}"`);
-    attributes.push(`stroke-width="${num(options.halo.width_pt)}"`);
+    attributes.push(`stroke-width="${num(options.halo.width_mm)}"`);
     attributes.push('paint-order="stroke"');
   }
   return `<text ${attributes.join(' ')}>${text(value)}</text>`;
@@ -174,8 +173,8 @@ function textElement(x: number, y: number, value: string, options: TextElementOp
  * 「上一行 halo 盖住下一行填充」的视觉差(单行时两种顺序等价).
  * 多行整体绕第一行锚点旋转;不旋转时直接输出各行(与旧 compose 相同,不额外包组).
  */
-function renderTextItem(item: TextItem, layout: PageLayout, geo: Geo): string[] {
-  const text = textLayout(item, geo, layout);
+function renderTextItem(item: TextItem, layout: PageLayout): string[] {
+  const text = textLayout(item);
   const family = item.font_family ?? layout.style.font_family;
   const haloChildren: string[] = [];
   const fillChildren: string[] = [];
@@ -185,7 +184,7 @@ function renderTextItem(item: TextItem, layout: PageLayout, geo: Geo): string[] 
         textElement(text.px, line.y, line.text, {
           anchor: item.anchor,
           family,
-          fontSize: item.font_size_pt,
+          fontSize: item.font_size_mm,
           fill: item.halo.color,
           italic: item.italic,
           fontWeight: item.font_weight,
@@ -198,7 +197,7 @@ function renderTextItem(item: TextItem, layout: PageLayout, geo: Geo): string[] 
       textElement(text.px, line.y, line.text, {
         anchor: item.anchor,
         family,
-        fontSize: item.font_size_pt,
+        fontSize: item.font_size_mm,
         fill: item.color,
         italic: item.italic,
         fontWeight: item.font_weight,
@@ -225,7 +224,7 @@ function legendStrokeAttributes(entry: LegendEntry): string[] {
   const attributes: string[] = [];
   if (entry.stroke !== null) {
     attributes.push(`stroke="${attr(entry.stroke)}"`);
-    attributes.push(`stroke-width="${num(entry.width_pt)}"`);
+    attributes.push(`stroke-width="${num(entry.width_mm)}"`);
   }
   const dash = dashArray(entry.dash);
   if (dash !== undefined) attributes.push(`stroke-dasharray="${dash}"`);
@@ -251,7 +250,7 @@ function pointMarker(entry: LegendEntry, cx: number, cy: number, fontSize: numbe
   const attributes: string[] = [fill === null ? 'fill="none"' : `fill="${attr(fill)}"`];
   if (entry.stroke !== null) {
     attributes.push(`stroke="${attr(entry.stroke)}"`);
-    attributes.push(`stroke-width="${num(entry.width_pt)}"`);
+    attributes.push(`stroke-width="${num(entry.width_mm)}"`);
   }
   attributes.push(`opacity="${opacityValue(entry.opacity)}"`);
   const suffix = attributes.join(' ');
@@ -272,21 +271,18 @@ function pointMarker(entry: LegendEntry, cx: number, cy: number, fontSize: numbe
 }
 
 /** 一个 legend item:底板,标题,逐行 swatch+label;高度由 §5.4 公式派生(不落 layout) */
-function renderLegendItem(item: LegendItem, layout: PageLayout, geo: Geo): string[] {
-  const placement = itemPlacement(item, layout, geo);
-  // 只有宽度随 map 空间缩放;字号/行高/padding 是 pt,不随底图缩放(legendLayout 同口径).
-  const effective: LegendItem = { ...item, x: placement.x, y: placement.y };
-  const legend = legendLayout(effective, placement.scale);
-  const width = item.width_pt * placement.scale;
+function renderLegendItem(item: LegendItem, layout: PageLayout): string[] {
+  const legend = legendLayout(item);
+  const width = item.width_mm;
   const children: string[] = [];
   const frame = item.frame;
   if (frame.show) {
     // 底板透明度是 fill-opacity,只影响白底不影响描边(与预览一致).
     children.push(
-      `<rect x="${num(placement.x)}" y="${num(placement.y)}" ` +
+      `<rect x="${num(item.x)}" y="${num(item.y)}" ` +
         `width="${num(width)}" height="${num(legend.height)}" ` +
         `fill="${attr(frame.fill)}" fill-opacity="${opacityValue(frame.opacity)}" ` +
-        `stroke="${attr(frame.stroke)}" stroke-width="${num(frame.width_pt)}"/>`,
+        `stroke="${attr(frame.stroke)}" stroke-width="${num(frame.width_mm)}"/>`,
     );
   }
   if (item.title.length > 0) {
@@ -294,7 +290,7 @@ function renderLegendItem(item: LegendItem, layout: PageLayout, geo: Geo): strin
       textElement(legend.titleX, legend.titleBaseline, item.title, {
         anchor: 'middle',
         family: layout.style.font_family,
-        fontSize: item.title_size_pt,
+        fontSize: item.title_size_mm,
         fill: layout.style.color,
         italic: false,
         fontWeight: PLAIN_TEXT_WEIGHT,
@@ -320,7 +316,7 @@ function renderLegendItem(item: LegendItem, layout: PageLayout, geo: Geo): strin
         break;
       }
       case 'rect': {
-        const height = item.font_size_pt * 0.9;
+        const height = item.font_size_mm * 0.9;
         const fill = entry.fill ?? 'none';
         const attributes = [
           `fill="${attr(fill)}"`,
@@ -336,7 +332,7 @@ function renderLegendItem(item: LegendItem, layout: PageLayout, geo: Geo): strin
       }
       case 'point':
         children.push(
-          pointMarker(entry, (row.swatchX0 + row.swatchX1) / 2, row.centerY, item.font_size_pt),
+          pointMarker(entry, (row.swatchX0 + row.swatchX1) / 2, row.centerY, item.font_size_mm),
         );
         break;
     }
@@ -344,7 +340,7 @@ function renderLegendItem(item: LegendItem, layout: PageLayout, geo: Geo): strin
       textElement(row.labelX, row.labelBaseline, entry.label, {
         anchor: 'start',
         family: layout.style.font_family,
-        fontSize: item.font_size_pt,
+        fontSize: item.font_size_mm,
         fill: layout.style.color,
         italic: false,
         fontWeight: PLAIN_TEXT_WEIGHT,
@@ -363,22 +359,15 @@ function renderLegendItem(item: LegendItem, layout: PageLayout, geo: Geo): strin
  * 标题只在 show_title 且标题非空时画(§5.5「title(show_title)」);单位后缀由
  * `colorbarTitleText` 统一补,避免标题里重复单位.
  */
-function renderColorbarItem(
-  item: ColorbarItem,
-  layout: PageLayout,
-  geo: Geo,
-  relief: GeoRelief,
-): string[] {
-  const placement = itemPlacement(item, layout, geo);
-  const effective: ColorbarItem = { ...item, x: placement.x, y: placement.y };
-  const bar = colorbarLayout(effective, relief, placement.scale);
+function renderColorbarItem(item: ColorbarItem, layout: PageLayout, relief: GeoRelief): string[] {
+  const bar = colorbarLayout(item, relief);
   const children: string[] = [];
   if (item.show_title && item.title.length > 0) {
     children.push(
       textElement(bar.titleX, bar.titleBaseline, bar.titleText, {
         anchor: 'middle',
         family: layout.style.font_family,
-        fontSize: item.title_size_pt,
+        fontSize: item.title_size_mm,
         fill: layout.style.color,
         italic: false,
         fontWeight: PLAIN_TEXT_WEIGHT,
@@ -388,7 +377,7 @@ function renderColorbarItem(
     );
   }
   children.push(
-    `<rect x="${num(placement.x)}" y="${num(placement.y)}" ` +
+    `<rect x="${num(item.x)}" y="${num(item.y)}" ` +
       `width="${num(bar.width)}" height="${num(bar.height)}" ` +
       `fill="url(#${colorbarGradientId(item.id)})"/>`,
   );
@@ -401,7 +390,7 @@ function renderColorbarItem(
       textElement(tick.labelX, tick.labelBaseline, num(tick.value), {
         anchor: 'start',
         family: layout.style.font_family,
-        fontSize: item.label_size_pt,
+        fontSize: item.label_size_mm,
         fill: layout.style.color,
         italic: false,
         fontWeight: PLAIN_TEXT_WEIGHT,
@@ -419,12 +408,12 @@ function renderColorbarItem(
 function renderFrame(layout: PageLayout, geo: Geo): string {
   const children: string[] = [];
   const { frame, map } = layout;
-  const height = mapHeightPt(geo, map);
+  const height = mapHeightMm(geo, map);
   if (frame.show) {
     children.push(
-      `<rect x="${num(map.x)}" y="${num(map.y)}" width="${num(map.width_pt)}" ` +
+      `<rect x="${num(map.x)}" y="${num(map.y)}" width="${num(map.width_mm)}" ` +
         `height="${num(height)}" fill="none" stroke="${attr(frame.stroke)}" ` +
-        `stroke-width="${num(frame.width_pt)}"/>`,
+        `stroke-width="${num(frame.width_mm)}"/>`,
     );
   }
   if (frame.ticks) {
@@ -432,14 +421,14 @@ function renderFrame(layout: PageLayout, geo: Geo): string {
       children.push(
         `<line x1="${num(tick.x1)}" y1="${num(tick.y1)}" ` +
           `x2="${num(tick.x2)}" y2="${num(tick.y2)}" stroke="${attr(frame.tick_color)}" ` +
-          // 与旧 compose 一致:刻度短线线宽取 frame.width_pt(不是 SVG 默认 1)
-          `stroke-width="${num(frame.width_pt)}"/>`,
+          // 与旧 compose 一致:刻度短线线宽取 frame.width_mm(不是 SVG 默认 1)
+          `stroke-width="${num(frame.width_mm)}"/>`,
       );
       children.push(
         textElement(tick.textX, tick.textY, tick.label, {
           anchor: tick.anchor,
           family: layout.style.font_family,
-          fontSize: frame.tick_font_size_pt,
+          fontSize: frame.tick_font_size_mm,
           fill: frame.tick_color,
           italic: false,
           fontWeight: PLAIN_TEXT_WEIGHT,
@@ -500,31 +489,18 @@ function renderDefs(
 /* =========================== 越界分析与计数 =========================== */
 
 /** 元素在纸张坐标里的近似包围盒(文字按锚点,不含旋转/字宽,只用于越界告警) */
-function itemBBox(
-  item: PageItem,
-  layout: PageLayout,
-  geo: Geo,
-): readonly [number, number, number, number] {
+function itemBBox(item: PageItem): readonly [number, number, number, number] {
   switch (item.kind) {
     case 'text': {
-      const text = textLayout(item, geo, layout);
+      const text = textLayout(item);
       return [text.px, text.py, text.px, text.py];
     }
     case 'legend': {
-      const placement = itemPlacement(item, layout, geo);
-      const legendBox = legendLayout({ ...item, x: placement.x, y: placement.y }, placement.scale);
-      const width = item.width_pt * placement.scale;
-      return [placement.x, placement.y, placement.x + width, placement.y + legendBox.height];
+      const legendBox = legendLayout(item);
+      return [item.x, item.y, item.x + item.width_mm, item.y + legendBox.height];
     }
-    case 'colorbar': {
-      const placement = itemPlacement(item, layout, geo);
-      return [
-        placement.x,
-        placement.y,
-        placement.x + item.width_pt * placement.scale,
-        placement.y + item.height_pt * placement.scale,
-      ];
-    }
+    case 'colorbar':
+      return [item.x, item.y, item.x + item.width_mm, item.y + item.height_mm];
   }
 }
 
@@ -533,12 +509,12 @@ function analyze(
   layout: PageLayout,
   geo: Geo,
 ): { readonly out_of_paper: number[]; readonly warnings: string[] } {
-  const paperWidth = layout.paper.width_pt;
-  const paperHeight = layout.paper.height_pt;
+  const paperWidth = layout.paper.width_mm;
+  const paperHeight = layout.paper.height_mm;
   const outOfPaper: number[] = [];
   const warnings: string[] = [];
   for (const item of layout.items) {
-    const [minX, minY, maxX, maxY] = itemBBox(item, layout, geo);
+    const [minX, minY, maxX, maxY] = itemBBox(item);
     if (
       minX < -BBOX_EPS ||
       minY < -BBOX_EPS ||
@@ -550,11 +526,11 @@ function analyze(
     }
   }
   // §4: map.x/y 只要求有限,越界是告警而不是错误--成品里地图会被纸张裁掉.
-  const height = mapHeightPt(geo, layout.map);
+  const height = mapHeightMm(geo, layout.map);
   if (
     layout.map.x < -BBOX_EPS ||
     layout.map.y < -BBOX_EPS ||
-    layout.map.x + layout.map.width_pt > paperWidth + BBOX_EPS ||
+    layout.map.x + layout.map.width_mm > paperWidth + BBOX_EPS ||
     layout.map.y + height > paperHeight + BBOX_EPS
   ) {
     warnings.push('地图超出纸张范围(成品会被裁切,仅告警)');
@@ -662,15 +638,15 @@ export function composeFinalSvg(
   }
 
   const paper = normalized.paper;
-  const widthText = num(paper.width_pt);
-  const heightText = num(paper.height_pt);
+  const widthText = num(paper.width_mm);
+  const heightText = num(paper.height_mm);
   const transform = mapTransform(geo, normalized.map);
 
-  // §6 文件头与纸张底色;根 svg 宽高带 pt 单位,viewBox 用无单位用户坐标(1 单位 = 1pt).
+  // §6 文件头与纸张底色;根 svg 宽高带 mm 单位,viewBox 用无单位用户坐标(1 单位 = 1mm).
   const head =
     '<?xml version="1.0" encoding="utf-8"?>\n' +
     '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ' +
-    `width="${widthText}pt" height="${heightText}pt" ` +
+    `width="${widthText}mm" height="${heightText}mm" ` +
     `viewBox="0 0 ${widthText} ${heightText}" version="1.1">\n` +
     `<rect x="0" y="0" width="${widthText}" height="${heightText}" ` +
     `fill="${attr(normalized.style.paper_color)}"/>\n`;
@@ -685,13 +661,13 @@ export function composeFinalSvg(
   const overlayChildren = normalized.items.map((item) => {
     switch (item.kind) {
       case 'text':
-        return renderTextItem(item, normalized, geo);
+        return renderTextItem(item, normalized);
       case 'legend':
-        return renderLegendItem(item, normalized, geo);
+        return renderLegendItem(item, normalized);
       case 'colorbar':
         // 上面已保证 relief 非 null;这里再判一次只为类型收窄.
         if (relief === null) throw new Error('色标需要 geo.relief');
-        return renderColorbarItem(item, normalized, geo, relief);
+        return renderColorbarItem(item, normalized, relief);
     }
   });
   const overlay = group('mapdoc-overlay', overlayChildren.flat());
