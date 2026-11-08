@@ -30,7 +30,11 @@ import {
   createSegmented,
   nextWidgetId,
 } from 'miko_ui';
-import { PAGE_AUTO_WRAP_MIN_MM } from '../config/page';
+import {
+  PAGE_AUTO_WRAP_MIN_MM,
+  PAGE_MAX_TEXT_LINE_CHARS,
+  PAGE_MAX_TEXT_LINES,
+} from '../config/page';
 import { TEXT_STYLE_CATEGORY_META, type TextStyleCategoryId } from '../config/text-style';
 import {
   isAutoWrapTextItem,
@@ -43,6 +47,34 @@ import {
 import { defaultAutoWrapWidth, effectiveAutoWrapWidth } from '../core/page-layout';
 import { applyCategoryStyleToItem, textCategoryOfItem } from '../core/text-style';
 import type { SidebarContext } from './page-sidebar-context';
+
+/**
+ * 把文本域内容收敛到 page 契约上限(行数/每行字数),返回是否发生截断.
+ *
+ * 为什么必须在这里挡:`validatePage` 的行上限只在打开时校验,而文本域既不限行数也不限
+ * 行长.导出的 page 块一旦超限,重开时整份排版回退默认版式(数据丢失);导出自校验虽然
+ * 会拒绝导出,但用户此时已经丢了输入,不如在编辑入口收敛并提示.
+ * 自动折行的注记/来源存原始 `text`,上限按「最坏情况的行数 × 每行字数」折算成总字符数.
+ */
+function limitLines(value: string): { lines: string[]; truncated: boolean } {
+  const rawLines = value.split('\n');
+  const lines = rawLines
+    .slice(0, PAGE_MAX_TEXT_LINES)
+    .map((line) =>
+      line.length > PAGE_MAX_TEXT_LINE_CHARS ? line.slice(0, PAGE_MAX_TEXT_LINE_CHARS) : line,
+    );
+  return {
+    lines,
+    truncated:
+      rawLines.length > PAGE_MAX_TEXT_LINES ||
+      rawLines.some((line) => line.length > PAGE_MAX_TEXT_LINE_CHARS),
+  };
+}
+
+function limitAutoWrapText(value: string): { text: string; truncated: boolean } {
+  const maxChars = PAGE_MAX_TEXT_LINES * PAGE_MAX_TEXT_LINE_CHARS;
+  return { text: value.slice(0, maxChars), truncated: value.length > maxChars };
+}
 
 const ROLE_LABELS: Readonly<Record<TextRole, string>> = {
   title: '标题',
@@ -69,14 +101,29 @@ export function buildTextFields(ctx: SidebarContext, item: TextItem): HTMLElemen
   textArea.id = nextWidgetId('page-text');
   textArea.addEventListener('input', () => {
     const value = textArea.value;
+    // 先按契约上限收敛(见 limitLines/limitAutoWrapText);截断时提示一次,
+    // 避免导出后重开才发现 page 块被拒,整份排版回退默认.
+    let truncated = false;
     ctx.handlers.onChange((layout) => {
       const target = itemById(layout, item.id);
       if (target?.kind !== 'text') return;
       // 自动折行的注记/来源:文本域写原始内容,lines 由 enforceAutoWrap 重算;
       // 其它文字:文本域就是 lines(每行一条,回车=手动换行).
-      if (isAutoWrapTextItem(target) || target.text !== null) target.text = value;
-      else target.lines = value.split('\n');
+      if (isAutoWrapTextItem(target) || target.text !== null) {
+        const limited = limitAutoWrapText(value);
+        target.text = limited.text;
+        truncated = limited.truncated;
+      } else {
+        const limited = limitLines(value);
+        target.lines = limited.lines;
+        truncated = limited.truncated;
+      }
     });
+    if (truncated) {
+      ctx.handlers.notify(
+        `内容超过上限(${PAGE_MAX_TEXT_LINES} 行 / 每行 ${PAGE_MAX_TEXT_LINE_CHARS} 字),已截断`,
+      );
+    }
   });
   ctx.setTextEditor(textArea);
   ctx.controls.registerText('prop.lines', textArea, () => {

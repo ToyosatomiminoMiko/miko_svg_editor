@@ -231,10 +231,3 @@ export class PageSidebar {
     this.controls.refreshControls();
   }
 }
-
-/** 供编辑器判断侧栏是否正在输入(Delete 键不应删元素) */
-export function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tag = target.tagName.toLowerCase();
-  return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable;
-}

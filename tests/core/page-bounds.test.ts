@@ -10,9 +10,14 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { PAGE_AUTO_WRAP_MIN_MM } from '../../src/config/page';
+import {
+  PAGE_AUTO_WRAP_MIN_MM,
+  PAGE_SOURCE_CLEARANCE_MM,
+  PAGE_SOURCE_RESERVED_MM,
+  layoutScaleForPaper,
+} from '../../src/config/page';
 import { roundToPageDecimals } from '../../src/core/page';
-import type { ColorbarItem, LegendItem, PageLayout, TextItem } from '../../src/core/page';
+import type { ColorbarItem, Geo, LegendItem, PageLayout, TextItem } from '../../src/core/page';
 import {
   defaultAutoWrapWidth,
   defaultPageLayout,
@@ -20,13 +25,15 @@ import {
   enforceAutoWrap,
   fallbackTextMeasure,
   fontShorthand,
+  frameTickLayout,
   itemBoundsMm,
   legendLayout,
+  mapHeightMm,
   remapMapLabelItems,
   textBlockWidth,
   textLayout,
 } from '../../src/core/page-layout';
-import { makeDocument } from '../fixtures/page-fixtures';
+import { makeDocument, makeGeo } from '../fixtures/page-fixtures';
 
 const document = makeDocument();
 const geo = document.geo;
@@ -329,5 +336,136 @@ describe('defaultAutoWrapWidth:页边距参与回退宽度', () => {
       roundToPageDecimals(Math.max(PAGE_AUTO_WRAP_MIN_MM, target.paper.width_mm - 30 - note.x)),
       9,
     );
+  });
+});
+
+describe('defaultPageLayout:页底预留随来源折行/底部刻度动态变化(回归)', () => {
+  /** 页边距内部内缩(mm),与 defaultPageLayout 的 inset 一致 */
+  const INSET = 10;
+
+  /**
+   * fixture 底图是 200×100;宽度约束时页底预留不会改变地图尺寸,所以把底图改成
+   * 200×400(宽高比 2),让「可用高度」成为地图的限制,才能直接断言预留高度.
+   */
+  function tallGeo(source: string): Geo {
+    const geo = makeGeo();
+    geo.base.height_pt = 400;
+    geo.base.view_box = [0, 0, 200, 400];
+    geo.suggestions = { ...geo.suggestions, source };
+    return geo;
+  }
+
+  /** 布局里的来源 item(页面文字,geo_label_id 为 null) */
+  function sourceOf(target: PageLayout): TextItem {
+    const item = target.items.find(
+      (candidate): candidate is TextItem =>
+        candidate.kind === 'text' && candidate.role === 'source' && candidate.geo_label_id === null,
+    );
+    if (item === undefined) throw new Error('默认排版缺少来源');
+    return item;
+  }
+
+  /** 复算页底预留:底部刻度带 + 折行后来源块高 + 净空,与既有最小值取大 */
+  function reservedOf(
+    target: PageLayout,
+    targetGeo: Geo,
+  ): { reserved: number; band: number; block: number } {
+    const source = target.items.find(
+      (candidate): candidate is TextItem =>
+        candidate.kind === 'text' && candidate.role === 'source' && candidate.geo_label_id === null,
+    );
+    const band =
+      target.frame.ticks && targetGeo.graticule.lon.some((tick) => tick.side !== 'top')
+        ? target.frame.tick_length_mm + target.frame.tick_gap_mm + target.frame.tick_font_size_mm
+        : 0;
+    const block =
+      source === undefined
+        ? 0
+        : (source.lines.length - 1) * source.font_size_mm * source.line_height +
+          source.font_size_mm;
+    const k = layoutScaleForPaper(target.paper.width_mm, target.paper.height_mm);
+    return {
+      reserved: Math.max(PAGE_SOURCE_RESERVED_MM * k, band + block + PAGE_SOURCE_CLEARANCE_MM),
+      band,
+      block,
+    };
+  }
+
+  it('短来源(1 行):预留 = 刻度带 + 块高 + 净空(大于既有最小值),来源首行基线按净空让开刻度文字', () => {
+    const geo = tallGeo('来源:fixture');
+    const layout = defaultPageLayout(geo);
+    const source = sourceOf(layout);
+    expect(source.lines).toHaveLength(1);
+
+    const { reserved, band, block } = reservedOf(layout, geo);
+    // fixture:6(刻度带) + 2(一行来源) + PAGE_SOURCE_CLEARANCE_MM;大于旧固定值 9
+    expect(band).toBeCloseTo(6, 9);
+    expect(block).toBeCloseTo(source.font_size_mm, 9);
+    expect(reserved).toBeCloseTo(band + block + PAGE_SOURCE_CLEARANCE_MM, 9);
+    expect(reserved).toBeGreaterThan(PAGE_SOURCE_RESERVED_MM);
+    // 高度约束下:地图底边 = 页底(扣内缩) - 实际预留
+    const mapBottom = layout.map.y + mapHeightMm(geo, layout.map);
+    expect(mapBottom).toBeCloseTo(layout.paper.height_mm - INSET - reserved, 9);
+
+    // 来源首行基线 - 底部刻度文字基线 = 来源字号 + 净空;等价于刻度文字底边在来源块顶之上.
+    const bottomTicks = frameTickLayout(layout, geo).filter((tick) => tick.side === 'bottom');
+    expect(bottomTicks.length).toBeGreaterThan(0);
+    const tickTextY = bottomTicks[0]!.textY;
+    expect(tickTextY).toBeCloseTo(mapBottom + band, 9);
+    expect(source.y - tickTextY).toBeCloseTo(source.font_size_mm + PAGE_SOURCE_CLEARANCE_MM, 9);
+    expect(source.y - tickTextY).toBeGreaterThan(0);
+  });
+
+  it('来源折成多行:预留变大,地图高度进一步变小,首行基线与刻度仍保持净空', () => {
+    const shortGeo = tallGeo('来源:fixture');
+    const shortLayout = defaultPageLayout(shortGeo);
+    const longGeo = tallGeo(`来源:${'超长来源文案'.repeat(80)}`);
+    const longLayout = defaultPageLayout(longGeo);
+
+    const longSource = sourceOf(longLayout);
+    expect(longSource.lines.length).toBeGreaterThan(2);
+    const shortReserved = reservedOf(shortLayout, shortGeo).reserved;
+    const { reserved, band } = reservedOf(longLayout, longGeo);
+    expect(reserved).toBeGreaterThan(shortReserved);
+    expect(reserved).toBeCloseTo(
+      band +
+        (longSource.lines.length - 1) * longSource.font_size_mm * longSource.line_height +
+        longSource.font_size_mm +
+        PAGE_SOURCE_CLEARANCE_MM,
+      9,
+    );
+
+    // 折行越多地图越矮(高度约束下),且来源块顶始终给刻度文字留出净空
+    expect(mapHeightMm(longGeo, longLayout.map)).toBeLessThan(
+      mapHeightMm(shortGeo, shortLayout.map),
+    );
+    const mapBottom = longLayout.map.y + mapHeightMm(longGeo, longLayout.map);
+    expect(mapBottom).toBeCloseTo(longLayout.paper.height_mm - INSET - reserved, 9);
+    const bottomTicks = frameTickLayout(longLayout, longGeo).filter(
+      (tick) => tick.side === 'bottom',
+    );
+    expect(bottomTicks.length).toBeGreaterThan(0);
+    expect(longSource.y - bottomTicks[0]!.textY).toBeCloseTo(
+      longSource.font_size_mm + PAGE_SOURCE_CLEARANCE_MM,
+      9,
+    );
+  });
+
+  it('无来源 / 无底部刻度:退回既有最小预留 PAGE_SOURCE_RESERVED_MM × k', () => {
+    // 经度刻度全部标到 top(不再占用页底),来源为空 -> 只有既有最小值生效
+    const geo = tallGeo('');
+    geo.graticule = {
+      ...geo.graticule,
+      lon: geo.graticule.lon.map((tick) => ({ ...tick, side: 'top' as const })),
+    };
+    const layout = defaultPageLayout(geo);
+    expect(layout.items.some((item) => item.kind === 'text' && item.role === 'source')).toBe(false);
+    const { reserved, band, block } = reservedOf(layout, geo);
+    expect(band).toBe(0);
+    expect(block).toBe(0);
+    const k = layoutScaleForPaper(layout.paper.width_mm, layout.paper.height_mm);
+    expect(reserved).toBeCloseTo(PAGE_SOURCE_RESERVED_MM * k, 9);
+    const mapBottom = layout.map.y + mapHeightMm(geo, layout.map);
+    expect(mapBottom).toBeCloseTo(layout.paper.height_mm - INSET - reserved, 9);
   });
 });

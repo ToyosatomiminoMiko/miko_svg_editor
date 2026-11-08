@@ -165,3 +165,65 @@ describe('readBaseSvg:C4(不允许叠加层/final 痕迹)', () => {
     ]);
   });
 });
+
+describe('readBaseSvg:C5 活跃内容(会随 final.svg 分发执行)', () => {
+  it('script(含命名空间前缀)/foreignObject/事件属性/javascript:/xml:base 都拒绝', () => {
+    const cases: readonly [string, string][] = [
+      ['<svg viewBox="0 0 10 10"><script>alert(1)</script></svg>', 'C5'],
+      ['<svg viewBox="0 0 10 10"><svg:script>alert(1)</svg:script></svg>', 'C5'],
+      ['<svg viewBox="0 0 10 10"><foreignObject><body onload="x"/></foreignObject></svg>', 'C5'],
+      ['<svg viewBox="0 0 10 10"><rect onclick="x" width="1" height="1"/></svg>', 'C5'],
+      ['<svg viewBox="0 0 10 10"><a href="javascript:alert(1)">x</a></svg>', 'C5'],
+      ['<svg viewBox="0 0 10 10"><a href="java&#115;cript:alert(1)">x</a></svg>', 'C5'],
+      ['<svg viewBox="0 0 10 10" xml:base="https://evil.example/"><g/></svg>', 'C5'],
+    ];
+    for (const [svgText, marker] of cases) {
+      const errors = check(svgText).errors;
+      expect(
+        errors.some((error) => error.startsWith(marker)),
+        svgText,
+      ).toBe(true);
+    }
+  });
+
+  it('合法纯几何底图(fixture 含 style/defs/clipPath)不误伤 C5', () => {
+    expect(check(BASE_SVG_TEXT).errors).toEqual([]);
+  });
+});
+
+describe('readBaseSvg:C6 XML 1.0 不允许的控制字符', () => {
+  it('底图里出现 U+0001 时拒绝(否则整份 final.svg 非良构)', () => {
+    const svgText = '<svg viewBox="0 0 10 10"><g>\u0001</g></svg>';
+    const errors = check(svgText).errors;
+    expect(errors.some((error) => error.includes('C6') && error.includes('U+1'))).toBe(true);
+  });
+
+  it('合法的 \\t / \\n / \\r 与常规文字不误伤', () => {
+    expect(check('<svg viewBox="0 0 10 10">\n\t<g/>\r\n</svg>').errors).toEqual([]);
+  });
+});
+
+describe('readBaseSvg:C7 文档级 CSS(<style> 会改到成品页面文字)', () => {
+  it('fixture 的几何渲染类 style(CDATA)放行', () => {
+    expect(check(BASE_SVG_TEXT).errors).toEqual([]);
+  });
+
+  it('选择器非 * / 非几何属性 / @import / url() 都拒绝', () => {
+    const cases: readonly [string, string][] = [
+      ['<svg viewBox="0 0 10 10"><style>text{fill:#ff0000}</style></svg>', '选择器'],
+      ['<svg viewBox="0 0 10 10"><style>*{fill:#ff0000}</style></svg>', '属性'],
+      [
+        '<svg viewBox="0 0 10 10"><style>@import url(https://evil.example/x.css);</style></svg>',
+        '@',
+      ],
+      ['<svg viewBox="0 0 10 10"><style>*{stroke:url(#paint)}</style></svg>', 'url'],
+    ];
+    for (const [svgText, marker] of cases) {
+      const errors = check(svgText).errors;
+      expect(
+        errors.some((error) => error.startsWith('C7') && error.includes(marker)),
+        svgText,
+      ).toBe(true);
+    }
+  });
+});

@@ -24,9 +24,17 @@ import {
   PAGE_MIN_MAP_WIDTH_MM,
   PAGE_PAPER_MAX_MM,
   PAGE_PAPER_MIN_MM,
+  PAGE_PAPER_PRESETS,
 } from '../config/page';
 import type { PaperOrientation, PaperPresetId } from '../config/page';
-import { MAP_LABEL_ROLES, PAGE_TEXT_STYLES, isTextStyleCategoryId } from '../config/text-style';
+import {
+  MAP_LABEL_ROLES,
+  PAGE_TEXT_STYLES,
+  TEXT_STYLE_FONT_SIZE_MAX_MM,
+  TEXT_STYLE_FONT_SIZE_MIN_MM,
+  TEXT_STYLE_HALO_WIDTH_MAX_MM,
+  isTextStyleCategoryId,
+} from '../config/text-style';
 import type { MapLabelRole, PageTextRole, TextStyleCategoryId } from '../config/text-style';
 
 /* =========================== 基础类型 =========================== */
@@ -77,8 +85,9 @@ export interface TextItem extends ItemBase {
   halo: Halo | null;
   /**
    * 来源 `geo.labels[].id` 的关联(地图地名 item 必填;页面文字恒为 null).
-   * 用途:判断 item 属于哪个地图地名分类(查 label.role);分类统一样式时回算底图原始字号
-   * (回「分类默认统一字号」);也是「地图地名」的唯一标记(手动新增的页面文字恒为 null).
+   * 用途:判断 item 属于哪个地图地名分类(查 label.role);分类统一样式时据此回
+   * 「分类默认统一字号」(role 表的纸张 mm 设计值);也是「地图地名」的唯一标记
+   * (手动新增的页面文字恒为 null).
    * `validatePage` 要求非 null 时必须是本次 `geo.labels` 里存在的 id.
    */
   geo_label_id: string | null;
@@ -113,7 +122,10 @@ export interface LegendEntry {
   shape: LegendShape;
   /** null = 不描边(point 标记可能只填充) */
   stroke: string | null;
-  /** 线宽(mm) */
+  /**
+   * 描边线宽(mm);`0` = 不画描边边线(Cartopy 的纯填色 / hatch 条目会给 `width_pt: 0`,
+   * hatch 的线宽本就不在这个字段里),所以只要求非负.
+   */
   width_mm: number;
   dash: number[] | null;
   fill: string | null;
@@ -217,7 +229,8 @@ export interface PageStyle {
  * 为什么字段全部可选:覆盖表只存用户显式改过的字段,默认值仍在 `config/text-style.ts`,
  * 不复制进文件(否则改代码默认值对旧文件永远不生效);`halo: null` 表示显式关光晕,
  * 与「没有该键(用分类默认)」是两种语义.地图分类缺省 `font_size_mm` = 用该分类的默认
- * 统一字号(该分类全部地名原始字号中位数 × 地图缩放);出现数字 = 用户覆盖的统一字号.
+ * 统一字号(`config/text-style.ts` 的 role 表纸张 mm 设计值,不随底图/纸张缩放);
+ * 出现数字 = 用户覆盖的统一字号.
  * 无论哪种情况,同一地图分类下全部 item 的字号都相等(§12.1).
  */
 export interface TextStyleOverride {
@@ -290,12 +303,14 @@ export interface GeoGraticule {
 export interface GeoLabel {
   id: string;
   role: MapLabelRole;
-  /** 原始文字;换行用 "\n",前端自己 split */
+  /**
+   * 原始文字.新契约(Cartopy 2ca474d 起)要求单行:折行由前端按文本块宽度负责,生成端不写
+   * 换行;旧 v2 产物可能还带 `\n`,打开时按 `\n` 拆行容错(不改变新契约的导出要求).
+   */
   text: string;
   x: number;
   y: number;
   anchor: TextAnchor;
-  font_size_pt: number;
   /** 绘制顺序,整数,原图顺序 */
   order: number;
 }
@@ -389,6 +404,18 @@ export function roundToPageDecimals(value: number): number {
   const factor = 10 ** PAGE_DECIMALS;
   const rounded = Math.round(value * factor) / factor;
   return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+/**
+ * 把数值夹到 `[min, max]`,用于 UI 写入 layout 之前与契约边界对齐.
+ *
+ * 为什么需要:miko_ui 的 `min/max` 只是 `<input type=number>` 的 DOM 属性,浏览器不阻止
+ * 键入越界值;而 `validatePage` 会拒绝越界值.导出是唯一保存动作,越界值一旦落盘,
+ * 重开时整份 page 块回退默认排版(数据丢失).所有 UI 数字写入都先过这里.
+ * 非有限值不在本函数兜底(调用方在控件层已把 null/NaN 挡掉).
+ */
+export function clampPageNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 /** 递归把对象里的数字规范到 3 位小数;返回新对象,不修改入参 */
@@ -598,6 +625,21 @@ export function serializeMapDocFile(geo: Geo, layout: PageLayout): string {
   return `${JSON.stringify(canonicalValueExact(doc), null, 2)}\n`;
 }
 
+/**
+ * 导出前自检:导出文件里的 page 块必须能被本项目的打开流程接受.
+ *
+ * 为什么需要:导出是唯一的保存动作,但 `serializeMapDocFile` 只规范化不校验;一旦编辑期
+ * 写出了越界值(样式设置数字,超长文字行,超量 items 等),导出会显示成功,重开时
+ * `validatePage` 拒绝整份 page 块并回退默认排版--用户再导出一次就把原排版永久覆盖.
+ * 在导出唯一出口先跑同一套校验,把「保存后打不开」提前成「保存时报错」.
+ *
+ * @returns 错误清单(空 = 可导出);`layout` 先按导出精度 `normalizePage`.
+ */
+export function exportPageErrors(layout: PageLayout, geo?: Geo | null): string[] {
+  const result = validatePage(normalizePage(layout), geo);
+  return result.ok ? [] : [...result.errors];
+}
+
 /** layout 签名:摘要用 3 位小数规范化后的 canonical JSON */
 export function pageDigest(layout: PageLayout): string {
   return sha256Hex(serializePage(layout));
@@ -770,7 +812,14 @@ const nullableDash = (value: unknown): boolean =>
     value.length === 2 &&
     value.every((entry) => isFiniteNumber(entry) && entry > 0));
 
-/** 可选光晕:null 或 {color,width_mm} */
+/**
+ * 可选光晕:null 或 {color,width_mm}.
+ *
+ * 为什么 `width_mm: 0` 合法:页面文字开光晕的默认宽度就是 0(`TEXT_HALO`,见
+ * docs/PAGE-EDITOR.md §4 的 item 示例),语义是「有光晕配置但不可见」,与覆盖表的
+ * `width_mm: 0` 同口径;渲染层按 stroke-width=0 画即可.若这里要求 >0,用户只要打开
+ * 「光晕」开关就会写出导出后被自身校验拒绝的 page 块(重开丢整份排版).
+ */
 function checkHalo(value: unknown, path: string, errors: string[]): void {
   if (value === null) return;
   if (!isObject(value)) {
@@ -778,8 +827,8 @@ function checkHalo(value: unknown, path: string, errors: string[]): void {
     return;
   }
   if (!isColor(value.color)) errors.push(`${path}.color: 必须是 #rrggbb`);
-  if (!isFiniteNumber(value.width_mm) || value.width_mm <= 0) {
-    errors.push(`${path}.width_mm: 必须是正数`);
+  if (!isFiniteNumber(value.width_mm) || value.width_mm < 0) {
+    errors.push(`${path}.width_mm: 必须是非负数`);
   }
 }
 
@@ -799,8 +848,8 @@ function validateTextStyleHalo(value: unknown, path: string, errors: string[]): 
     if (field === 'color') {
       if (!isColor(raw)) errors.push(`${path}.color: 必须是 #rrggbb`);
     } else if (field === 'width_mm') {
-      if (!isFiniteNumber(raw) || raw < 0 || raw > 7) {
-        errors.push(`${path}.width_mm: 必须是 0..7 的有限数字`);
+      if (!isFiniteNumber(raw) || raw < 0 || raw > TEXT_STYLE_HALO_WIDTH_MAX_MM) {
+        errors.push(`${path}.width_mm: 必须是 0..${TEXT_STYLE_HALO_WIDTH_MAX_MM} 的有限数字`);
       }
     } else {
       errors.push(`${path}.${field}: 未知字段`);
@@ -824,8 +873,14 @@ function validateTextStyleOverride(value: unknown, path: string, errors: string[
   for (const [field, raw] of Object.entries(value)) {
     switch (field) {
       case 'font_size_mm':
-        if (!isFiniteNumber(raw) || raw < 0.35 || raw > 180) {
-          errors.push(`${path}.font_size_mm: 必须是 0.35..180 的有限数字`);
+        if (
+          !isFiniteNumber(raw) ||
+          raw < TEXT_STYLE_FONT_SIZE_MIN_MM ||
+          raw > TEXT_STYLE_FONT_SIZE_MAX_MM
+        ) {
+          errors.push(
+            `${path}.font_size_mm: 必须是 ${TEXT_STYLE_FONT_SIZE_MIN_MM}..${TEXT_STYLE_FONT_SIZE_MAX_MM} 的有限数字`,
+          );
         }
         break;
       case 'color':
@@ -1015,8 +1070,10 @@ function validateLegendEntry(entry: unknown, path: string, errors: string[]): vo
   if (typeof entry.label !== 'string') errors.push(`${path}.label: 必须是字符串`);
   if (!isLegendShape(entry.shape)) errors.push(`${path}.shape: 必须是 line/rect/point`);
   if (!nullableColor(entry.stroke)) errors.push(`${path}.stroke: 必须是 #rrggbb 或 null`);
-  if (!isFiniteNumber(entry.width_mm) || entry.width_mm <= 0) {
-    errors.push(`${path}.width_mm: 必须是正数`);
+  // 0 合法:纯填色 / hatch 图例条目的描边线宽是 0(Cartopy 反正会给 0.0),
+  // 只要求非负,否则打开 Cartopy 产物再导出会因「page 块不合法」丢排版.
+  if (!isFiniteNumber(entry.width_mm) || entry.width_mm < 0) {
+    errors.push(`${path}.width_mm: 必须是非负数`);
   }
   if (!nullableDash(entry.dash)) errors.push(`${path}.dash: 必须是 null 或 2 个正数`);
   if (!nullableColor(entry.fill)) errors.push(`${path}.fill: 必须是 #rrggbb 或 null`);
@@ -1068,9 +1125,13 @@ export function validatePage(value: unknown, geo?: Geo | null): PageValidation {
   if (!isObject(paper)) {
     errors.push('paper: 必须是对象');
   } else {
-    const presets: readonly string[] = ['A5', 'A4', 'A3', 'Letter', 'Custom'];
-    if (typeof paper.preset !== 'string' || !presets.includes(paper.preset)) {
-      errors.push('paper.preset: 必须是 A5/A4/A3/Letter/Custom');
+    // 预设清单从 config 的单一真源派生:CUstom 之外新增预设时,校验与 UI 不会各写一份.
+    const presetIds: readonly string[] = [
+      ...PAGE_PAPER_PRESETS.map((preset) => preset.id),
+      'Custom',
+    ];
+    if (typeof paper.preset !== 'string' || !presetIds.includes(paper.preset)) {
+      errors.push(`paper.preset: 必须是 ${presetIds.join('/')}`);
     }
     if (paper.orientation !== 'portrait' && paper.orientation !== 'landscape') {
       errors.push('paper.orientation: 必须是 portrait/landscape');
@@ -1229,11 +1290,40 @@ function validateGeoLabel(value: unknown, path: string, seen: Set<string>, error
   if (!isFiniteNumber(value.x)) errors.push(`${path}.x: 必须是有限数字`);
   if (!isFiniteNumber(value.y)) errors.push(`${path}.y: 必须是有限数字`);
   if (!isTextAnchor(value.anchor)) errors.push(`${path}.anchor: 必须是 start/middle/end`);
-  if (!isFiniteNumber(value.font_size_pt) || value.font_size_pt <= 0) {
-    errors.push(`${path}.font_size_pt: 必须是正数`);
-  }
+  // 字号不再是 geo 字段(Cartopy 74821d6 起由前端 role 表决定):旧产物残留的
+  // font_size_pt 直接忽略, 不报错也不读--否则「重新出图前打不开」会把历史文件卡死.
   if (!isFiniteNumber(value.order) || !Number.isInteger(value.order)) {
     errors.push(`${path}.order: 必须是整数`);
+  }
+}
+
+/**
+ * 校验 geo 里的一条图例条目(§3 legend.entries).
+ *
+ * 为什么要逐条校验,而不像以前只看「entries 是数组」:默认排版会把 `width_pt` 换算成
+ * `width_mm` 写进 page 块;负的 `width_pt` 能通过 geo 校验,却在导出后的重开时被 page
+ * 校验拒绝,结果是「能打开,存回去再开丢排版」.这里按 layout 需要的字段先挡掉非法值,
+ * 让失败发生在打开阶段且信息明确.
+ * `width_pt` 只要求非负:纯填色 / hatch 条目本来就没有描边线宽(Cartopy 会给 0.0).
+ */
+function validateGeoLegendEntry(entry: unknown, path: string, errors: string[]): void {
+  if (!isObject(entry)) {
+    errors.push(`${path}: 必须是对象`);
+    return;
+  }
+  if (typeof entry.label !== 'string') errors.push(`${path}.label: 必须是字符串`);
+  if (!isLegendShape(entry.shape)) errors.push(`${path}.shape: 必须是 line/rect/point`);
+  if (!nullableColor(entry.stroke)) errors.push(`${path}.stroke: 必须是 #rrggbb 或 null`);
+  if (!isFiniteNumber(entry.width_pt) || entry.width_pt < 0) {
+    errors.push(`${path}.width_pt: 必须是非负数`);
+  }
+  if (!nullableDash(entry.dash)) errors.push(`${path}.dash: 必须是 null 或 2 个正数`);
+  if (!nullableColor(entry.fill)) errors.push(`${path}.fill: 必须是 #rrggbb 或 null`);
+  if (!isFiniteNumber(entry.opacity) || entry.opacity < 0 || entry.opacity > 1) {
+    errors.push(`${path}.opacity: 必须在 0..1`);
+  }
+  if (entry.marker !== null && !isLegendMarker(entry.marker)) {
+    errors.push(`${path}.marker: 必须是 star/square/circle 或 null`);
   }
 }
 
@@ -1258,6 +1348,11 @@ export function validateGeo(value: unknown): string[] {
   if (!isObject(base)) {
     errors.push('geo.base: 必须是对象');
   } else {
+    // sha256 是底图身份的唯一绑定(docs/PAGE-EDITOR.md §3):缺了/类型不对必须在字段校验
+    // 阶段拒绝,否则 createPageDocument 里 `sha256.toLowerCase()` 会抛英文 TypeError.
+    if (typeof base.sha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(base.sha256)) {
+      errors.push('geo.base.sha256: 必须是 64 位十六进制字符串');
+    }
     const box = base.view_box;
     if (!Array.isArray(box) || box.length !== 4 || !box.every(isFiniteNumber)) {
       errors.push('geo.base.view_box: 必须是 4 个数字');
@@ -1341,6 +1436,10 @@ export function validateGeo(value: unknown): string[] {
     } else {
       if (legend.entries !== undefined && !Array.isArray(legend.entries)) {
         errors.push('geo.legend.entries: 必须是数组');
+      } else if (Array.isArray(legend.entries)) {
+        legend.entries.forEach((entry, index) =>
+          validateGeoLegendEntry(entry, `geo.legend.entries[${index}]`, errors),
+        );
       }
       if (legend.title !== undefined && typeof legend.title !== 'string') {
         errors.push('geo.legend.title: 必须是字符串');
@@ -1448,6 +1547,26 @@ function normalizeRelief(raw: unknown): GeoRelief | null {
   return { title, unit, vmin, vmax, stops: normalizedStops, ticks };
 }
 
+/**
+ * 归一化单条地名:按当前契约逐字段重建,丢弃已删除的旧字段.
+ *
+ * 为什么不像 legend 那样原样透传:labels 是封闭契约--Cartopy 74821d6 起删掉了
+ * `font_size_pt`(字号归 role 表),而旧 v2 产物可能还残留它;透传会让编辑器导出的
+ * geo.json 再次带上这个字段,被 Cartopy 的 `tools/check_geo.py` 拒绝.`legend` 的
+ * `hatch` 不同:它仍属合法契约,透传可以保住数据(渲染层暂未支持).
+ */
+function normalizeLabel(raw: GeoLabel): GeoLabel {
+  return {
+    id: raw.id,
+    role: raw.role,
+    text: raw.text,
+    x: raw.x,
+    y: raw.y,
+    anchor: raw.anchor,
+    order: raw.order,
+  };
+}
+
 /** 归一化 legend:缺省/结构坏 -> 空图例(标题固定「图例」,defaultPageLayout 不会生图例框) */
 function normalizeLegend(raw: unknown): GeoLegend {
   if (!isObject(raw) || !Array.isArray(raw.entries)) return { title: '图例', entries: [] };
@@ -1479,7 +1598,8 @@ function normalizeSuggestions(raw: unknown): GeoSuggestions {
  * - suggestions 缺省/结构坏 -> 全空(defaultPageLayout 因此不生成标题/注记/来源);
  * - relief 缺省/结构坏 -> null(defaultPageLayout 因此不生成色标);
  * - graticule 的 lon/lat 原样保留,style 缺省时补中性值;
- * - base/labels 不补:validateGeo 已要求,缺了属于调用方漏校验.
+ * - base 不补:validateGeo 已要求,缺了属于调用方漏校验;
+ * - labels 逐字段重建:丢掉旧字段(如已删除的 font_size_pt),导出即当前契约.
  * 为什么返回新对象:`PageDocument.geo` 是打开后共享的只读真值,不能与用户上传的原始
  * JSON 共享可变引用.
  */
@@ -1490,7 +1610,7 @@ export function normalizeGeo(raw: Geo): Geo {
     version: source.version ?? PAGE_GEO_VERSION,
     base: source.base as GeoBase,
     graticule: normalizeGraticule(source.graticule as GeoGraticule),
-    labels: source.labels ?? [],
+    labels: (source.labels ?? []).map(normalizeLabel),
     relief: normalizeRelief(source.relief),
     legend: normalizeLegend(source.legend),
     suggestions: normalizeSuggestions(source.suggestions),

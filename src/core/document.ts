@@ -54,7 +54,10 @@ export function createPageDocument(baseFileName: string, baseText: string, geo: 
     throw new Error(`底图不符合契约:${base.errors.slice(0, 3).join(';')}`);
   }
   const baseSha256 = sha256OfBytes(baseBytes);
-  if (geo.base.sha256.toLowerCase() !== baseSha256) {
+  // validateGeo 已要求 sha256 是 64 位十六进制;这里再做一次形状防御,保证本函数被
+  // 单独调用(调试/单测/未来新入口)时也不会抛 `undefined.toLowerCase is not a function`.
+  const declaredSha256 = typeof geo.base.sha256 === 'string' ? geo.base.sha256 : '';
+  if (declaredSha256.toLowerCase() !== baseSha256) {
     throw new Error(
       '底图与 geo.json 不配套(sha256 不一致):请用 Cartopy 重新生成同名的 base.svg + geo.json',
     );

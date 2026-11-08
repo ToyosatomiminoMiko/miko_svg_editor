@@ -18,6 +18,7 @@ import {
   type MessageEntry,
 } from 'miko_ui';
 import { TOAST_DURATION_MS } from '../config/ui';
+import { acquireModalGuard, releaseModalGuard } from './keyboard-guard';
 
 /**
  * 通知区 CSS 类名前缀:草图模式用 `app`(`.app-notice-list` / `.app-confirm-*`),
@@ -121,6 +122,7 @@ export function askConfirmDialog(message: string, prefix: NoticeStylePrefix): Pr
     const finish = (value: boolean): void => {
       if (done) return;
       done = true;
+      releaseModalGuard();
       window.removeEventListener('keydown', onKey, true);
       overlay.remove();
       cancel.dispose();
@@ -145,6 +147,7 @@ export function askConfirmDialog(message: string, prefix: NoticeStylePrefix): Pr
       // 只有点在遮罩本身(不是面板内部)才算取消
       if (ev.target === overlay) finish(false);
     });
+    acquireModalGuard();
     window.addEventListener('keydown', onKey, true);
     confirm.element.focus();
   });

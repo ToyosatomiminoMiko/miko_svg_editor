@@ -10,8 +10,8 @@
  * 批量写回该分类下所有 item(`.work/STYLE-SETTINGS-SPEC.md` §0/§3).窗口只负责发
  * 「单字段补丁」与「恢复默认」,脏标记/重绘/侧栏同步全部由宿主的 onApply/onReset 完成;
  * 本模块不持有 layout,每次读都走 getLayout/getGeo 取最新值.
- * 字号口径:页面分类跟固定的代码默认字号;地图分类跟「该分类地名原始字号中位数 × 地图缩放」,
- * 且同分类全部地名统一为窗口值.默认值不再用说明段落解释,而是每个数值字段旁的 reset 按钮:
+ * 字号口径:页面分类跟固定的代码默认字号;地图分类跟 `MAP_LABEL_ROLE_STYLES[role]` 的
+ * 纸张 mm 设计常量(不随底图/纸张缩放),且同分类全部地名统一为窗口值.默认值不再用说明段落解释,而是每个数值字段旁的 reset 按钮:
  * 点它删掉该字段覆盖并恢复代码默认值(值已是默认时按钮禁用).
  * 左列数量徽标与右列「影响 N 个元素」都按 `itemsOfTextCategory` 的 item 数量算,
  * 保证窗口说的数字与实际会被改到的元素一致.
@@ -51,18 +51,22 @@ import {
   TEXT_HALO,
   TEXT_STYLE_CATEGORY_GROUPS,
   TEXT_STYLE_CATEGORY_META,
+  TEXT_STYLE_FONT_SIZE_MAX_MM,
+  TEXT_STYLE_FONT_SIZE_MIN_MM,
+  TEXT_STYLE_HALO_WIDTH_MAX_MM,
   type MapLabelRole,
   type TextStyleCategoryId,
   type TextStyleCategoryKind,
   type TextStyleCategoryMeta,
 } from '../config/text-style';
+import { clampPageNumber } from '../core/page';
 import type { Geo, Halo, PageLayout, TextItem } from '../core/page';
+import { acquireModalGuard, releaseModalGuard } from './keyboard-guard';
 import {
   defaultTextFontSizeMm,
   defaultTextStyleFields,
   itemsOfTextCategory,
   mapCategoryDefaultFontSizeMm,
-  mapScaleOf,
   readTextCategoryStyle,
   type ResolvedTextStyle,
   type TextStylePatch,
@@ -224,7 +228,7 @@ export class StyleSettingsWindow {
       create_element(
         { tag: 'p' },
         { class: 'page-style-intro-detail' },
-        '页面文字不在地图上,按文字角色分类;地图标注来自 Cartopy geo.json,按地名 role 分类.地图分类的字号默认值不是某条地名的字号,而是「该分类地名原始字号中位数 × 地图缩放」.',
+        '页面文字不在地图上,按文字角色分类;地图标注来自 Cartopy geo.json,按地名 role 分类.地图分类的字号默认值不是某条地名的字号,而是该 role 的纸张 mm 设计字号(固定值,不随底图或纸张缩放).',
       ),
     );
     this.panel.setAttribute('aria-describedby', introId);
@@ -265,6 +269,7 @@ export class StyleSettingsWindow {
     }
     if (category !== undefined) this.selected = category;
     this.isOpen = true;
+    acquireModalGuard();
     const active = this.overlay.ownerDocument.activeElement;
     this.previousFocus = active instanceof HTMLElement ? active : null;
     if (!this.overlay.isConnected) this.deps.host.append(this.overlay);
@@ -279,6 +284,7 @@ export class StyleSettingsWindow {
   close(): void {
     if (!this.isOpen) return;
     this.isOpen = false;
+    releaseModalGuard();
     window.removeEventListener('keydown', this.onKeyDown, true);
     this.overlay.hidden = true;
     this.overlay.remove();
@@ -444,7 +450,7 @@ export class StyleSettingsWindow {
 
   /**
    * 「字号」组:数字行 + reset.
-   * 地图分类的默认值是「该分类地名原始字号中位数 × 地图缩放」,不是某条地名的字号;
+   * 地图分类的默认值是 role 表的纸张 mm 设计字号,不是某条地名的字号;
    * 页面分类的默认值是固定代码常量,不随纸张尺寸缩放.
    */
   private buildSizeSection(): HTMLElement {
@@ -455,10 +461,12 @@ export class StyleSettingsWindow {
       () => this.readStyle().font_size_mm,
       (value) => this.apply({ font_size_mm: value }),
       {
-        min: 1,
-        max: 500,
+        // 与 validateTextStyleOverride 共用同一组边界(见 config/text-style.ts):
+        // UI 允许写入但校验拒绝的值会让整份 page 块在重开时回退默认版式.
+        min: TEXT_STYLE_FONT_SIZE_MIN_MM,
+        max: TEXT_STYLE_FONT_SIZE_MAX_MM,
         step: 0.5,
-        reset: { field: 'font_size_mm', readDefault: () => this.defaultFontSizePt() },
+        reset: { field: 'font_size_mm', readDefault: () => this.defaultFontSizeMm() },
       },
     );
     return createControlGroup('字号', grid);
@@ -573,9 +581,11 @@ export class StyleSettingsWindow {
         this.apply({ halo: { color: halo.color, width_mm: value } });
       },
       {
+        // 覆盖口径是 0..7mm(config/text-style.ts 与 validateTextStyleHalo 同源);
+        // 0 = 有光晕配置但不可见(item halo 允许 0,见 core/page.ts checkHalo).
         min: 0,
-        max: 20,
-        step: 0.5,
+        max: TEXT_STYLE_HALO_WIDTH_MAX_MM,
+        step: 0.1,
         reset: {
           field: 'halo_width_mm',
           readDefault: () => this.defaultHalo().width_mm,
@@ -618,12 +628,29 @@ export class StyleSettingsWindow {
       max: options.max,
       step: options.step,
     });
+    // 写入前夹取:min/max 只是 DOM 属性,浏览器不阻止键入越界值;layout 里出现
+    // 校验会拒的值 -> 导出成功后重开整份排版回退默认(见 page-sidebar-controls.ts 注释).
+    const clamp = (value: number): number => {
+      if (options.min !== undefined && options.max !== undefined) {
+        return clampPageNumber(value, options.min, options.max);
+      }
+      if (options.min !== undefined) return Math.max(options.min, value);
+      if (options.max !== undefined) return Math.min(options.max, value);
+      return value;
+    };
     field.onInput((value) => {
       if (value === null) return;
-      write(value);
+      write(clamp(value));
     });
     field.onCommit((value) => {
-      if (value === null) field.write(read());
+      if (value === null) {
+        field.write(read());
+      } else {
+        const clamped = clamp(value);
+        write(clamped);
+        // 提交时把显示改成实际生效值,用户能看到夹取结果(而不是留着越界文本).
+        if (clamped !== value) field.write(clamped);
+      }
     });
     const { row } = createNumberRow(label, field);
     if (options.reset !== undefined) {
@@ -850,17 +877,12 @@ export class StyleSettingsWindow {
     }
   }
 
-  /** 当前分类的默认字号:页面分类固定常量;地图分类 = 该分类地名原始字号中位数 × 地图缩放 */
-  private defaultFontSizePt(): number {
+  /** 当前分类的默认字号(mm):页面分类固定常量;地图分类 = role 表纸张 mm 设计值 */
+  private defaultFontSizeMm(): number {
     const meta = TEXT_STYLE_CATEGORY_META[this.selected];
     const layout = this.getLayout();
     if (meta.kind === 'map') {
-      const geo = this.getGeo();
-      return mapCategoryDefaultFontSizeMm(
-        this.selected as MapLabelRole,
-        geo,
-        mapScaleOf(geo, layout),
-      );
+      return mapCategoryDefaultFontSizeMm(this.selected as MapLabelRole);
     }
     return defaultTextFontSizeMm(this.selected, layout);
   }

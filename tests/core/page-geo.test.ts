@@ -182,6 +182,77 @@ describe('validateGeo:可选块缺省/存在时的基础结构检查', () => {
     expect(validatePage(layout, normalized).ok).toBe(true);
   });
 
+  it('labels 不再要求 font_size_pt:缺省合法,残留也合法(忽略)', () => {
+    // fixture 已按新契约(无 font_size_pt)构造
+    expect(validateGeo(makeGeo())).toEqual([]);
+    // 旧 v2 产物残留的 font_size_pt 不报错(打开旧文件不被卡死)
+    const raw = mutableGeo(makeGeo());
+    (raw['labels'] as Record<string, unknown>[])[0]!['font_size_pt'] = 12;
+    (raw['labels'] as Record<string, unknown>[])[1]!['font_size_pt'] = 0;
+    const errors = validateGeo(raw);
+    expect(errors).toEqual([]);
+    expect(errors.some((error) => error.includes('font_size_pt'))).toBe(false);
+  });
+
+  it('legend.entries 逐条校验:合法条目通过,width_pt 0 合法/-1 非法,坏字段可定位', () => {
+    /** 取 geo 的 legend.entries 可写数组(fixture 一定有 legend) */
+    function entriesOf(target: Record<string, unknown>): Record<string, unknown>[] {
+      return (target['legend'] as Record<string, unknown>)['entries'] as Record<string, unknown>[];
+    }
+
+    // entries 缺省 / 空数组都合法(legend 是可选块,缺字段交给 normalizeGeo)
+    const noEntries = mutableGeo(makeGeo());
+    delete (noEntries['legend'] as Record<string, unknown>)['entries'];
+    expect(validateGeo(noEntries)).toEqual([]);
+    const emptyEntries = mutableGeo(makeGeo());
+    entriesOf(emptyEntries).length = 0;
+    expect(validateGeo(emptyEntries)).toEqual([]);
+    // fixture 的 5 条合法条目(含三种 shape / 三种 marker)通过
+    expect(validateGeo(makeGeo())).toEqual([]);
+
+    // width_pt: 0 合法(纯填色/hatch 没有描边线宽);-1 非法(否则导出后重开 page 块不合法)
+    const zeroWidth = mutableGeo(makeGeo());
+    entriesOf(zeroWidth)[0]!['width_pt'] = 0;
+    expect(validateGeo(zeroWidth)).toEqual([]);
+    const negativeWidth = mutableGeo(makeGeo());
+    entriesOf(negativeWidth)[0]!['width_pt'] = -1;
+    expect(validateGeo(negativeWidth)).toContain('geo.legend.entries[0].width_pt: 必须是非负数');
+
+    // 典型坏字段:shape / stroke / opacity / 非对象条目
+    const badShape = mutableGeo(makeGeo());
+    entriesOf(badShape)[0]!['shape'] = 'triangle';
+    expect(validateGeo(badShape)).toContain('geo.legend.entries[0].shape: 必须是 line/rect/point');
+
+    const badStroke = mutableGeo(makeGeo());
+    entriesOf(badStroke)[0]!['stroke'] = 'red';
+    expect(validateGeo(badStroke)).toContain(
+      'geo.legend.entries[0].stroke: 必须是 #rrggbb 或 null',
+    );
+
+    const badOpacity = mutableGeo(makeGeo());
+    entriesOf(badOpacity)[0]!['opacity'] = 1.5;
+    expect(validateGeo(badOpacity)).toContain('geo.legend.entries[0].opacity: 必须在 0..1');
+
+    const badEntry = mutableGeo(makeGeo());
+    ((badEntry['legend'] as Record<string, unknown>)['entries'] as unknown[])[0] = 'not-an-object';
+    expect(validateGeo(badEntry)).toContain('geo.legend.entries[0]: 必须是对象');
+  });
+
+  it('width_pt=0 换算成 page 的 width_mm=0,默认排版仍通过 page 校验', () => {
+    // Cartopy 对纯填色/hatch 条目给 width_pt: 0.0;旧 page 校验要求正数会让「导出 -> 重开」丢排版.
+    const zero = mutableGeo(makeGeo());
+    ((zero['legend'] as Record<string, unknown>)['entries'] as Record<string, unknown>[])[0]![
+      'width_pt'
+    ] = 0;
+    expect(validateGeo(zero)).toEqual([]);
+    const zeroLayout = defaultPageLayout(zero as unknown as Geo);
+    const zeroLegend = zeroLayout.items.find((entry) => entry.kind === 'legend');
+    expect(zeroLegend?.kind).toBe('legend');
+    if (zeroLegend?.kind !== 'legend') return;
+    expect(zeroLegend.entries[0]!.width_mm).toBe(0);
+    expect(validatePage(zeroLayout, zero as unknown as Geo).ok).toBe(true);
+  });
+
   it('结构坏时给出可定位的错误', () => {
     const badRelief = mutableGeo(makeGeo());
     (badRelief['relief'] as Record<string, unknown>)['stops'] = 'not-an-array';
@@ -224,10 +295,11 @@ describe('normalizeGeo:可选块补默认(返回新对象)', () => {
       legend_title: '',
       colorbar_title: '',
     } satisfies GeoSuggestions);
-    // 必需块原样保留(graticule 会克隆一层以便补 style 缺省)
+    // 必需块语义保留(graticule 会克隆一层以便补 style 缺省;labels 逐条重建,不再是同一引用)
     expect(normalized.base).toEqual(geo.base);
     expect(normalized.graticule).toEqual(geo.graticule);
-    expect(normalized.labels).toBe(geo.labels);
+    expect(normalized.labels).toEqual(geo.labels);
+    expect(normalized.labels).not.toBe(geo.labels);
   });
 
   it('graticule.style 缺省时补中性默认,validateGeo 仍通过', () => {
@@ -314,6 +386,43 @@ describe('normalizeGeo:可选块补默认(返回新对象)', () => {
     expect(normalized.relief!.stops).not.toBe(geo.relief!.stops);
     expect(normalized.legend).toEqual(geo.legend);
     expect(normalized.suggestions).toEqual(geo.suggestions);
+  });
+
+  it('labels 逐字段重建:旧产物残留的 font_size_pt 被丢掉,导出即当前契约', () => {
+    // 旧 v2 产物可能还带 font_size_pt(已从 geo 契约删除);打开时归一化必须丢掉它,
+    // 否则编辑器再导出的 geo.json 会被 Cartopy tools/check_geo.py 拒绝.
+    const raw = mutableGeo(makeGeo());
+    const labels = raw['labels'] as Record<string, unknown>[];
+    labels[0]!['font_size_pt'] = 12;
+    labels[1]!['font_size_pt'] = 0;
+
+    // 校验仍通过(残留字段被忽略),归一化后字段消失
+    expect(validateGeo(raw)).toEqual([]);
+    const normalized = normalizeGeo(raw as unknown as Geo);
+    for (const label of normalized.labels) {
+      expect('font_size_pt' in label).toBe(false);
+      expect(Object.keys(label).sort()).toEqual(
+        ['anchor', 'id', 'order', 'role', 'text', 'x', 'y'].sort(),
+      );
+    }
+    // 其它字段逐字保留
+    expect(normalized.labels[0]!.id).toBe(makeGeo().labels[0]!.id);
+    expect(normalized.labels[1]!.text).toBe(makeGeo().labels[1]!.text);
+    // 导出(序列化)里不会再出现旧字段
+    const exported = serializeMapDocFile(normalized, layoutOf(normalized));
+    expect(exported).not.toContain('font_size_pt');
+  });
+
+  it('legend 原样透传:合法扩展字段(hatch)保留,不被 labels 的重建规则波及', () => {
+    const raw = mutableGeo(makeGeo());
+    const legend = raw['legend'] as { entries: Record<string, unknown>[] };
+    legend.entries[0]!['hatch'] = '///';
+    const normalized = normalizeGeo(raw as unknown as Geo);
+    expect((normalized.legend.entries[0] as unknown as Record<string, unknown>)['hatch']).toBe(
+      '///',
+    );
+    expect(normalized.legend).toEqual(raw['legend']);
+    expect(normalized.legend).not.toBe(raw['legend']);
   });
 
   it('不改写入参(缺失块不会被打上默认值)', () => {

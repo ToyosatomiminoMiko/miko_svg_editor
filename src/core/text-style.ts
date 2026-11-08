@@ -13,15 +13,14 @@
  * 不依赖纸张尺寸.
  * 渲染层不感知覆盖表:每次应用都逐条把解析值写回 item 的显式字段(render/* 口径不变).
  * 为什么地图分类的字号是「分类默认统一字号」而不是逐条地名字号:地图标注必须统一字号
- * (用户反馈),同一分类下的全部地名永远用同一个字号;窗口删掉了「跟随底图」开关后,默认值
- * 取该分类地名原始字号的中位数 × 地图缩放(见 `mapCategoryDefaultFontSizeMm`).
+ * (用户反馈),同一分类下的全部地名永远用同一个字号;字号属于样式,由 `config/text-style.ts`
+ * 的 role 表给**纸张 mm 设计值**,不乘地图缩放,不看底图尺寸(见 `mapCategoryDefaultFontSizeMm`).
  * 为什么没有「旧文件迁移」:item 上的样式字段只是分类样式的物化结果,打开时必须能由分类
  * 重算出来(`resyncTextStyles`),所以旧 page 块不走逐条兼容--不合法就回退默认排版.
  * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
  */
 
 import {
-  MAP_LABEL_DEFAULT_FONT_SIZE_MM,
   MAP_LABEL_ROLE_STYLES,
   MAP_LABEL_STYLE,
   PAGE_TEXT_DEFAULT_FONT_SIZE_MM,
@@ -145,66 +144,32 @@ export function hasFontSizeOverride(layout: PageLayout, category: TextStyleCateg
 
 /**
  * 分类默认字号(没有 item 时窗口显示用).
- * 页面分类 = `PAGE_TEXT_DEFAULT_FONT_SIZE_PT[role]`:全部页面文字使用固定字号,
- * 不随纸张尺寸缩放;地图分类 = `MAP_LABEL_DEFAULT_FONT_SIZE_PT`(分类默认统一字号按
- * 该分类地名中位数算,见 `mapCategoryDefaultFontSizeMm`;这里只用于完全没有地名时的兜底显示).
+ * 页面分类 = `PAGE_TEXT_DEFAULT_FONT_SIZE_MM[role]`:全部页面文字使用固定字号,
+ * 不随纸张尺寸缩放;地图分类 = role 表的纸张 mm 设计字号(`mapCategoryDefaultFontSizeMm`),
+ * 是前端样式常量,与底图尺寸/地图缩放/纸张尺寸都无关.
  *
  * `layout` 参数保留在签名里:窗口与其它解析函数共用同一调用形状,且今后若默认值需要
  * 依赖版式(例如按阅读距离),调用方不用改.
  */
 export function defaultTextFontSizeMm(category: TextStyleCategoryId, _layout: PageLayout): number {
   if (TEXT_STYLE_CATEGORY_META[category].kind === 'map') {
-    return MAP_LABEL_DEFAULT_FONT_SIZE_MM;
+    return mapCategoryDefaultFontSizeMm(category as MapLabelRole);
   }
   const role = category as PageTextRole;
   return PAGE_TEXT_DEFAULT_FONT_SIZE_MM[role];
 }
 
 /**
- * 地图缩放比 s:底图坐标 -> 纸面(§5.1).字号按它换算(地名只跟地图缩放,不跟纸张 k).
- * 底图宽度非正时回退 1,避免除零把字号算成 Infinity/NaN.
- */
-export function mapScaleOf(geo: Geo, layout: PageLayout): number {
-  const scale = layout.map.width_mm / geo.base.width_pt;
-  return Number.isFinite(scale) && scale > 0 ? scale : 1;
-}
-
-/** 地图分类统一字号的小数口径:保留 1 位小数(§12.1,`Math.round(x*10)/10`) */
-function roundFontSizeTenth(value: number): number {
-  return Math.round(value * 10) / 10;
-}
-
-/**
- * 地图分类的默认统一字号(§12.1):取该分类全部 `geo.labels`(`role === category`)的
- * `font_size_pt`(geo 契约单位)中位数 × 地图缩放 s,夹到 1.5..15mm,保留 1 位小数;
- * 该分类没有地名或字号全非法 -> `MAP_LABEL_DEFAULT_FONT_SIZE_MM`.
+ * 地图分类的默认统一字号(§12.1):`MAP_LABEL_ROLE_STYLES[role].font_size_mm`,纸张 mm 设计常量.
  *
- * 为什么按分类取中位数:地图标注必须统一字号(用户反馈),中位数是「这批地名原本的典型
- * 层级」的代表值,换算成纸面字号后分类整体最接近原图观感;偶数个取中间两个的平均.
- * 为什么先剔除非法字号:默认排版可能在不经过 validateGeo 的路径(单测/调试)被直接调用,
- * 非有限或非正的字号会把中位数算成 NaN.
- * 1.5..15mm 与旧 4..40pt 口径一致:太小小到不可读,太大压住地图.
- *
- * @param mapScale 地图缩放 s(`layout.map.width_mm / geo.base.width_pt`,调用方用 `mapScaleOf`)
+ * 为什么不再是「该分类地名 font_size_pt × 地图缩放」:字号属于前端文字样式,样式是排版设计
+ * 决定,不能随着 Cartopy 底图尺寸/地图缩放漂移;同一 role 的地名在任何底图,任何纸张上都
+ * 恒定同字号,想调就改「样式设置」里的分类覆盖.
+ * 未知 role(坏数据绕过 validateGeo 的调试路径)按 `area` 的字号兜底--与颜色/斜体等字段的
+ * 防御式回退是同一条口径.
  */
-export function mapCategoryDefaultFontSizeMm(
-  category: MapLabelRole,
-  geo: Geo,
-  mapScale: number,
-): number {
-  const sizes = geo.labels
-    .filter((label) => label.role === category)
-    .map((label) => label.font_size_pt)
-    .filter((size) => Number.isFinite(size) && size > 0)
-    .sort((left, right) => left - right);
-  if (sizes.length === 0) return MAP_LABEL_DEFAULT_FONT_SIZE_MM;
-  const middle = Math.floor(sizes.length / 2);
-  const median =
-    sizes.length % 2 === 1
-      ? (sizes[middle] ?? 0)
-      : ((sizes[middle - 1] ?? 0) + (sizes[middle] ?? 0)) / 2;
-  const scale = Number.isFinite(mapScale) && mapScale > 0 ? mapScale : 1;
-  return roundFontSizeTenth(Math.min(15, Math.max(1.5, median * scale)));
+export function mapCategoryDefaultFontSizeMm(category: MapLabelRole): number {
+  return (MAP_LABEL_ROLE_STYLES[category] ?? MAP_LABEL_ROLE_STYLES.area).font_size_mm;
 }
 
 /**
@@ -212,15 +177,8 @@ export function mapCategoryDefaultFontSizeMm(
  * `applyTextStyle` / `resetTextStyle` / `applyCategoryStyleToItem` / `readTextCategoryStyle`
  * 全部走这里,保证「窗口显示的数字」与「实际写进 item 的数字」永远一致,同分类所有 item 相等.
  */
-function mapCategoryFontSizeMm(
-  layout: PageLayout,
-  geo: Geo,
-  category: MapLabelRole,
-  mapScale: number,
-): number {
-  return (
-    fontSizeOverrideOf(layout, category) ?? mapCategoryDefaultFontSizeMm(category, geo, mapScale)
-  );
+function mapCategoryFontSizeMm(layout: PageLayout, category: MapLabelRole): number {
+  return fontSizeOverrideOf(layout, category) ?? mapCategoryDefaultFontSizeMm(category);
 }
 
 /* =========================== 分类归属与查询 =========================== */
@@ -257,11 +215,11 @@ export function itemsOfTextCategory(
 /**
  * 页面分类的有效字号:覆盖 ?? 该分类其它 item 的实际字号 ?? 分类默认字号.
  *
- * 为什么回退「第一条 item 的实际字号」而不是直接回分类默认值:页面分类默认字号会乘纸张
- * 比例 k(`layoutScaleForPaper`),而纸张可以被用户改宽/改向而不重排;此时 item 里存的字号
- * 仍是旧纸面的值,若这里只看默认值,`resyncTextStyles` 会在重新打开时把字号改小并误标脏
- * (导出 -> 打开不再字节稳定).把「现存的分类字号」作为覆盖与默认值之间的真值,能保证
- * 纸张变化不触碰文字样式;用户改字号时写覆盖,恢复默认时回默认,口径仍然单一.
+ * 为什么回退「第一条 item 的实际字号」而不是直接回分类默认值:页面文字字号是固定设计值,
+ * 但旧排版里可能保存着与当前默认不同的值(用户早先调过/版式遗留);若这里只看默认值,
+ * `resyncTextStyles` 会在重新打开时把它改掉并误标脏(导出 -> 打开不再字节稳定).
+ * 把「现存的分类字号」作为覆盖与默认值之间的真值,能保证打开既有排版不触碰文字样式;
+ * 用户改字号时写覆盖,恢复默认时回默认,口径仍然单一.地图分类走 `mapCategoryFontSizeMm`.
  * @param exclude 单条切分类时排除自己(否则读到的会是切换前的字号)
  */
 function pageFontSizeMm(
@@ -287,12 +245,7 @@ export function readTextCategoryStyle(
     // 地图分类固定「覆盖 ?? 分类默认统一字号」:窗口显示值必须与批量应用写回的统一值一致.
     return {
       ...fields,
-      font_size_mm: mapCategoryFontSizeMm(
-        layout,
-        geo,
-        category as MapLabelRole,
-        mapScaleOf(geo, layout),
-      ),
+      font_size_mm: mapCategoryFontSizeMm(layout, category as MapLabelRole),
     };
   }
   return {
@@ -419,12 +372,7 @@ export function applyTextStyle(
     return changed;
   }
 
-  const fontSize = mapCategoryFontSizeMm(
-    layout,
-    geo,
-    category as MapLabelRole,
-    mapScaleOf(geo, layout),
-  );
+  const fontSize = mapCategoryFontSizeMm(layout, category as MapLabelRole);
   for (const item of items) {
     if (writeItemStyle(item, fields, fontSize)) changed += 1;
   }
@@ -454,12 +402,7 @@ export function resetTextStyle(
     return changed;
   }
 
-  const fontSize = mapCategoryFontSizeMm(
-    layout,
-    geo,
-    category as MapLabelRole,
-    mapScaleOf(geo, layout),
-  );
+  const fontSize = mapCategoryFontSizeMm(layout, category as MapLabelRole);
   for (const item of items) {
     if (writeItemStyle(item, fields, fontSize)) changed += 1;
   }
@@ -509,7 +452,7 @@ export function resetTextStyleField(
   const items = itemsOfTextCategory(layout, geo, category);
   const isPage = TEXT_STYLE_CATEGORY_META[category].kind === 'page';
   const fontSize = !isPage
-    ? mapCategoryFontSizeMm(layout, geo, category as MapLabelRole, mapScaleOf(geo, layout))
+    ? mapCategoryFontSizeMm(layout, category as MapLabelRole)
     : field === 'font_size_mm'
       ? defaultTextFontSizeMm(category, layout)
       : pageFontSizeMm(layout, geo, category);
@@ -549,7 +492,7 @@ export function applyCategoryStyleToItem(
   const fields = resolveTextStyleFields(category, layout.text_style[category]);
   const fontSize =
     TEXT_STYLE_CATEGORY_META[category].kind === 'map'
-      ? mapCategoryFontSizeMm(layout, geo, category as MapLabelRole, mapScaleOf(geo, layout))
+      ? mapCategoryFontSizeMm(layout, category as MapLabelRole)
       : pageFontSizeMm(layout, geo, category, options.excludeSelf === true ? item : undefined);
   return writeItemStyle(item, fields, fontSize);
 }

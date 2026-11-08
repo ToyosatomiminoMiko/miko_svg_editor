@@ -224,7 +224,9 @@ export function buildLegendFields(ctx: SidebarContext, item: LegendItem): HTMLEl
         const target = itemById(layout, item.id);
         if (target?.kind === 'legend') target.frame.width_mm = value;
       }),
-    { min: 0, step: 0.1 },
+    // validatePage 要求图例框线宽 > 0(docs/PAGE-EDITOR.md §4):UI 不允许写 0,
+    // 否则导出的 page 块在重开时被拒,整份排版回退默认.
+    { min: 0.1, step: 0.1 },
   );
   ctx.controls.addNumberRow(
     frameRow,

@@ -25,6 +25,7 @@ import {
   type NumberFieldHandle,
   type SwitchHandle,
 } from 'miko_ui';
+import { clampPageNumber } from '../core/page';
 
 interface NumberEntry {
   readonly field: NumberFieldHandle;
@@ -58,6 +59,21 @@ interface SegmentedEntry {
 /** 颜色值兜底:`<input type=color>` 只接受 #rrggbb */
 const safeColor = (value: string): string => (/^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000');
 
+/**
+ * 把数字夹到控件的 min/max(缺省侧不夹).
+ *
+ * 为什么必须显式夹取:miko_ui 的 `min/max` 只是 `<input type=number>` 的 DOM 属性,
+ * 浏览器不会阻止用户键入越界值;而 `validatePage` 的契约范围更窄(如纸张 20..2000mm,
+ * 图例框线宽 >0).不夹取就会写出"导出成功,重开后 page 被拒,整份排版回退默认"的文件.
+ * 统一在写入入口夹取,保证 layout 里永远不会出现 UI 能触发但校验拒绝的值.
+ */
+function clampNumber(value: number, min?: number, max?: number): number {
+  if (min !== undefined && max !== undefined) return clampPageNumber(value, min, max);
+  if (min !== undefined) return Math.max(min, value);
+  if (max !== undefined) return Math.min(max, value);
+  return value;
+}
+
 /** 属性面板控件登记表;key 用 `page.` / `map.` / `prop.` 前缀区分面板 */
 export class SidebarControlRegistry {
   private readonly numbers = new Map<string, NumberEntry>();
@@ -86,13 +102,20 @@ export class SidebarControlRegistry {
       max: options.max,
       step: options.step,
     });
+    // 写入前夹取(见 clampNumber 的注释):input 阶段就夹,避免中途态进 layout;
+    // commit 阶段若文本越界,把显示也改回夹取后的值,用户能看到真实生效值.
     field.onInput((value) => {
       if (value === null) return;
-      write(value);
+      write(clampNumber(value, options.min, options.max));
     });
     field.onCommit((value) => {
-      if (value === null) field.write(read());
-      else write(value);
+      if (value === null) {
+        field.write(read());
+      } else {
+        const clamped = clampNumber(value, options.min, options.max);
+        write(clamped);
+        if (clamped !== value) field.write(clamped);
+      }
       options.onCommit?.();
     });
     const { row } = createNumberRow(label, field);

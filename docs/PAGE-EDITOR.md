@@ -21,14 +21,14 @@ Cartopy_file(另一个仓;本仓只消费它的产物)
   <stem>.svg           纯几何底图:地形/水系/边界/经纬网/地理坐标点;无任何 <text>,
                        无标题/图例/色标/图框/画布白底;viewBox 裁到地图框
   <stem>.geo.json      地理元数据(format mapdoc-geo v2):地图框,经纬网刻度,地名候选
-                       (role/文字/位置/锚点/字号;样式归前端 config/text-style.ts),
+                       (role/文字/位置/锚点/叠放顺序;字号与样式归前端 config/text-style.ts),
                        图例样式,默认文案,色标刻度;只读
         │  浏览器上传(文件选择 / 拖放):
         │    ① base.svg + geo.json(各恰好一个);或
         │    ② 一份本编辑器导出的成品 <stem>.svg(内嵌整份 geo.json 与底图前后缀,单文件即可再编辑)
         ▼
 map.html(Vite 静态站;npm run dev -> http://localhost:5173/map.html)
-  core/base-svg.ts      底图契约 C1–C4 + 根标签内原文切片(inner / prefix / suffix)
+  core/base-svg.ts      底图契约 C1–C7 + 根标签内原文切片(inner / prefix / suffix)
   core/open-map.ts      打开的两条路径:分栏 -> 校验 -> PageDocument + 初始排版(纯逻辑,node 可测)
   core/final-svg.ts     成品 SVG 的再编辑支持:读 `<metadata>` 内嵌源,定位 mapdoc-map,
                         还原底图原文(纯逻辑,node 可测)
@@ -63,20 +63,21 @@ map.html(Vite 静态站;npm run dev -> http://localhost:5173/map.html)
 
 **地图文字标注链路(样式唯一真源)**
 
-| 层             | 位置                                                                                              | 拥有                                                                                       | 不拥有                                                                        |
-| -------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| Cartopy 生成端 | `geo.labels[]` 的 `id`/`role`/`text`/`x`/`y`/`anchor`/`font_size_pt`/`order`                      | 语义与摆放                                                                                 | 任何文字样式;`font_size_pt` 只是「分类默认统一字号」的中位数来源,不是逐条样式 |
-| 代码默认       | `config/text-style.ts` 的 `MAP_LABEL_ROLE_STYLES`/`MAP_LABEL_STYLE`/`PAGE_TEXT_STYLES`/分类元信息 | 默认样式                                                                                   | 用户覆盖                                                                      |
-| 用户覆盖       | `page.text_style`                                                                                 | 只存用户显式改过的分类字段                                                                 | 逐条 item 的样式真值                                                          |
-| item 物化值    | `TextItem` 的 `font_size_mm`/`color`/`halo` 等显式字段                                            | 渲染消费的字段,由分类样式批量写入;页面分类字号同时作为「覆盖 ?? 现值 ?? 默认」中的现值回退 | 独立样式真值;颜色等以分类为准,页面字号现值也不会被固定默认字号覆盖            |
-| 排版/几何      | `PageLayout.items`                                                                                | 位置,内容,角色,锚点,旋转,居中约束                                                          | 样式来源                                                                      |
+| 层             | 位置                                                                                              | 拥有                                                                                       | 不拥有                                                              |
+| -------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| Cartopy 生成端 | `geo.labels[]` 的 `id`/`role`/`text`/`x`/`y`/`anchor`/`order`                                     | 语义与摆放                                                                                 | 任何文字样式(含字号);`font_size_pt` 已删除,出现即旧产物(忽略不报错) |
+| 代码默认       | `config/text-style.ts` 的 `MAP_LABEL_ROLE_STYLES`/`MAP_LABEL_STYLE`/`PAGE_TEXT_STYLES`/分类元信息 | 默认样式                                                                                   | 用户覆盖                                                            |
+| 用户覆盖       | `page.text_style`                                                                                 | 只存用户显式改过的分类字段                                                                 | 逐条 item 的样式真值                                                |
+| item 物化值    | `TextItem` 的 `font_size_mm`/`color`/`halo` 等显式字段                                            | 渲染消费的字段,由分类样式批量写入;页面分类字号同时作为「覆盖 ?? 现值 ?? 默认」中的现值回退 | 独立样式真值;颜色等以分类为准,页面字号现值也不会被固定默认字号覆盖  |
+| 排版/几何      | `PageLayout.items`                                                                                | 位置,内容,角色,锚点,旋转,居中约束                                                          | 样式来源                                                            |
 
 链路:`geo.labels[]` -> `core/open-map.ts` 打开(`validateGeo`/`normalizeGeo`;`page` 块缺省 ->
 `defaultPageLayout`,存在 -> `validatePage`+`normalizePage`)-> `core/page-layout.ts` 的 `makeLabelItem`
 (`geo_label_id = label.id` 绑定回来源,分类 = `label.role`,样式 = `page.text_style[分类]` 覆盖 ??
-`config/text-style.ts` 默认,字号 = 覆盖 ?? 该分类全部地名 `font_size_pt` 的中位数 × 地图缩放 `s`,
-夹到 1.5..15mm 并保留 1 位小数;地名坐标在这里由底图坐标一次性换算成纸张 mm,之后 item 只存纸张
-坐标)-> 用户在「样式设置」窗口改分类时,`core/text-style.ts` 的 `applyTextStyle` 写覆盖并把该分类
+`config/text-style.ts` 默认,字号 = 覆盖 ?? `MAP_LABEL_ROLE_STYLES[role].font_size_mm`(纸张 mm
+设计常量,不随底图尺寸/地图缩放/纸张尺寸变化);地名坐标在这里由底图坐标一次性换算成纸张
+mm,之后 item 只存纸张坐标)-> 用户在「样式设置」窗口改分类时,`core/text-style.ts` 的
+`applyTextStyle` 写覆盖并把该分类
 全部 item 的物化字段同步一遍(打开时 `resyncTextStyles` 做同一件事)-> 渲染/合成只读 item 的物化
 字段 -> `serializeMapDocFile` 把 geo 全字段 + `normalizePage(layout)` 落盘,成品 SVG 内嵌同一份
 geo.json 原文 -> 重新打开走同一条链路.**生成端不存样式;item 不是独立样式真源;地图分类字号恒
@@ -85,6 +86,13 @@ geo.json 原文 -> 重新打开走同一条链路.**生成端不存样式;item �
 (`PAGE_TITLE_SIZE_MM=6` / `PAGE_SUBTITLE_SIZE_MM=3` / `PAGE_NOTE_SIZE_MM=3` /
 `PAGE_SOURCE_SIZE_MM=2`,不随纸张缩放)--item 里已有的字号优先保留,导出 -> 打开幂等,窗口把
 这种与固定默认不同的状态标为「排版值」;只有用户显式改字号或恢复默认才按固定默认/覆盖重算.
+
+**单行契约(Cartopy 2ca474d 起,生成端不写任何换行)**:`labels[].text`,`legend.entries[].label`
+与 `suggestions` 的标题/副标题/注/来源都**不带换行符**,折行(按文本块宽度)全由前端负责;
+`suggestions.notes` 是「一条注一个完整字符串」的数组(不再按行拆),`area_annotation` 是单行
+字符串数组(可为 `null`/缺省);地名不做自动折行(位置与单行文案都来自底图).字号同理:
+`labels[].font_size_pt` 属于前端样式,生成端不再输出;旧 v2 产物残留的 `font_size_pt` 打开时
+忽略,不报错,旧 v1 产物仍直接拒绝.
 
 ## 2. 文件与落点
 
@@ -140,16 +148,15 @@ item 只是带来源标记的普通纸张坐标文字(见 §4.1/§5.1).
     "lat": [{ "value": 46, "label": "46°N", "x": 33.88, "y": 731.037789, "side": "left" }],
     "style": { "stroke": "#808080", "width_pt": 0.5, "dash": [0.5, 0.825], "opacity": 0.4 },
   },
-  // 地名/地物标注候选:位置是底图坐标(viewBox 坐标);样式由前端 role 表决定,这里不给样式
+  // 地名/地物标注候选:位置是底图坐标(viewBox 坐标);字号/样式由前端 role 表决定,这里不给
   "labels": [
     {
-      "id": "label-country-哈萨克斯坦", // 生成端给稳定 id(id 前缀按角色家族)
-      "role": "country", // 语义角色,决定颜色/斜体(枚举见下方约束)
-      "text": "哈萨克斯坦", // 原始文字;换行用 "\n",前端自己 split
+      "id": "label-country-kazakhstan", // 生成端给稳定 id(id 前缀按角色家族)
+      "role": "country", // 语义角色,决定字号/颜色/斜体(枚举见下方约束)
+      "text": "哈萨克斯坦", // 单行文案(契约要求,折行由前端负责;旧 v2 产物残留 "\n" 打开时容错拆行)
       "x": 719.381081, // 底图坐标;anchor=start 是文字块左端,middle 中心,end 右端
       "y": 703.365097, // 底图坐标;文字块垂直中心(v2 语义,前端换算回第一行基线)
       "anchor": "middle", // start|middle|end
-      "font_size_pt": 12,
       "order": 0, // 原图绘制顺序(z 序)
     },
   ],
@@ -170,7 +177,7 @@ item 只是带来源标记的普通纸张坐标文字(见 §4.1/§5.1).
     "title": "图例",
     "entries": [
       {
-        "label": "国界",
+        "label": "国界", // 单行文案;旧产物里的 label_lines 已删除,出现即旧产物
         "shape": "line", // line|rect|point
         "stroke": "#4a4a4a",
         "width_pt": 1.4,
@@ -183,11 +190,11 @@ item 只是带来源标记的普通纸张坐标文字(见 §4.1/§5.1).
   },
   // 可选块:只用于前端「默认排版」预填,不参与合成;整块缺省时标题/注记/来源都不生成
   "suggestions": {
-    "title": "伏尔加河流域地形图",
-    "subtitle": "ETOPO 2022 | 流域: HydroSHEDS | 国界: GADM 4.1",
-    "notes": ["注 1:...", "..."], // 原图右栏注记(每项一行)
-    "source": "地形: NOAA NCEI ETOPO 2022(15″) | ...",
-    "area_annotation": ["伏尔加河流域", "约 141 万 km²"],
+    "title": "伏尔加河流域地形图", // 单行
+    "subtitle": "ETOPO 2022 | 流域: HydroSHEDS | 国界: GADM 4.1", // 单行
+    "notes": ["注 1:...", "..."], // 一条注一个完整字符串(不再按行拆);折行由前端负责
+    "source": "地形: NOAA NCEI ETOPO 2022(15″) | ...", // 单行
+    "area_annotation": ["伏尔加河流域", "约 141 万 km²"], // 单行字符串数组,可为 null/缺省
     "legend_title": "图例",
     "colorbar_title": "高程 / 水深",
   },
@@ -211,13 +218,25 @@ item 只是带来源标记的普通纸张坐标文字(见 §4.1/§5.1).
     这样「没有图例/没有色标/没有默认文案」的图也能打开,默认排版自动不生成对应的框(§5.6).
 - 刻度 `x/y` 都在底图坐标系;`side`:经度用 `bottom|top`,纬度用 `left|right`;
   `labels` 只含**地图内**地名,图外面积注记放 `suggestions.area_annotation`.
+- `legend.entries[]`:`label` 单行;`width_pt` 是描边线宽(pt,**允许 0**,只要求非负),
+  `0` = 纯填色 / hatch 条目没有描边边线(Cartopy 的 northern_shan,Ukraine 会输出 `0.0`);
+  `hatch` 键(Cartopy 的 Myanmar 图例会带,如 `"////"`)本编辑器当前**不渲染**,数据原样透传
+  (导出 geo.json 不丢),图例色块按 `fill` 画成纯填色.
 - `labels[].role` 枚举(唯一真源是 `src/config/text-style.ts` 的 `MAP_LABEL_ROLES`):`country`,
   `country-name`,`sea`,`city`,`city-reference`,`river`,`highland`,`area`,`area-muted`,
-  `area-accent-1` ~ `area-accent-4`,`area-basin`;它决定颜色/斜体,其余样式是全局常量.
+  `area-accent-1` ~ `area-accent-4`,`area-basin`;它决定纸张 mm 设计字号/颜色/斜体
+  (`MAP_LABEL_ROLE_STYLES[role]`),其余样式是全局常量 `MAP_LABEL_STYLE`.
+- **单行契约(Cartopy 2ca474d 起)**:`labels[].text`,`legend.entries[].label` 与 `suggestions` 的
+  标题/副标题/注/来源都**单行**;`suggestions.notes` 是「一条注一个完整字符串」的数组(不再按行
+  拆),`area_annotation` 是单行字符串数组(可为 `null`/缺省);`legend.entries[].label_lines` 已从
+  契约删除(本编辑器忽略,不报错).生成端 `tools/check_geo.py` 拒绝带换行或残留
+  `font_size_pt`/`label_lines` 的产物;
+  本编辑器对旧 v2 产物残留的 `font_size_pt` 忽略,对 `\n` 拆行容错,旧 v1 仍拒绝.
 - `labels` 逐条校验(`validateGeo`):`id` 非空且唯一,`role` 在枚举内,`text` 字符串,`x`/`y` 有限,
-  `anchor` 合法,`font_size_pt` 正数,`order` 整数.v2 已无 `kind`/`lines`/`color`/`italic`/`halo`/
-  `rotation_deg`:多行由前端 `text.split('\n')` 得到,样式由 `role` 查 `config/text-style.ts`,
-  旋转默认 0(编辑器里仍可旋转).版本为 1 的旧 geo 直接拒绝并提示「旧 v1 契约,请重新生成」.
+  `anchor` 合法,`order` 整数.**`font_size_pt` 不再校验也不读**(Cartopy 74821d6 起字号属于前端
+  role 表;旧 v2 产物残留时忽略,不报错,兼容旧产物).`text` 按新契约单行(旧 v2 残留的 `\n` 打开时
+  按 `\n` 拆行容错),字号/颜色等样式由 `role` 查 `config/text-style.ts`,旋转默认 0(编辑器里仍可
+  旋转).版本为 1 的旧 geo 直接拒绝并提示「旧 v1 契约,请重新生成」.
 - 颜色只接受 `#rrggbb`.geo 侧数值保留 Cartopy 原样精度(例如 `view_box` 的 `896.350289` 不截断);
   只有导出时 `page` 块内的数字统一 3 位小数(§4).导出文件递归按键名排序,2 空格缩进,末尾一个
   换行,同一输入两次导出字节相同.
@@ -260,7 +279,7 @@ Cartopy 直出的 geo.json 没有这个键.形状:
   "text_style": {
     "title": { "font_size_mm": 7, "color": "#111111", "font_weight": 600 },
     "city": {
-      "font_size_mm": 3, // 地图分类:字号恒统一;缺省时用分类默认统一字号(该分类底图字号中位数 × 地图缩放)
+      "font_size_mm": 3, // 地图分类:字号恒统一;缺省时用 role 表的纸张 mm 设计字号(固定值,不随底图/纸张缩放)
       "color": "#222222",
       "halo": { "color": "#ffffff", "width_mm": 0.18 },
     },
@@ -301,14 +320,16 @@ Cartopy 直出的 geo.json 没有这个键.形状:
   `TEXT_STYLE_CATEGORY_IDS`);值对象的字段只允许 `font_size_mm`,`color`,`italic`,`font_weight`,
   `letter_spacing_em`,`line_height`,`halo` 七个,且**只存用户显式改过的值**--默认值仍在
   `config/text-style.ts`,不复制进文件.地图分类的字号**恒统一**:`font_size_mm` 缺省时使用
-  「分类默认统一字号」--取该分类全部 `geo.labels` 的 `font_size_pt` 中位数 × 地图缩放比 `s`,
-  夹到 1.5..15mm 并保留 1 位小数;该分类没有地名时回退 4mm;同一分类下所有地名永远使用同一个
-  字号.页面分类的字号口径是「覆盖 `font_size_mm` ?? 该分类现有 item 的字号 ??
-  `PAGE_TEXT_DEFAULT_FONT_SIZE_MM`」:页面默认字号固定(标题 6mm / 副标题 3mm /
+  「分类默认统一字号」--`MAP_LABEL_ROLE_STYLES[role].font_size_mm`(纸张 mm 设计常量;不随底图
+  `base` 尺寸,地图缩放或纸张尺寸变化);同一分类下所有地名永远使用同一个字号.
+  该 role 在当前底图有没有地名都不影响字号;只有 role 不在枚举内(坏数据)时回退 `area` 的字号.
+  页面分类的字号口径是「覆盖 `font_size_mm` ?? 该分类现有
+  item 的字号 ?? `PAGE_TEXT_DEFAULT_FONT_SIZE_MM`」:页面默认字号固定(标题 6mm / 副标题 3mm /
   注记 3mm / 来源 2mm,标注与手动地名 4mm,不随纸张缩放);item 里已有的字号优先保留,
   按分类重建不会改写它(导出 -> 打开字节幂等);用户显式改字号或恢复默认才按固定默认值/覆盖
-  重写.覆盖表是「覆盖 ?? 分类默认」的样式来源:设置时由 `core/text-style.ts` 把解析后的样式批量
-  写回该分类全部 item,默认排版(§5.6)也按它解析初始值;渲染仍只读 item 上的显式字段(§5.3).
+  重写.覆盖表是「覆盖 ?? 分类默认」的样式来源:设置时由 `core/text-style.ts` 的
+  `mapCategoryDefaultFontSizeMm(category: MapLabelRole)` 解析字号(单参数,不乘地图缩放)并把样式
+  批量写回该分类全部 item,默认排版(§5.6)也按它解析初始值;渲染仍只读 item 上的显式字段(§5.3).
 - `text_style` 校验口径:`font_size_mm` 是 0.35..180 的有限数(页面/地图分类同一口径,不允许
   `null`);`color` `#rrggbb`;`italic` 布尔;`font_weight` 100..900 的整数;`letter_spacing_em`
   -1..2;`line_height` 0.5..5;
@@ -420,8 +441,11 @@ Cartopy 直出的 geo.json 没有这个键.形状:
 }
 ```
 
-高度自动派生(公式见 §5.4),不落盘;`width_mm` 由前端创建时按文字测量给出,之后可改.图例条目
-的 `width_mm` 是线宽(mm),来自 `geo.legend.entries[].width_pt` 打开时的一次换算(§5.1).
+高度自动派生(公式见 §5.4),不落盘;图例框自身 `width_mm` 由前端创建时按文字测量给出,之后可改
+(必须大于 0).条目的 `width_mm` 是**描边线宽**(mm),来自 `geo.legend.entries[].width_pt` 打开时的
+一次换算(§5.1),**允许 0** = 纯填色 / hatch 条目没有描边边线,只要求非负;`stroke: null` 同样
+表示不描边.`page` item 没有 `hatch` 字段:geo 的 `hatch`(如 `"////"`)不参与页面样式(当前不
+渲染),只随 geo 原样落盘.
 
 **colorbar**
 
@@ -469,7 +493,7 @@ map.height = map.width_mm * geo.base.height_pt / geo.base.width_pt   // mapHeigh
   的地名按新旧仿射关系整批搬移:`p' = newTransform(pagePointToMap(oldTransform, p))`,保留用户
   手动拖过的相对偏移;手动页面文字不动.
 - 图例条目里的线宽/虚线是 geo 契约的 pt,`legendEntriesOf` 用 `25.4/72` 换算成 mm 落进 item;
-  名字仍叫 `width_mm`.
+  名字仍叫 `width_mm`(线宽 `0` 也合法:纯填色 / hatch 条目不画描边边线).
 
 ### 5.2 图框与刻度(`frameTickLayout`)
 
@@ -503,10 +527,11 @@ paint-order=stroke` 的副本,再画正常填充(与 matplotlib 的 paint-order 
   item」的来源.在「样式设置」窗口改一个分类时,`core/text-style.ts` 按分类口径解析出有效样式,
   逐条写回该分类全部 item(地图 item 若字号/行高变化,按「文字块垂直中心」修正纸张坐标 `y`,
   保住用户手动拖过的位置).字号口径按分类类型区分:
-  - 地图分类:item 字号 = 覆盖 `font_size_mm` ?? **分类默认统一字号**(该分类底图字号中位数 ×
-    地图缩放比 `s`,夹到 1.5..15mm 并保留 1 位小数,无地名时 4mm).因此同一地图分类下所有
-    地名**字号必须相等**:默认排版,批量应用(哪怕只改颜色),恢复默认,单条 item 切换分类都会
-    写回该统一字号.
+  - 地图分类:item 字号 = 覆盖 `font_size_mm` ?? **分类默认统一字号**
+    `mapCategoryDefaultFontSizeMm(role)` = `MAP_LABEL_ROLE_STYLES[role].font_size_mm`(纸张 mm
+    设计常量,不随底图尺寸/地图缩放/纸张尺寸变化;与当前底图有没有该 role 的地名无关;未知 role
+    回退 `area` 的字号).因此同一地图分类下所有地名**字号必须相等**:默认排版,
+    批量应用(哪怕只改颜色),恢复默认,单条 item 切换分类都会写回该统一字号.
   - 页面分类:item 字号 = 覆盖 `font_size_mm` ?? 该分类现有 item 的字号 ?? 固定默认字号
     `PAGE_TEXT_DEFAULT_FONT_SIZE_MM`(标题 6mm / 副标题 3mm / 注记 3mm / 来源
     2mm,不随纸张缩放).改颜色/行高等不含字号的补丁不会顺手改写页面文字字号;item 里已有
@@ -538,6 +563,10 @@ frame.show -> 先画 rect(x,y,width_mm,height)
 - `rect`:`<rect x0..x1,高=font_size_mm*0.9>`,中心对齐;stroke/fill/opacity;
 - `point`:在中心点画 marker(star:外接半径 `font_size_mm*0.55` 的五角星;square:边长
   `font_size_mm*0.7`;circle:半径 `font_size_mm*0.35`),fill/stroke 取条目.
+- 条目描边线宽 `width_mm` **允许 0**(只要求非负):`stroke-width="0"` 即不画描边边线,用于纯填色 /
+  hatch 条目;`stroke: null` 时同样不描边.
+- `hatch`(geo 契约里 Cartopy 的部分图例条目会带,如 `"////"`)当前**不渲染**:图例色块按 `fill`
+  画成纯填色;数据保留在 geo.json 里原样透传(导出不丢),不是已支持的渲染口径.
 
 ### 5.5 colorbar(`colorbarLayout` / `colorbarTitleText`)
 
@@ -572,9 +601,10 @@ baseRatio))`,纵向 `mapWidth = max(2, contentWidth)`;高度仍由
   `mapWidth × geo.base.height_pt / geo.base.width_pt` 派生.间距:`columnGap = 6*k`,
   `sourceReserved = 9*k`,`notesGap = 4*k`.
 - 地名标注(`geo.labels`)打开时按 §5.1 一次性换算成纸张坐标铺上,**同分类统一字号**(见下条):
-  颜色/斜体按 `role` 查 `config/text-style.ts` 的角色表,字重/字距/行高/描边取 `MAP_LABEL_STYLE`;
-  `label.y` 是文字块垂直中心,按 `baseline_ratio` 换算回第一行基线后加回(见契约 §4),旋转默认 0.
-  标题/副标题/注记/来源来自 `geo.suggestions`.
+  颜色/斜体/纸张 mm 设计字号按 `role` 查 `config/text-style.ts` 的 `MAP_LABEL_ROLE_STYLES`,字重/
+  字距/行高/描边取 `MAP_LABEL_STYLE`;地名文案是单行(不做自动折行);`label.y` 是文字块垂直中心,
+  按 `baseline_ratio` 换算回第一行基线后加回(见契约 §4),旋转默认 0.
+  标题/副标题/注记/来源来自 `geo.suggestions`(全部单行;注记/来源的折行由前端负责).
 - **分类样式覆盖参与默认排版**:`defaultPageLayout` 仍接受 `options.text_style` 覆盖表,返回值的
   `text_style` 是它的深拷贝(缺省 `{}`);打开时的初始排版没有已有覆盖,传入缺省 `{}`.标题/副标题/
   注记/来源:字号 = 覆盖 `font_size_mm` ?? **固定默认字号**(`PAGE_TITLE_SIZE_MM=6` /
@@ -587,12 +617,13 @@ baseRatio))`,纵向 `mapWidth = max(2, contentWidth)`;高度仍由
   生成排版.来源折行后最后一行仍贴住 `paper.height_mm - inset`(块向上长),与默认排版的页底
   基线口径一致.
   地名:按 `label.role` 解析覆盖(颜色/斜体/字重/字距/行高/光晕),字号 = 覆盖
-  `font_size_mm` ?? **分类默认统一字号**(该分类底图字号中位数 × `s`,夹到 1.5..15mm 并保留
-  1 位小数;分类没有地名时回退 4mm),同一分类全部地名同字号;`geo_label_id = label.id`.默认
-  排版只用于打开时的初始生成;之后改纸张尺寸/方向不会重新生成版式,既有 item 的字号保持不变
-  (§5.3).
+  `font_size_mm` ?? **分类默认统一字号**
+  `mapCategoryDefaultFontSizeMm(role)`(`config/text-style.ts` 的 role 表纸张 mm 设计字号,
+  固定值;不随底图尺寸/地图缩放/纸张尺寸变化),同一分类全部地名同
+  字号;`geo_label_id = label.id`.默认排版只用于打开时的初始生成;之后改纸张尺寸/方向不会重新
+  生成版式,既有 item 的字号保持不变(§5.3).
 - **可选块降级**:`hasLegend = geo.legend.entries.length > 0`,
-  `hasNotes = suggestions.notes 有非空行`,`hasColorbar = geo.relief !== null`.
+  `hasNotes = suggestions.notes 有非空字符串`,`hasColorbar = geo.relief !== null`.
   - `hasLegend` 为假 -> 不生成 legend item,也不留空图例框;
   - `hasColorbar` 为假 -> 不生成 colorbar item;
   - `title`/`subtitle`/`source` 只在 `suggestions` 对应字段非空时生成;`notes` 折行后为空也不生成;
@@ -848,6 +879,14 @@ interface BaseSvgInfo {
 - **C2**:不含 `<text`(纯地图;注释/标题/刻度文字都不允许).
 - **C3**:`</svg>` 恰好 1 次且位于文件末尾(之后允许空 / 一个 `\n` / `\r\n`).
 - **C4**:不含 `mapdoc-overlay` / `mapdoc-final` 痕迹(防止把已经合成过的成品再当底图内联).
+- **C5**:不含活跃内容--`<script>`(含命名空间前缀),`<foreignObject>`,`on*` 事件属性,
+  `javascript:`(含数字实体混淆),`xml:base`. 底图 `inner` 会被成品原样内联,脚本会随
+  final.svg 分发执行;编辑器预览用 `<image>` 不执行脚本,所以打开阶段就必须拒绝.
+- **C6**:不含 XML 1.0 不允许的控制字符(除 `\t`/`\n`/`\r` 外的 C0,U+FFFE/U+FFFF);
+  一个 U+0001 就让 final.svg 非良构. 页面文字侧由 `render/page-format.ts` 的转义出口替换成 U+FFFD.
+- **C7**:内联 `<style>` 只允许几何渲染类声明(描边连接/端点/虚线/填充规则/渲染提示等),
+  选择器只允许 `*`;`@` 规则/`url()`/CSS 转义/`fill`/`stroke`/`font` 等一律拒绝.
+  底图样式是文档级 CSS,会改到成品里的页面文字(预览经 `<image>` 看不出来).
 - `warnings`:根标签 `width`/`height` 与 viewBox 的 `w/h` 不一致(只告警,不拒绝).
 - 打开流程另有约束:文件名 `.svg`;字节必须能**严格**按 UTF-8 解码(坏字节直接拒绝,因为有损文本
   会让 sha256 与切片都不可信);`errors` 非空即拒绝打开.
@@ -898,7 +937,7 @@ interface BaseSvgInfo {
 0. 文件读取:`app/page-main.ts` 只把 `File` 读成字节;分栏与解码都在 `core/open-map.ts`--
    先按扩展名分桶(不识别文件先被拒),再只对入选的 SVG/JSON 严格 UTF-8 解码
    (`fatal: true`,**保留 BOM**;JSON 在 parse 前单独去 BOM,避免带 BOM 的底图重编码后 sha 漂移).
-1. 底图 / 成品识别:先按路径 1 试 `readBaseSvg`;C1–C4 全过即「底图 + geo」.
+1. 底图 / 成品识别:先按路径 1 试 `readBaseSvg`;C1–C7 全过即「底图 + geo」.
    否则 `readFinalSvg` 判断是否成品(`mapdoc-map` / `mapdoc-overlay` / `mapdoc-final` / 内嵌 metadata 任一
    命中);带内嵌可编辑源 -> 路径 2(有 JSON 时只做交叉校验);**没有内嵌源 -> 直接拒绝**(旧版成品
    不再支持,提示重新导入 `base.svg + geo.json` 后重新导出);都不是才报「底图不符合契约」.
@@ -921,7 +960,8 @@ interface BaseSvgInfo {
    `center_h` 为 `true`,margin 有负值等)-> 告警并改用 `defaultPageLayout`;缺省 ->
    `defaultPageLayout`(后两者都标脏).**旧 pt page 块不迁移,不向后兼容**:没有「按旧字段补默认值再
    打开」的分支.**排版确定后统一按分类重建每条文字样式**(`core/text-style.ts` 的 `resyncTextStyles`):
-   - 颜色/斜体/字重/字距/行高/光晕以分类覆盖为准;地图分类字号强制统一(覆盖 ?? 中位数 × `s`),
+   - 颜色/斜体/字重/字距/行高/光晕以分类覆盖为准;地图分类字号强制统一(覆盖 ??
+     `MAP_LABEL_ROLE_STYLES[role].font_size_mm` 纸张 mm 设计常量),
      页面分类字号按「覆盖 ?? 该分类现有 item 的字号 ?? 固定默认字号」回退--页面默认字号固定,
      不随纸张缩放;item 里已有的字号优先保留,重建不会误改;
    - 若文件里存的逐条样式与上述口径不一致:覆盖并标脏,并告警「旧排版中的逐条文字样式已按分类
@@ -941,7 +981,7 @@ interface BaseSvgInfo {
 
 错误语义汇总(文案以 `core/open-map.ts` / `app/page-main.ts` 为准):没有收到文件 / 不识别的文件 /
 缺少或重复的 SVG / 多于一个 geo / 文件不是 UTF-8 / 不是合法 JSON / `format` 不是 `mapdoc-geo` 或
-`version` 不是 2(旧 v1 geo / 旧 `scene.json` 走这条)/ 底图不符合契约(列出前几条 C1–C4)/ geo 校验失败
+`version` 不是 2(旧 v1 geo / 旧 `scene.json` 走这条)/ 底图不符合契约(列出前几条 C1–C7)/ geo 校验失败
 (列出前几条)/ sha256 不一致 / viewBox 不一致 / 尺寸不一致 / 成品缺少内嵌可编辑源(旧版成品不再支持,
 提示重新导入导出)/ 成品内嵌源不可用 / 成品与所选 geo 不配套(marker 摘要不一致)/ page 块不合法
 (缺 `paper.locked`/`margin`;缺 `geo_label_id`,缺 `center_h` 或地图地名 `center_h=true`,改用默认排版
@@ -959,6 +999,11 @@ interface BaseSvgInfo {
   文件名);API 不可用,被权限策略拦住或写入选定路径失败时,退回 `Blob` + `<a download>` 默认下载,
   objectURL 延迟 revoke(`PAGE_DOWNLOAD_REVOKE_MS`).用户在保存对话框取消 -> 提示「已取消导出」,
   **不清脏标记,不提示成功**;写入失败退回下载时按已导出处理(内容已交给浏览器).
+- **导出前自检(唯一出口)**:`exportGeo` / `exportFinal` 先跑
+  `exportPageErrors(layout, geo)`(=`validatePage(normalizePage(layout), geo)`,见
+  `core/page.ts`);错误非空则中文报错并**拒绝导出**,保持脏标记.为什么必须:self-
+  editor 曾能写出自己打不开的 page 块(越界样式值,超长文字行等),导出显示成功后重开
+  时整份排版回退默认版式,再导出就永久覆盖--自检把"保存后打不开"提前成"保存时报错".
 - **导出 geo.json**:`serializeMapDocFile(geo, layout)`(`page` 数字 3 位小数,`geo` 数字保持 Cartopy
   原样精度,键排序,2 空格缩进,末尾一个换行)-> 保存;成功即清脏标记.`page` 块走 `normalizePage`,
   会再执行一次左右居中约束并把 `center_h` 随 `items[]` 一起落盘.geo.json 是排版唯一的持久化
@@ -1001,7 +1046,7 @@ src/config/page.ts              # 格式标识,上传 accept,校验容差,纸张
 src/config/text-style.ts        # 文字样式常量与分类元信息(role 颜色表,页面文字默认字号(mm),
                                 #   20 个分类 = 6 页面文字 + 14 地图地名 与两组顺序;样式唯一真源;
                                 #   分类描述 description / 示例 example / 语义小标题 section)
-src/core/base-svg.ts            # 底图契约 C1–C4 + 根标签内原文切片 inner/prefix/suffix(纯逻辑)
+src/core/base-svg.ts            # 底图契约 C1–C7 + 根标签内原文切片 inner/prefix/suffix(纯逻辑)
 src/core/open-map.ts            # 两条打开路径:分栏 -> 校验 -> PageDocument + 初始排版(纯逻辑);
                                 #   打开时按分类重建文字样式(resyncTextStyles)并贴合居中约束;
                                 #   旧版成品(无内嵌可编辑源)直接拒绝
@@ -1023,7 +1068,10 @@ src/ui/page-open.ts             # 上传面板(SVG / JSON 两栏各自选择 + �
 src/ui/page-sidebar.ts          # 右侧属性面板编排:面板壳 / sync / 元素列表 / 选中项重建
 src/ui/page-sidebar-context.ts  # 面板模块与侧栏状态的唯一契约(PageSidebarHandlers / SidebarContext,
                                 #   含 onMarginGuideChange)
-src/ui/page-sidebar-controls.ts # 控件登记表(数字/颜色/文本/开关/分段 + 未聚焦控件回写)
+src/ui/page-sidebar-controls.ts # 控件登记表(数字/颜色/文本/开关/分段 + 未聚焦控件回写;
+                                #   数字写入按契约边界夹取,防止导出自己打不开的 page 块)
+src/ui/keyboard-guard.ts        # 模态键盘守卫:模态计数(acquire/release/isModalOpen)+
+                                #   isEditableTarget;模态打开期间编辑器快捷键让路
 src/ui/page-panel-paper.ts      # 「页面」面板:纸张锁 + 预设/方向/宽高 + 页边距(聚焦边距输入时高亮
                                 #   内容框);改纸张不移动已放置元素
 src/ui/page-panel-map.ts        # 「地图」面板:摆放(mm)/派生高度/图框/刻度样式
@@ -1049,7 +1097,7 @@ tests/core/page-bounds.test.ts  # itemBoundsMm 几何框(纸张 mm,无 map 空�
 tests/core/text-autowrap.test.ts # enforceAutoWrap/effectiveAutoWrapWidth(页边距回退宽度)
 tests/core/fonts.test.ts        # 全项目字体栈:TS 常量与 styles.css 的 --font-family-base 一致
 tests/core/text-style.test.ts   # 分类映射,覆盖解析,批量应用/恢复默认,resyncTextStyles
-tests/core/base-svg.test.ts     # 底图 C1–C4 与 inner/prefix/suffix 切片
+tests/core/base-svg.test.ts     # 底图 C1–C7 与 inner/prefix/suffix 切片
 tests/core/base64.test.ts       # UTF-8 base64 往返与坏数据
 tests/core/final-svg.test.ts    # 内嵌源读取,底图逐字节还原
 tests/core/open-map.test.ts     # 两条打开路径,成品往返字节幂等,旧版成品拒绝,旧 pt page 块回退默认,错误文案
@@ -1116,7 +1164,7 @@ tests/render/compose-svg.test.ts # 合成结构(mm 根标签),marker,内嵌源,�
     该分类全部 item;地图分类只有一个「字号(mm)」数字,改任意字段(哪怕只改颜色)都会把该分类
     全部地名统一到窗口值.字号/行高/字距/光晕宽度四个数字字段旁各有 reset 按钮:点它删除该字段
     覆盖,恢复代码默认值(不是把默认值写成覆盖),字段值已是默认时禁用;页面分类字号写回固定
-    默认值,地图分类字号回到分类默认统一字号(该分类地名原始字号中位数 × 地图缩放),光晕宽度
+    默认值,地图分类字号回到分类默认统一字号(role 表纸张 mm 设计字号),光晕宽度
     只重置宽度,保留当前颜色.分类头「恢复「X」默认值」仍保留,用于整分类恢复.
   - 关闭方式:头部「关闭」按钮,`Esc`,点遮罩(窗口不设底部操作条);窗口打开时焦点进面板,关闭后归还打开前的
     焦点.窗口读写最新 layout/geo,与当前文档同生命周期(换文档时销毁);外部 `sync` 就地刷新数值,
@@ -1167,8 +1215,8 @@ tests/render/compose-svg.test.ts # 合成结构(mm 根标签),marker,内嵌源,�
    宽度旁各有 reset 按钮(字段值为默认时禁用)-> 改「城市」颜色/字号/字重/行高 -> 画布上全部城市
    标注立即变化,右侧选中该分类后字段值同步;改「页面文字/标题」字号 -> 标题立即变化;地图分类
    改字号后该分类全部地名**严格同字号**(只改颜色等其它字段时也保持统一);「恢复默认」-> 该分类
-   回到默认样式,页面分类回到固定默认字号,地图分类回到「分类默认统一字号」(该分类底图字号中位数
-   × 缩放,全部地名相等).字段级 reset:把「城市」字号改掉后点字号旁的 reset -> 字号回分类默认
+   回到默认样式,页面分类回到固定默认字号,地图分类回到「分类默认统一字号」(role 表纸张 mm
+   设计字号,全部地名相等).字段级 reset:把「城市」字号改掉后点字号旁的 reset -> 字号回分类默认
    统一字号,`page.text_style` 里该分类的 `font_size_mm` 覆盖键消失;行高/字距/光晕宽度同理
    (光晕宽度只重置宽度,保留颜色),字段值已是默认时按钮禁用.导出 `geo.json` 含
    `page.text_style`(只出现用户设过的分类/字段);重新打开该 geo.json 样式原样恢复;改纸张尺寸/
@@ -1190,7 +1238,7 @@ tests/render/compose-svg.test.ts # 合成结构(mm 根标签),marker,内嵌源,�
     (不标脏,不出现「逐条文字样式已按分类设置统一」告警),再次导出字节一致.打开保留了非固定
     字号的 page 块(例如 4mm 标题)时:样式设置分类头显示「排版值」,恢复默认可用;
     点击后状态回到「默认」,字号写回当前固定默认值(标题 6mm),画布字号随之变化.地图分类字号
-    仍恒为「覆盖 ?? 中位数 × `s`」.
+    仍恒为「覆盖 ?? `MAP_LABEL_ROLE_STYLES[role].font_size_mm`(纸张 mm 设计常量)」.
 12. **排版值状态**:页面分类无覆盖,当前字号与固定默认字号不同 -> 分类头状态显示「排版值」,
     「恢复「X」默认值」可用;点击后状态回到「默认」,字号变为固定默认值.地图分类无覆盖时仍显示
     「默认」且恢复按钮禁用;「排版值」不会点亮左列的「已改」标记.
@@ -1235,9 +1283,12 @@ tests/render/compose-svg.test.ts # 合成结构(mm 根标签),marker,内嵌源,�
   (界面侧由 `styles.css` 的 `--font-family-base` 覆盖 miko_ui 默认值).本编辑器不提供逐文档
   字体选择:文件里的 `font_family` 原样沿用,手改的自定义字体串保留但不参与界面口径.
 - **自动换行覆盖页面注记与来源**:标题/副标题/标注/地名(手动)仍只在默认排版时按宽度折一次
-  写进 `lines`,之后改内容/字号不会重排;地图地名按底图给的分行渲染.来源的折行按「页底说明」
-  口径:最后一行保持贴住页底边距.**不做两端对齐**;字距按 item 的 `letter_spacing_em` 渲染并
-  参与注记/来源折行测量.
+  写进 `lines`,之后改内容/字号不会重排;地图地名**不做自动折行**(单行文案与位置都来自底图).
+  来源的折行按「页底说明」口径:最后一行保持贴住页底边距.**不做两端对齐**;字距按 item 的
+  `letter_spacing_em` 渲染并参与注记/来源折行测量.
+- **图例描边线宽 0 合法,hatch 不渲染**:条目 `width_mm`(来自 geo `width_pt`)**允许 0**(只要求
+  非负),`0` = 纯填色 / hatch 条目没有描边边线;geo 的 `legend.entries[].hatch` 当前不渲染(色块
+  按 `fill` 纯填色),数据随 geo.json 原样透传,导出不丢.
 - **文字样式按分类统一覆盖**:单条 item 没有独立样式字段(侧栏只留内容/角色/对齐/旋转),改样式
   只能在「样式设置」窗口按分类改,一次应用到该分类全部 item;要单条不同只能换角色/分类.
   **分类样式是唯一真源**:打开带 `page` 块的排版后会按分类重算每条 text item 的样式
@@ -1246,7 +1297,9 @@ tests/render/compose-svg.test.ts # 合成结构(mm 根标签),marker,内嵌源,�
   逐条样式与分类口径不一致会被覆盖,标脏并告警「旧排版中的逐条文字样式已按分类设置统一(N 条)」;
   **旧 pt page 块不再兼容**:仍用 `*_pt`/`space` 字段的排版被静默忽略并回退默认排版(不迁移,
   不补默认值,不告警);缺 `paper.locked`/`margin` 但无旧字段的排版校验不合法,会告警并回退.
-  **地图标注按分类强制统一字号**,不能逐条保留底图字号层级.
+  **地图标注按分类强制统一字号**(分类字号 = 前端纸张 mm 设计常量,不随底图/纸张缩放),
+  因此旧图同 role 的逐条字号层级,中/英双语同 role 的字号层级都不再保留(双语同 role 恒同字号)--
+  这是明确契约,不是待办.
 - **页面文字字号固定**:标题/副标题/注记/来源默认 6/3/3/2mm,不随纸张尺寸缩放;
   排版里已有的其它字号显示为「排版值」,点「恢复默认」写回固定默认值.
 - **页边距只是版心参考**:`page.margin` 四边(mm)不参与排版计算,不移动已放置元素,只用于编辑时

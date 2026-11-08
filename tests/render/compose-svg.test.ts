@@ -242,12 +242,14 @@ describe('composeFinalSvg:text(§5.3)', () => {
 
   it('多行 + 旋转:整组绕第一行锚点旋转,行距 = 字号 × 行高', () => {
     const { document, layout } = setup();
+    // 新契约 geo.labels.text 是单行;多行是 TextItem 的能力(手动换行/旧产物容错),
+    // 这里就地给第一条地名字名造两行,继续验证多行渲染口径.
     const label = layout.items.find(
-      (item): item is TextItem =>
-        item.kind === 'text' && item.geo_label_id !== null && item.lines.length > 1,
+      (item): item is TextItem => item.kind === 'text' && item.geo_label_id !== null,
     );
     expect(label).toBeDefined();
     if (label === undefined) return;
+    label.lines = ['乙河', '第二行'];
     // geo v2 的生成端不再给旋转(默认 0);这里手动设置,验证 TextItem 仍支持旋转渲染
     label.rotation_deg = -30;
     const result = composeFinalSvg(document, layout);
@@ -513,5 +515,23 @@ describe('composeFinalSvg:内嵌可编辑源(§6.2)', () => {
     const second = composeFinalSvg(document, layout).svg;
     expect(second).toBe(first);
     expect(first.match(/<metadata id="mapdoc-source">/g)).toHaveLength(1);
+  });
+});
+
+describe('composeFinalSvg:XML 1.0 非法控制字符(用户文字必须转义兜住)', () => {
+  it('标题里的 U+0001 不出现在成品里,替换成 U+FFFD,成品仍可用 XML 解析', () => {
+    const document = makeDocument();
+    const layout = defaultPageLayout(document.geo);
+    const title = layout.items.find(
+      (item): item is TextItem => item.kind === 'text' && item.role === 'title',
+    );
+    if (title === undefined) throw new Error('fixture 缺少标题');
+    title.lines = ['标题\u0001坏字符'];
+    const svg = composeFinalSvg(document, layout).svg;
+    expect(svg.includes('\u0001')).toBe(false);
+    expect(svg.includes('\uFFFD')).toBe(true);
+    // 粗解析:标签成对/文本里没有裸控制字符(完整 XML 解析在浏览器侧由验收覆盖)
+    expect(svg.startsWith('<?xml')).toBe(true);
+    expect(svg.trimEnd().endsWith('</svg>')).toBe(true);
   });
 });

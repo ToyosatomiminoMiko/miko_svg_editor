@@ -26,6 +26,7 @@ import type { ToolbarHandle, ToolbarHandlers } from '../ui/toolbar';
 import type { MeasureText, Point, Vec } from '../core/types';
 import { EditorControls, createToolbarHandlers } from '../ui/editor-controls';
 import { HintEditor } from '../ui/hint-editor';
+import { isEditableTarget, isModalOpen } from '../ui/keyboard-guard';
 import { StatusPanel } from '../ui/status-panel';
 import { applyPan, beginPan, wheelZoom, type PanAnchor } from '../core/viewport';
 import { TOOLS, type ClickInput } from '../core/operations';
@@ -259,6 +260,9 @@ export class Editor {
 
   private onKeyDown(ev: KeyboardEvent): void {
     if (this.hintEditor.editing) return; // 输入框自己处理按键
+    // 模态层(确认框等)打开时让路:确认框焦点在按钮上,Delete 会穿透删掉选中图元,
+    // 而草图编辑器没有撤销;焦点在可编辑控件/表单控件上时同理.
+    if (isModalOpen() || isEditableTarget(ev.target)) return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
 
     if (ev.key === 'Enter') {

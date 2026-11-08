@@ -25,7 +25,7 @@ import { FONT_FAMILY_STACK } from './fonts';
 export const PAGE_GEO_FORMAT = 'mapdoc-geo';
 
 /**
- * 版本:必须精确匹配.geo v2 的 `labels[]` 只含 role/text/位置/锚点/字号,
+ * 版本:必须精确匹配.geo v2 的 `labels[]` 只含 role/text/位置/锚点/叠放顺序,
  * 样式由 `config/text-style.ts` 决定;旧 v1 产物直接拒绝(提示用更新的 Cartopy 重新生成).
  * 排版块仍是同一份文档里的可选 `page` 键,不参与 geo 版本号.
  */
@@ -163,8 +163,19 @@ export const PAGE_DEFAULT_COLUMN_GAP_MM = 6;
 export const PAGE_DEFAULT_RIGHT_COLUMN_MIN_MM = 53;
 export const PAGE_DEFAULT_RIGHT_COLUMN_MAX_MM = 92;
 
-/** 页面底部给「来源」一行预留的高度(mm,含与地图的间隔) */
+/**
+ * 页面底部给「来源」预留的最小高度(mm,含与地图的间隔).
+ * 实际预留值取 max(本值, 图框刻度带 + 折行后来源块高 + `PAGE_SOURCE_CLEARANCE_MM`):
+ * 来源是自动折行的整段文案,块顶位置随行数变化,不能只按「一行」估.
+ */
 export const PAGE_SOURCE_RESERVED_MM = 9;
+
+/**
+ * 页底来源块与图框下方刻度文字之间的净空(mm).
+ * 为什么需要:刻度文字画在图框下方 `tick_length + tick_gap + tick_font_size` 的位置,
+ * 来源块贴着页边距向上排;来源折成多行时块顶会升到刻度带里,必须按实际行数留出这段间隔.
+ */
+export const PAGE_SOURCE_CLEARANCE_MM = 3;
 
 /** 默认字号(mm) */
 export const PAGE_TITLE_SIZE_MM = 6;

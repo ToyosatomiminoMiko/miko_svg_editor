@@ -25,9 +25,36 @@ export function formatPageNumber(value: number, decimals: number = PAGE_DECIMALS
   return String(rounded);
 }
 
-/** XML 文本转义:`& < >`(契约 §5.3;属性值另外还要转引号) */
+/**
+ * 把 XML 1.0 不允许的字符(除 \t \n \r 外的 C0 控制字符,U+FFFE/U+FFFF)替换成 U+FFFD.
+ *
+ * 为什么不是直接删:替换字符能让"这里原本有个坏字符"在视觉上可发现,而删除会静默改文案;
+ * 无论哪种,都比让整份 final.svg 因一个控制字符变成非良构文件好.
+ * 为什么用逐字符循环而不是正则:ESLint 的 `no-control-regex` 会拒绝含控制字符的正则字面量,
+ * 而用字符串拼正则只是绕过规则,并不让口径更清楚;这里的集合很小,循环最直白.
+ */
+function sanitizeXmlText(text: string): string {
+  let out = '';
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    const control = code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d;
+    out += control || code === 0xfffe || code === 0xffff ? '\uFFFD' : char;
+  }
+  return out;
+}
+
+/**
+ * XML 文本转义:`& < >`(契约 §5.3;属性值另外还要转引号).
+ *
+ * XML 1.0 不允许的字符(除 \t \n \r 外的 C0 控制字符,U+FFFE/U+FFFF)先替换成
+ * U+FFFD:一个 U+0001 就能让整份 final.svg 非良构(浏览器报 Invalid character,
+ * Python ElementTree 抛 ParseError),而文字内容来自用户输入/剪贴板,必须在转义出口兜住.
+ */
 export function escapeXmlText(text: string): string {
-  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  return sanitizeXmlText(text)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
 
 /** XML 属性转义:在文本转义基础上加 `"` 与 `'` */

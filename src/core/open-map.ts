@@ -188,7 +188,11 @@ function buildPageLayout(
     } else {
       // 先保留原始形状,等 resync/居中约束统计完「改动了什么」再统一 normalize,
       // 否则 normalizePage 内部就会把 x 纠回中心,打开告警里说不清是哪一步改的.
-      layout = result.layout;
+      // `text_style` 在契约里是可选的(缺省 = 无覆盖),但 resync 等函数按类型直取
+      // `layout.text_style[category]`;这里按契约补空表,避免只缺可选字段就抛 TypeError.
+      const raw: PageLayout = result.layout;
+      const overrides = (raw as Partial<PageLayout>).text_style;
+      layout = overrides === undefined || overrides === null ? { ...raw, text_style: {} } : raw;
       warnings.push(...result.warnings);
       dirty = false;
     }
@@ -388,6 +392,12 @@ function openFromFinalOnly(
  * 为什么不再走 marker.page 全量配对:Cartopy 原始 geo.json 没有 `page` 块,
  * 而「成品 + 该 geo」其实等价于只打开成品(底图身份相同),旧实现会因 page 缺失误拒.
  * 若所选 JSON 带排版且与成品不一致,仍必须拒绝:那多半是配错了文件,继续打开会得到假文档.
+ *
+ * 关键口径:`marker.page` 是**导出当时**对 page 块算的摘要,对照对象必须是所选 JSON 里
+ * **存储的** page 块,不能是 `buildPageLayout` 重算后的 layout--重算会跑 resync/rewrap
+ * (例如旧版本导出的成对产物,或换机器后字体测量不同),摘要必然失配,把本来配套的一对
+ * 文件误判成「JSON 拿错了」.重算后的差异属于「打开时会重排」,由 final-only 路径的
+ * 告警/脏标记表达,不参与配对判定.
  */
 function openFromFinalWithProvidedGeo(
   svgFileName: string,
@@ -397,19 +407,24 @@ function openFromFinalWithProvidedGeo(
   measureText: MeasureText | undefined,
 ): OpenedMap {
   const providedGeo = checkedGeo(parsed);
-  const hasPage = pageValueOf(parsed) !== null;
+  const storedPageValue = pageValueOf(parsed);
+  const hasPage = storedPageValue !== null;
   const marker = final.marker;
   const notices: string[] = [];
   if (marker !== null) {
     if (hasPage) {
-      const providedLayout = buildPageLayout(providedGeo, pageValueOf(parsed), measureText).layout;
-      if (
-        marker.geo !== geoDigest(providedGeo) ||
-        !markerPageMatches(marker.page, providedLayout)
-      ) {
-        throw new Error(
-          '所选的 geo.json 与这份成品 SVG 不配套(marker 摘要不一致):请选择导出该 SVG 时同时导出的 geo.json,或只打开成品 SVG',
+      const stored = validatePage(storedPageValue, providedGeo);
+      if (!stored.ok) {
+        notices.push(
+          `所选 geo.json 的 page 排版块不合法:已改用成品 SVG 自带的排版(${stored.errors.slice(0, 3).join(';')})`,
         );
+      } else {
+        const storedDigest = pageDigest(normalizePage(stored.layout));
+        if (marker.geo !== geoDigest(providedGeo) || storedDigest !== marker.page) {
+          throw new Error(
+            '所选的 geo.json 与这份成品 SVG 不配套(marker 摘要不一致):请选择导出该 SVG 时同时导出的 geo.json,或只打开成品 SVG',
+          );
+        }
       }
     } else {
       if (marker.geo !== geoDigest(providedGeo)) {

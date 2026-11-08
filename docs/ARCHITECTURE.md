@@ -70,30 +70,30 @@ flowchart TB
 
 ### 1.3 `src/core/`:纯逻辑领域层(可在 node 里直接测)
 
-| 文件                | 一句话职责                                                                                                |
-| ------------------- | --------------------------------------------------------------------------------------------------------- |
-| `types.ts`          | 非图元的数据类型:`Point`,`Constraint`,`Selection`,`Snap`,`Marquee`,`MeasureText` 等                       |
-| `vec.ts`            | 二维向量纯函数(`safeLen` 零长度返回 1,供残差归一化)                                                       |
-| `camera.ts`         | 世界 ↔ 屏幕换算,缩放钳制,网格间距;全局 `cam` 快照 `CameraView`                                            |
-| `viewport.ts`       | 视图交互写入口:`fitView` / `wheelZoom` / `beginPan` / `applyPan`                                          |
-| `state.ts`          | 交互状态单例 `state` + 有序选择集操作(`setSelection` / `deselect` / `toggleSelected` 等)                  |
-| `model.ts`          | 点/图元/约束容器单例 `model`(`pts`/`ents`/`cons`/`seq`)与增删查,级联清理,注入门面                         |
-| `entities.ts`       | 图元多态类 `EntityBase` 子类(直线/圆/圆弧/点图元)-> 几何归一为 `EntityPrimitive`                          |
-| `geometry.ts`       | 拾取,吸附,包围盒,框选判定;只对 `segment`/`circular`/`dot` 三种基元写一次数学                              |
-| `constraints.ts`    | 引用校验 `isConstraintRefsValid` + 残差表 `RESID`(`Record<ConstraintKind, ...>` 强制穷尽)                 |
-| `solver.ts`         | `solveSketch`:LM + 数值雅可比,原地写回点坐标/圆半径,报告 `invalidConstraints`                             |
-| `dimensions.ts`     | 尺寸单一元数据表 `DIM_META`:取值/设值/文案/校验/布局/命中/拖拽/图元匹配                                   |
-| `selection.ts`      | 选择语义:单击/Shift/框选方向,拖拽点集,已选列表数据,命令悬停候选                                           |
-| `sketch-actions.ts` | 原子领域动作与统一求解入口 `solve`:画图/加约束/删除/固定/构造/尺寸/拖拽                                   |
-| `operations.ts`     | 统一操作引擎:`Operand`/`SlotSpec`/`OperationMeta`,命令会话,槽位填充,命令文案/预览,`TOOLS`                 |
-| `text-style.ts`     | 地图排版页:分类文字样式解析/批量应用/恢复默认(整分类与单字段),分类默认统一字号,打开时按分类重建逐条样式   |
-| `base-svg.ts`       | 地图排版页:底图契约 C1–C4 + 根标签内原文切片 inner/prefix/suffix(纯逻辑)                                  |
-| `open-map.ts`       | 地图排版页:两条打开路径(底图+geo / 内嵌源的成品 SVG)-> PageDocument + 初始排版;旧版成品直接拒绝           |
-| `final-svg.ts`      | 地图排版页:成品 SVG 再编辑(内嵌源读取,mapdoc-map 定位,底图逐字节还原)                                     |
-| `base64.ts`         | 地图排版页:内嵌源/marker 的 UTF-8 base64 编解码                                                           |
-| `document.ts`       | 地图排版页:PageDocument + createPageDocument 一致性校验 + 上传分类/导出文件名                             |
-| `page.ts`           | 地图排版页:geo/page 类型,normalize/validate(含 `paper.locked` 与 `margin`),center_h 约束,digest/serialize |
-| `page-layout.ts`    | 地图排版页:§5 布局公式(mm)+ `defaultPageLayout` + `remapMapLabelItems` + `itemBoundsMm`(页边距不参与版式) |
+| 文件                | 一句话职责                                                                                                      |
+| ------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `types.ts`          | 非图元的数据类型:`Point`,`Constraint`,`Selection`,`Snap`,`Marquee`,`MeasureText` 等                             |
+| `vec.ts`            | 二维向量纯函数(`safeLen` 零长度返回 1,供残差归一化)                                                             |
+| `camera.ts`         | 世界 ↔ 屏幕换算,缩放钳制,网格间距;全局 `cam` 快照 `CameraView`                                                  |
+| `viewport.ts`       | 视图交互写入口:`fitView` / `wheelZoom` / `beginPan` / `applyPan`                                                |
+| `state.ts`          | 交互状态单例 `state` + 有序选择集操作(`setSelection` / `deselect` / `toggleSelected` 等)                        |
+| `model.ts`          | 点/图元/约束容器单例 `model`(`pts`/`ents`/`cons`/`seq`)与增删查,级联清理,注入门面                               |
+| `entities.ts`       | 图元多态类 `EntityBase` 子类(直线/圆/圆弧/点图元)-> 几何归一为 `EntityPrimitive`                                |
+| `geometry.ts`       | 拾取,吸附,包围盒,框选判定;只对 `segment`/`circular`/`dot` 三种基元写一次数学                                    |
+| `constraints.ts`    | 引用校验 `isConstraintRefsValid` + 残差表 `RESID`(`Record<ConstraintKind, ...>` 强制穷尽)                       |
+| `solver.ts`         | `solveSketch`:LM + 数值雅可比,原地写回点坐标/圆半径,报告 `invalidConstraints`                                   |
+| `dimensions.ts`     | 尺寸单一元数据表 `DIM_META`:取值/设值/文案/校验/布局/命中/拖拽/图元匹配                                         |
+| `selection.ts`      | 选择语义:单击/Shift/框选方向,拖拽点集,已选列表数据,命令悬停候选                                                 |
+| `sketch-actions.ts` | 原子领域动作与统一求解入口 `solve`:画图/加约束/删除/固定/构造/尺寸/拖拽                                         |
+| `operations.ts`     | 统一操作引擎:`Operand`/`SlotSpec`/`OperationMeta`,命令会话,槽位填充,命令文案/预览,`TOOLS`                       |
+| `text-style.ts`     | 地图排版页:分类文字样式解析/批量应用/恢复默认(整分类与单字段),地图分类统一字号(覆盖 ?? role 表纸张 mm 设计字号) |
+| `base-svg.ts`       | 地图排版页:底图契约 C1–C4 + 根标签内原文切片 inner/prefix/suffix(纯逻辑)                                        |
+| `open-map.ts`       | 地图排版页:两条打开路径(底图+geo / 内嵌源的成品 SVG)-> PageDocument + 初始排版;旧版成品直接拒绝                 |
+| `final-svg.ts`      | 地图排版页:成品 SVG 再编辑(内嵌源读取,mapdoc-map 定位,底图逐字节还原)                                           |
+| `base64.ts`         | 地图排版页:内嵌源/marker 的 UTF-8 base64 编解码                                                                 |
+| `document.ts`       | 地图排版页:PageDocument + createPageDocument 一致性校验 + 上传分类/导出文件名                                   |
+| `page.ts`           | 地图排版页:geo/page 类型,normalize/validate(含 `paper.locked` 与 `margin`),center_h 约束,digest/serialize       |
+| `page-layout.ts`    | 地图排版页:§5 布局公式(mm)+ `defaultPageLayout` + `remapMapLabelItems` + `itemBoundsMm`(页边距不参与版式)       |
 
 ### 1.4 `src/render/`:绘图与输出层
 
@@ -147,21 +147,21 @@ flowchart TB
 
 ### 1.6 `src/config/`:常量与元数据
 
-| 文件                  | 一句话职责                                                                                                                                                         |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `index.ts`            | 汇总出口;业务代码统一 `from '../config'`,不深引内部文件                                                                                                            |
-| `angle.ts`            | `TAU` / `sweepOf` / `normalizeAngle` / `isFullSweep` / 折线段数                                                                                                    |
-| `constraints-meta.ts` | 16 种约束的 `CONSTRAINT_META`(label / refs / unorderedRefs)+ 去重键 + 引用字段推导                                                                                 |
-| `export.ts`           | 导出标定:颜色/线宽/精度/文件名/虚线/点半径/空图文案                                                                                                                |
-| `format.ts`           | `formatNumber` / `formatDimValue`(显示格式;回填用全精度 `String(value)`)                                                                                           |
-| `layout.ts`           | 侧栏宽度记忆键与键盘步长;CSS 读不到时的兜底值                                                                                                                      |
-| `limits.ts`           | 视图/模型上限:缩放范围,网格,退化阈值,id 初值                                                                                                                       |
-| `solver.ts`           | LM 迭代预算 `ITER_*`,收敛阈值,λ 超参,雅可比步长                                                                                                                    |
-| `tolerances.ts`       | 拾取/吸附/尺寸命中/拖拽阈值(屏幕像素)+ `worldTol` + 吸附优先级                                                                                                     |
-| `ui.ts`               | 无法用 CSS 表达的交互常量(滚轮灵敏度,尺寸文字留白,角度弧最小半径等)                                                                                                |
-| `page.ts`             | 地图排版页:mm 常量(纸张预设 148×210/210×297/297×420/215.9×279.4,默认 A4 横向 297×210,页边距默认 0,默认排版内缩/字号/间距,长度范围,交互步长 0.5/5mm,命中容差 0.7mm) |
-| `fonts.ts`            | 地图排版页/全项目:字体栈 `FONT_FAMILY_STACK`(界面/预览/成品唯一真源)+ 拉丁/中文族名(内嵌 `@font-face` 用)                                                          |
-| `text-style.ts`       | 地图排版页:文字样式默认值 + 分类元信息(20 个分类 = 6 页面文字 + 14 地图地名;页面文字默认字号 mm;样式唯一真源)                                                      |
+| 文件                  | 一句话职责                                                                                                                                                                         |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`            | 汇总出口;业务代码统一 `from '../config'`,不深引内部文件                                                                                                                            |
+| `angle.ts`            | `TAU` / `sweepOf` / `normalizeAngle` / `isFullSweep` / 折线段数                                                                                                                    |
+| `constraints-meta.ts` | 16 种约束的 `CONSTRAINT_META`(label / refs / unorderedRefs)+ 去重键 + 引用字段推导                                                                                                 |
+| `export.ts`           | 导出标定:颜色/线宽/精度/文件名/虚线/点半径/空图文案                                                                                                                                |
+| `format.ts`           | `formatNumber` / `formatDimValue`(显示格式;回填用全精度 `String(value)`)                                                                                                           |
+| `layout.ts`           | 侧栏宽度记忆键与键盘步长;CSS 读不到时的兜底值                                                                                                                                      |
+| `limits.ts`           | 视图/模型上限:缩放范围,网格,退化阈值,id 初值                                                                                                                                       |
+| `solver.ts`           | LM 迭代预算 `ITER_*`,收敛阈值,λ 超参,雅可比步长                                                                                                                                    |
+| `tolerances.ts`       | 拾取/吸附/尺寸命中/拖拽阈值(屏幕像素)+ `worldTol` + 吸附优先级                                                                                                                     |
+| `ui.ts`               | 无法用 CSS 表达的交互常量(滚轮灵敏度,尺寸文字留白,角度弧最小半径等)                                                                                                                |
+| `page.ts`             | 地图排版页:mm 常量(纸张预设 148×210/210×297/297×420/215.9×279.4,默认 A4 横向 297×210,页边距默认 0,默认排版内缩/字号/间距,长度范围,交互步长 0.5/5mm,命中容差 0.7mm)                 |
+| `fonts.ts`            | 地图排版页/全项目:字体栈 `FONT_FAMILY_STACK`(界面/预览/成品唯一真源)+ 拉丁/中文族名(内嵌 `@font-face` 用)                                                                          |
+| `text-style.ts`       | 地图排版页:文字样式默认值 + 分类元信息(20 个分类 = 6 页面文字 + 14 地图地名;地图 role 纸张 mm 设计字号 `font_size_mm`(固定值,不随底图/纸张缩放)+ 页面文字默认字号 mm;样式唯一真源) |
 
 ### 1.7 `tests/`
 
@@ -689,8 +689,8 @@ Cartopy_file(另一个仓)直接产出:
   <stem>.svg        纯地图:地形/水系/边界/经纬网/地理坐标点;无 <text>,无字体,
                     无图例/色标/标题/图框/纸白底;viewBox 裁到地图框
   <stem>.geo.json   地理元数据(format mapdoc-geo v2):地图框,经纬网刻度,地名候选
-                    (role/文字/位置/锚点/字号;样式归前端 config/text-style.ts),relief 色带/刻度,
-                    图例样式,默认文案;legend/relief/suggestions 整块可缺省
+                    (role/文字/位置/锚点/叠放顺序;字号与样式归前端 config/text-style.ts),relief 色带/刻度,
+                    图例样式,默认文案(文案一律单行,折行归前端);legend/relief/suggestions 整块可缺省
         │ 浏览器上传(文件选择 / 拖放),按内容分两条路径:
         │   ① base.svg + geo.json ② 一份本编辑器导出的成品 SVG(必须内嵌可编辑源)
         ▼
@@ -704,12 +704,16 @@ map.html(纯静态 Vite 站)
   core/page.ts           geo/page 类型,规范化/校验(含 `paper.locked` 与 `margin`),canonicalJson/
                          digest/serializeMapDocFile;text item 的 `center_h` 左右居中约束
                          (`enforceHorizontalCenter`)
-  core/page-layout.ts    §5 全部布局公式(mm)+ defaultPageLayout(可选块降级;按 text_style 覆盖出分类样式,
-                         地图分类统一字号;页面文字字号固定,不随纸张缩放;初始版式内缩用内部常量,
+  core/page-layout.ts    §5 全部布局公式(mm)+ defaultPageLayout(可选块降级;按 role 表/固定默认字号与
+                         text_style 覆盖出分类样式,地图分类统一字号 = 覆盖 ?? role 表纸张 mm 设计字号;
+                         页面文字字号固定,不随纸张缩放;初始版式内缩用内部常量,
                          返回的 `margin` 是四边 0 的页边距字段,不参与版式;title/subtitle/source
                          默认开启左右居中);mapTransform/remapMapLabelItems/itemBoundsMm
   core/text-style.ts     分类文字样式:item->分类,分类有效样式与默认统一字号解析,覆盖表批量应用与
                          恢复默认,打开时按分类重建逐条样式(resyncTextStyles;纯逻辑);
+                         地图字号 = mapCategoryDefaultFontSizeMm(category) =
+                         MAP_LABEL_ROLE_STYLES[category].font_size_mm(纸张 mm 设计常量,不随底图/纸张缩放;
+                         未知 role 回退 area 的字号);
                          页面分类字号按「覆盖 ?? 该分类现有 item 字号 ?? 固定默认」回退(默认字号不随纸张缩放)
   render/compose-svg.ts  浏览器内合成 final.svg(纯函数)
         │ 编辑:排版只改内存里的 PageLayout
@@ -731,13 +735,13 @@ map.html(纯静态 Vite 站)
 
 ### 15.2 文件与分层落点(两个入口,同一套五层)
 
-| 层        | 草图(`index.html`)            | 地图排版(`map.html`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| --------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `config/` | `config/*.ts`                 | `config/page.ts`:格式标识,上传 accept,校验容差(底图尺寸容差仍是 pt),纸张预设(mm:A5 148×210 / A4 210×297 / A3 297×420 / Letter 215.9×279.4,默认 A4 横向 297×210),页边距默认 0,初始版式内缩/字号/间距常量(mm),页面文字固定默认字号(mm),图例/色标默认值,纸张比例系数 `layoutScaleForPaper`,长度范围,交互步长/命中容差(mm)<br>`config/fonts.ts`:全项目字体栈 `FONT_FAMILY_STACK`(界面/页面/成品唯一真源)+ `LATIN_FONT_FAMILY` / `CJK_FONT_FAMILY`(成品内嵌子集的 `@font-face` 族名)<br>`config/text-style.ts`:文字样式默认值 + 分类元信息(role 颜色表,页面文字固定默认字号,20 个分类 = 6 页面文字 + 14 地图地名 与两组顺序;样式唯一真源,其余层只引用;分类 `description`/`example`/`section` 供窗口说明,示例与语义小标题)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `core/`   | 草图模型/约束/求解/尺寸       | `core/base-svg.ts`:底图 C1–C4 与 inner/prefix/suffix 切片<br>`core/open-map.ts`:两条打开路径 -> PageDocument + 初始排版;打开时重算文字样式(`resyncTextStyles`)并贴合左右居中(有改动标脏+告警)<br>`core/final-svg.ts`:成品 SVG 内嵌源读取 / 底图还原<br>`core/base64.ts`:UTF-8 base64<br>`core/document.ts`:PageDocument,createPageDocument,上传文件分类,导出命名<br>`core/page.ts`:geo/page 类型,规范化/校验/digest/序列化(含 `paper.locked`/`margin`,`text_style`,`geo_label_id`,text item 的 `center_h` 与 `enforceHorizontalCenter`;item 只有纸张 mm 坐标,无 `space`;纯逻辑,node 可测)<br>`core/page-layout.ts`:§5 布局公式(mm)+ `defaultPageLayout(geo, options)`(A4 横向 297×210/自适应纸张,可选块降级,按 `text_style` 覆盖出分类样式与地图分类统一字号,页面文字字号固定不随纸张缩放,初始版式内缩用内部常量,返回的 `margin` 是页边距字段不参与版式,title/subtitle/source 默认开启左右居中)+ `mapTransform`/`remapMapLabelItems`/`itemBoundsMm`<br>`core/text-style.ts`:分类文字样式解析/批量应用/恢复默认,分类默认统一字号,打开时按分类重建逐条样式(resyncTextStyles;纯逻辑);页面分类字号 = 覆盖 ?? 该分类现有 item 字号 ?? 固定默认(默认字号不随纸张缩放,保证导出->打开幂等),地图分类字号恒统一 |
-| `render/` | canvas 渲染 + `export-svg.ts` | `render/page-format.ts`(3 位小数/转义/属性 helper)<br>`render/page-svg.ts`:layout+geo -> 预览 SVG DOM(纸张/底图 image/框/刻度/文字/图例/色标;页边距高亮 `marginGuide` 层只在编辑页边距时显示)<br>`render/compose-svg.ts`:浏览器内合成 final.svg(结构/marker/内嵌源/可选字体子集/report)<br>`render/used-text.ts`:扫成品里的 `<text>` 收集字符集/族名/字重<br>`render/embedded-font.ts`:选要内嵌的字体面 + `@font-face` CSS 字节口径<br>`render/hb-subset.ts`:harfbuzz `hb-subset`(wasm)最小绑定                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `ui/`     | 状态栏/dock/工具条/通知       | `ui/page-open.ts`(上传面板),`ui/page-toolbar.ts`(文件/添加/样式/视图四组),`ui/page-style-window.ts`(样式设置窗口:头部总说明 + 分组列表含数量徽标/已改标记/地图 0 项置灰 + 分类头与实时预览 + 四组字段(字号/行高/字距/光晕宽度旁字段级 reset,已是默认时禁用)+ 恢复默认(整分类)),`ui/page-notify.ts`,`ui/download.ts`;属性面板拆为 `ui/page-sidebar.ts`(编排:面板壳/sync/元素列表)+ `ui/page-sidebar-context.ts`(面板契约)+ `ui/page-sidebar-controls.ts`(控件登记与刷新)+ `ui/page-panel-paper.ts` / `ui/page-panel-map.ts`(页面/地图面板;页面面板有纸张锁 + 预设/方向/宽高(mm)+ 页边距,边距输入聚焦时高亮内容框;改纸张不移动已放置元素)+ `ui/page-fields-common.ts` / `ui/page-fields-text.ts`(x/y(mm) + 页面文字「左右居中」开关(在 x/y 下方,开启时 x 冻结并置灰)/内容/角色/对齐/旋转 + 按当前分类打开样式设置;注记/来源「折行宽度(mm)」;没有「坐标空间」控件) / `ui/page-fields-legend.ts` / `ui/page-fields-colorbar.ts`(元素公共/文字/图例/色标字段)(全部 miko_ui 或标准 DOM)                                                                                                                                                                                                                     |
-| `app/`    | `main.ts` + `editor.ts`       | `page-main.ts`(组合根:File 读成字节 + core/open-map 装配 + 样式窗口生命周期),`page-editor.ts`(选择/拖拽/缩放/导出状态机 + 分类样式补丁 + 每次排版修改后贴合左右居中/自动折行约束 + 地图摆放变化时 `remapMapLabelItems` 搬移地名 + 页边距高亮开关;导出 SVG 时先合成草稿,再裁字体子集,最后带 `font_faces` 再合成),`font-embed.ts`(浏览器侧字体子集编排:取 wasm/资产,裁字,告警)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 层        | 草图(`index.html`)            | 地图排版(`map.html`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config/` | `config/*.ts`                 | `config/page.ts`:格式标识,上传 accept,校验容差(底图尺寸容差仍是 pt),纸张预设(mm:A5 148×210 / A4 210×297 / A3 297×420 / Letter 215.9×279.4,默认 A4 横向 297×210),页边距默认 0,初始版式内缩/字号/间距常量(mm),页面文字固定默认字号(mm),图例/色标默认值,纸张比例系数 `layoutScaleForPaper`,长度范围,交互步长/命中容差(mm)<br>`config/fonts.ts`:全项目字体栈 `FONT_FAMILY_STACK`(界面/页面/成品唯一真源)+ `LATIN_FONT_FAMILY` / `CJK_FONT_FAMILY`(成品内嵌子集的 `@font-face` 族名)<br>`config/text-style.ts`:文字样式默认值 + 分类元信息(role 颜色表 + 纸张 mm 设计字号 `font_size_mm`(固定值,不随底图/纸张缩放),页面文字固定默认字号,20 个分类 = 6 页面文字 + 14 地图地名 与两组顺序;样式唯一真源,其余层只引用;分类 `description`/`example`/`section` 供窗口说明,示例与语义小标题)                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `core/`   | 草图模型/约束/求解/尺寸       | `core/base-svg.ts`:底图 C1–C4 与 inner/prefix/suffix 切片<br>`core/open-map.ts`:两条打开路径 -> PageDocument + 初始排版;打开时重算文字样式(`resyncTextStyles`)并贴合左右居中(有改动标脏+告警)<br>`core/final-svg.ts`:成品 SVG 内嵌源读取 / 底图还原<br>`core/base64.ts`:UTF-8 base64<br>`core/document.ts`:PageDocument,createPageDocument,上传文件分类,导出命名<br>`core/page.ts`:geo/page 类型,规范化/校验/digest/序列化(含 `paper.locked`/`margin`,`text_style`,`geo_label_id`,text item 的 `center_h` 与 `enforceHorizontalCenter`;item 只有纸张 mm 坐标,无 `space`;纯逻辑,node 可测)<br>`core/page-layout.ts`:§5 布局公式(mm)+ `defaultPageLayout(geo, options)`(A4 横向 297×210/自适应纸张,可选块降级,按 `text_style` 覆盖出分类样式与地图分类统一字号,页面文字字号固定不随纸张缩放,初始版式内缩用内部常量,返回的 `margin` 是页边距字段不参与版式,title/subtitle/source 默认开启左右居中)+ `mapTransform`/`remapMapLabelItems`/`itemBoundsMm`<br>`core/text-style.ts`:分类文字样式解析/批量应用/恢复默认,地图分类统一字号 = 覆盖 ?? role 表纸张 mm 设计字号,按分类重建逐条样式(resyncTextStyles;纯逻辑);页面分类字号 = 覆盖 ?? 该分类现有 item 字号 ?? 固定默认(默认字号不随纸张缩放,保证导出->打开幂等) |
+| `render/` | canvas 渲染 + `export-svg.ts` | `render/page-format.ts`(3 位小数/转义/属性 helper)<br>`render/page-svg.ts`:layout+geo -> 预览 SVG DOM(纸张/底图 image/框/刻度/文字/图例/色标;页边距高亮 `marginGuide` 层只在编辑页边距时显示)<br>`render/compose-svg.ts`:浏览器内合成 final.svg(结构/marker/内嵌源/可选字体子集/report)<br>`render/used-text.ts`:扫成品里的 `<text>` 收集字符集/族名/字重<br>`render/embedded-font.ts`:选要内嵌的字体面 + `@font-face` CSS 字节口径<br>`render/hb-subset.ts`:harfbuzz `hb-subset`(wasm)最小绑定                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `ui/`     | 状态栏/dock/工具条/通知       | `ui/page-open.ts`(上传面板),`ui/page-toolbar.ts`(文件/添加/样式/视图四组),`ui/page-style-window.ts`(样式设置窗口:头部总说明 + 分组列表含数量徽标/已改标记/地图 0 项置灰 + 分类头与实时预览 + 四组字段(字号/行高/字距/光晕宽度旁字段级 reset,已是默认时禁用)+ 恢复默认(整分类)),`ui/page-notify.ts`,`ui/download.ts`,`ui/keyboard-guard.ts`(模态键盘守卫:模态计数 + isEditableTarget,模态打开期间编辑器快捷键让路);属性面板拆为 `ui/page-sidebar.ts`(编排:面板壳/sync/元素列表)+ `ui/page-sidebar-context.ts`(面板契约)+ `ui/page-sidebar-controls.ts`(控件登记与刷新)+ `ui/page-panel-paper.ts` / `ui/page-panel-map.ts`(页面/地图面板;页面面板有纸张锁 + 预设/方向/宽高(mm)+ 页边距,边距输入聚焦时高亮内容框;改纸张不移动已放置元素)+ `ui/page-fields-common.ts` / `ui/page-fields-text.ts`(x/y(mm) + 页面文字「左右居中」开关(在 x/y 下方,开启时 x 冻结并置灰)/内容/角色/对齐/旋转 + 按当前分类打开样式设置;注记/来源「折行宽度(mm)」;没有「坐标空间」控件) / `ui/page-fields-legend.ts` / `ui/page-fields-colorbar.ts`(元素公共/文字/图例/色标字段)(全部 miko_ui 或标准 DOM)                                                                                                                                |
+| `app/`    | `main.ts` + `editor.ts`       | `page-main.ts`(组合根:File 读成字节 + core/open-map 装配 + 样式窗口生命周期),`page-editor.ts`(选择/拖拽/缩放/导出状态机 + 分类样式补丁 + 每次排版修改后贴合左右居中/自动折行约束 + 地图摆放变化时 `remapMapLabelItems` 搬移地名 + 页边距高亮开关;导出 SVG 时先合成草稿,再裁字体子集,最后带 `font_faces` 再合成),`font-embed.ts`(浏览器侧字体子集编排:取 wasm/资产,裁字,告警)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 `npm run arch` 的层规则不变:两个入口都只使用 `app -> ui/render/core/config` 的下行依赖.
 地图排版页与草图内核**不共享模块级单例**,因此刷新/切换模式不会互相污染.
@@ -789,7 +793,8 @@ page-main.ts:
                 描边光晕)-> 单字段补丁 ->
                 core/text-style.applyTextStyle 批量写回该分类全部 item 并把覆盖记进
                 `page.text_style`;地图分类字号与页面分类同为单个数字,同分类全部地名强制统一
-                (缺省 = 分类默认统一字号,即该分类底图字号中位数 × 缩放),改任意字段(含只改
+                (缺省 = 分类默认统一字号,即 `MAP_LABEL_ROLE_STYLES[role].font_size_mm` 纸张 mm
+                设计常量,不随底图/纸张缩放),改任意字段(含只改
                 颜色)都会写回统一字号;页面分类字号 = 覆盖 ?? 该分类现有 item 字号 ?? 固定默认,
                 当前值与固定默认不同时分类头显示「排版值」,恢复默认可用,点击后写回固定默认值;
                 「恢复默认」= resetTextStyle 删除覆盖(若有)并按默认样式重写 item
@@ -877,9 +882,10 @@ CJK SC` 中文兜底,见 `config/fonts.ts`;口径见 `docs/PAGE-EDITOR.md` §6.3
   `letter_spacing_em` 渲染并参与注记/来源折行测量.
 - 文字样式是**分类级覆盖**:侧栏单条 item 不再有字号/颜色/字重/斜体/行高/字距/光晕字段,同一分类
   下所有文字共用一套样式,「样式设置」窗口改一次即批量写回该分类的全部 item;要单条不同样式只能
-  换角色/分类.颜色/斜体/字重/字距/行高/光晕以 `page.text_style` 为唯一真源;页面分类字号为
-  「覆盖 ?? 该分类现有 item 字号 ?? 固定默认」(固定默认字号不随纸张缩放),地图分类字号恒为
-  「覆盖 ?? 分类默认统一字号」.地图地名 item 的 `geo_label_id` 必填且必须指向
+  换角色/分类.颜色/斜体/字重/字距/行高/光晕的默认值在 `config/text-style.ts`,用户覆盖以
+  `page.text_style` 为真源;页面分类字号为「覆盖 ?? 该分类现有 item 字号 ?? 固定默认」(固定默认
+  字号不随纸张缩放),地图分类字号恒为「覆盖 ?? `MAP_LABEL_ROLE_STYLES[role].font_size_mm`(纸张
+  mm 设计常量)」.地图地名 item 的 `geo_label_id` 必填且必须指向
   `geo.labels` 里存在的 id(用于判断分类归属),手动页面文字必须为 `null`.
 - 打开带 `page` 块的排版后会按分类重建每条 text item 的样式(`resyncTextStyles`):颜色/行高等逐条
   样式与分类口径不一致时,以分类为准覆盖,标脏并告警「旧排版中的逐条文字样式已按分类设置统一
@@ -890,10 +896,19 @@ CJK SC` 中文兜底,见 `config/fonts.ts`;口径见 `docs/PAGE-EDITOR.md` §6.3
   默认字号为标题 6mm / 副标题 3mm / 注记 3mm / 来源 2mm,不随纸张缩放;打开/重建时
   保留 item 里已有的字号(导出 -> 打开字节幂等,不误标脏),当前值与固定默认不同时窗口显示
   「排版值」;只有用户显式改字号或恢复默认才写固定默认值.地图分类不走这条回退,字号恒为
-  「覆盖 ?? 中位数 × s」.
+  「覆盖 ?? `MAP_LABEL_ROLE_STYLES[role].font_size_mm`(纸张 mm 设计常量)」.
 - 地图标注**按分类强制统一字号**:不能逐条保留底图字号层级.默认排版,批量应用(哪怕只改颜色),
-  恢复默认都写「覆盖 `font_size_mm` ?? 分类默认统一字号」(该分类底图字号中位数 × 地图缩放比 `s`,
-  夹到 1.5..15mm 并保留 1 位小数;该分类没有地名时回退 4mm),同一分类全部地名同字号.
+  恢复默认都写「覆盖 `font_size_mm` ?? 分类默认统一字号」(分类默认统一字号 = role 表的纸张 mm
+  设计常量;不随底图 `base` 尺寸,地图缩放或纸张尺寸变化;与当前底图有没有该 role 的地名无关),
+  同一分类全部地名同字号.字号的唯一真源是 `config/text-style.ts` 的
+  `MAP_LABEL_ROLE_STYLES[].font_size_mm`(纸张 mm 设计常量;未知 role 回退 `area` 的字号);
+  geo 的 `labels[].font_size_pt` 已删除,旧 v2 产物残留时忽略不报错.旧图同 role 的逐条字号层级,
+  中/英双语同 role 的字号层级都不再保留(双语同 role 恒同字号)--这是明确契约,不是待办.
+- **图例描边线宽 0 合法,hatch 不渲染**:条目 `width_mm`(由 geo `width_pt` 换算)**允许 0**
+  (只要求非负),`0` = 纯填色 / hatch 条目没有描边边线(Cartopy 的 northern_shan,Ukraine 会给
+  `0.0`),否则「打开 Cartopy 产物 -> 导出 -> 重开」会因 page 块不合法丢排版;geo 的
+  `legend.entries[].hatch`(Cartopy 的 Myanmar 图例,如 `"////"`)当前**不渲染**(图例色块按
+  `fill` 画成纯填色),数据随 geo.json 原样透传,导出不丢,不是已支持能力.
 - **所有 item 只有纸张 mm 坐标**:`page.items[]` 没有 `space` 字段,地图地名打开时由 `geo.labels`
   一次性换算成纸张坐标(§5.1),移动/缩放地图时由 `remapMapLabelItems` 按新旧仿射整批搬移;侧栏
   也没有「坐标空间」控件.

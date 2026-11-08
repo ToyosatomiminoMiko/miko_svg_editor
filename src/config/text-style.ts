@@ -4,11 +4,14 @@
  * 是什么:地图地名按语义角色 `role` 取颜色/斜体(`MAP_LABEL_ROLE_STYLES`);描边,字距,行高,
  * 字重是全局常量(`MAP_LABEL_STYLE`);页面文字(标题/副标题/地名 item/注记/来源)的默认样式
  * 按角色查 `PAGE_TEXT_STYLES`;侧栏打开光晕时的默认值用 `TEXT_HALO`.
- * 为什么集中在这一层:生成端(Cartopy)的 geo.json v2 只输出 `role` + 文字 + 位置 + 锚点 + 字号,
- * 不再输出任何样式;预览(`render/page-svg.ts`)与成品(`render/compose-svg.ts`)必须逐字同源,
- * 所以样式值只允许出现在这里,core/render/ui/app 只能引用,不许再写死.
- * 已知口径:字号仍是每条标注的数据(层级),不在本文件;地图几何/填色用的 `COLOR_*` 与文字样式
- * 脱钩.角色枚举也以这里为准(Python 侧只镜像枚举,不存样式值).
+ * 为什么集中在这一层:生成端(Cartopy)的 geo.json v2 只输出 `role` + 文字 + 位置 + 锚点 + 叠放
+ * 顺序,不输出任何样式(含字号);字号与颜色/斜体/字重/字距/行高/光晕一样,只由本文件决定.
+ * 预览(`render/page-svg.ts`)与成品(`render/compose-svg.ts`)必须逐字同源,所以样式值只允许
+ * 出现在这里,core/render/ui/app 只能引用,不许再写死.
+ * 已知口径:字号也是 role 表的一部分(`MAP_LABEL_ROLE_STYLES[role].font_size_mm`),是**纸张 mm
+ * 设计常量**--不乘地图缩放,不看底图 `base` 尺寸,不随纸张变化(见 `core/text-style.ts` 的
+ * `mapCategoryDefaultFontSizeMm`);地图几何/填色用的 `COLOR_*` 与文字样式脱钩.角色枚举也以
+ * 这里为准(Python 侧只镜像枚举,不存样式值).
  * 分类口径:页面文字角色与地图地名角色共同构成「样式设置」窗口的分类
  * (`TEXT_STYLE_CATEGORY_GROUPS`);每个分类的默认样式查 `PAGE_TEXT_STYLES` / `MAP_LABEL_ROLE_STYLES`
  * + `MAP_LABEL_STYLE`,用户在窗口里改的覆盖值只落 `page.text_style`(core/page.ts),不回到本文件.
@@ -44,34 +47,45 @@ export const MAP_LABEL_ROLES = [
 
 export type MapLabelRole = (typeof MAP_LABEL_ROLES)[number];
 
-/** 一个地图地名角色对应的文字样式(只有颜色与斜体,其余是全局常量) */
+/** 一个地图地名角色对应的文字样式(颜色/斜体/设计字号,其余是全局常量) */
 export interface MapLabelRoleStyle {
   /** 文字填充色 */
   readonly color: string;
   /** 是否斜体(水名/山名/流域名等) */
   readonly italic: boolean;
+  /**
+   * 设计字号(mm,纸面口径).
+   * 为什么是固定 mm 而不是「底图 pt × 地图缩放」:字号属于文字样式,样式是前端的排版设计
+   * 决定,与底图尺寸无关;同一 role 在任何底图/任何纸张上都是这一个字号,用户在「样式设置」
+   * 里改的覆盖(`page.text_style[分类].font_size_mm`)才是个体差异.
+   */
+  readonly font_size_mm: number;
 }
 
 /**
  * 按语义角色取色:颜色的唯一真源.
  * 为什么按角色而不是按图种:同一语义(国名/海名/城市/行政区/强调区)在五个图种里应当同色,
  * 旧实现每个图种各自硬编码一份,改风格要改五处且容易漂移.
+ *
+ * 设计字号也在这里,而且是**唯一真源**:字号是前端纸张 mm 设计值,与 Cartopy/底图尺寸/
+ * 地图缩放都无关;数值按现有成品的实际纸面字号标定(改风格只改本表).单张图想调字号就改
+ * 「样式设置」里的分类覆盖,不回到这里.
  */
 export const MAP_LABEL_ROLE_STYLES: Record<MapLabelRole, MapLabelRoleStyle> = {
-  country: { color: '#3a3a3a', italic: false },
-  'country-name': { color: '#8b0000', italic: false },
-  sea: { color: '#1f4e79', italic: true },
-  city: { color: '#111111', italic: false },
-  'city-reference': { color: '#555555', italic: false },
-  river: { color: '#2d6ea6', italic: true },
-  highland: { color: '#6d4a33', italic: true },
-  area: { color: '#111111', italic: false },
-  'area-muted': { color: '#666666', italic: false },
-  'area-accent-1': { color: '#4a1486', italic: false },
-  'area-accent-2': { color: '#005a32', italic: false },
-  'area-accent-3': { color: '#0d47a1', italic: false },
-  'area-accent-4': { color: '#a63603', italic: false },
-  'area-basin': { color: '#1b5c8c', italic: true },
+  country: { color: '#3a3a3a', italic: false, font_size_mm: 2.3 },
+  'country-name': { color: '#8b0000', italic: false, font_size_mm: 4 },
+  sea: { color: '#1f4e79', italic: true, font_size_mm: 2.1 },
+  city: { color: '#111111', italic: false, font_size_mm: 1.7 },
+  'city-reference': { color: '#555555', italic: false, font_size_mm: 1.6 },
+  river: { color: '#2d6ea6', italic: true, font_size_mm: 1.9 },
+  highland: { color: '#6d4a33', italic: true, font_size_mm: 2.2 },
+  area: { color: '#111111', italic: false, font_size_mm: 1.7 },
+  'area-muted': { color: '#666666', italic: false, font_size_mm: 2 },
+  'area-accent-1': { color: '#4a1486', italic: false, font_size_mm: 1.8 },
+  'area-accent-2': { color: '#005a32', italic: false, font_size_mm: 2 },
+  'area-accent-3': { color: '#0d47a1', italic: false, font_size_mm: 1.7 },
+  'area-accent-4': { color: '#a63603', italic: false, font_size_mm: 1.7 },
+  'area-basin': { color: '#1b5c8c', italic: true, font_size_mm: 3.4 },
 };
 
 /** 所有地图标注共用的文字样式常量(要改风格只改这里) */
@@ -169,6 +183,17 @@ export const PAGE_TEXT_STYLES: Record<PageTextRole, PageTextStyle> = {
 /** 侧栏/新建文字打开光晕时的默认描边(颜色与宽度) */
 export const TEXT_HALO = { color: '#ffffff', width_mm: 0 } as const;
 
+/**
+ * 「样式设置」覆盖值的合法区间(mm),`validatePage` 的 text_style 校验与 UI 数字控件共用.
+ *
+ * 为什么单独导出:这些边界以前在 core/page.ts 的校验和 UI 的 `min/max` 各写一份,UI 又
+ * 只把 min/max 当 DOM 属性(不夹取),结果用户可以写出校验拒绝的 page 块,导出成功后
+ * 重开整份排版回退默认版式(数据丢失).边界只允许有这一个真源.
+ */
+export const TEXT_STYLE_FONT_SIZE_MIN_MM = 0.35;
+export const TEXT_STYLE_FONT_SIZE_MAX_MM = 180;
+export const TEXT_STYLE_HALO_WIDTH_MAX_MM = 7;
+
 /* ---------------- 样式设置:分类元信息 ---------------- */
 
 /**
@@ -191,9 +216,6 @@ export const PAGE_TEXT_DEFAULT_FONT_SIZE_MM: Record<PageTextRole, number> = {
   source: PAGE_SOURCE_SIZE_MM,
   label: PAGE_TEXT_NEW_FONT_SIZE_MM,
 };
-
-/** 地图地名在拿不到底图字号时的兜底字号(mm,纸面) */
-export const MAP_LABEL_DEFAULT_FONT_SIZE_MM = 4;
 
 /** 样式设置窗口里的分类 id:页面文字角色 + 地图地名角色(两套枚举不相交) */
 export type TextStyleCategoryId = PageTextRole | MapLabelRole;
@@ -444,7 +466,7 @@ export const TEXT_STYLE_CATEGORY_GROUPS: readonly TextStyleCategoryGroup[] = [
     id: 'map',
     label: '地图标注',
     description:
-      '来自 Cartopy geo.json 的地图标注,按 role 分类;字号默认值 = 该分类地名原始字号中位数 * 地图缩放.',
+      '来自 Cartopy geo.json 的地图标注,按 role 分类;字号默认值 = 该 role 的纸张 mm 设计字号(固定值,不随底图/纸张缩放).',
     categories: MAP_LABEL_CATEGORY_ORDER.map((id) => TEXT_STYLE_CATEGORY_META[id]),
   },
 ];

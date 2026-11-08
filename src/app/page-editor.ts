@@ -22,6 +22,7 @@ import {
   PAGE_KEY_MOVE_LARGE_MM,
   PAGE_KEY_MOVE_MM,
   PAGE_LEGEND_DEFAULTS,
+  PAGE_MAX_ITEMS,
   PAGE_NEW_COLORBAR_HEIGHT_MM,
   PAGE_NEW_COLORBAR_WIDTH_MM,
   PAGE_NEW_LEGEND_WIDTH_MM,
@@ -39,6 +40,7 @@ import {
   removeItem,
   roundToPageDecimals,
   serializeMapDocFile,
+  exportPageErrors,
   type ColorbarItem,
   type Geo,
   type LegendItem,
@@ -66,7 +68,8 @@ import { composeFinalSvg, type ComposeReport } from '../render/compose-svg';
 import { renderPageSvg } from '../render/page-svg';
 import type { TextMeasure } from '../core/types';
 import { downloadText } from '../ui/download';
-import { isEditableTarget, type PageSidebar } from '../ui/page-sidebar';
+import { isModalOpen, isEditableTarget } from '../ui/keyboard-guard';
+import type { PageSidebar } from '../ui/page-sidebar';
 import type { PageNotifier } from '../ui/page-notify';
 
 /** JSON 导出的 MIME(浏览器据此识别 `<stem>.geo.json`) */
@@ -140,6 +143,8 @@ export class PageEditor {
   private started = false;
   /** 是否显示页边距高亮(边距输入框聚焦时由侧栏打开) */
   private marginGuide = false;
+  /** 是否有导出在途:双击/Ctrl+S 重复触发时拒绝第二次(避免并发保存对话框/重复下载) */
+  private exporting = false;
 
   constructor(deps: PageEditorDeps) {
     this.svg = deps.svg;
@@ -289,14 +294,31 @@ export class PageEditor {
   /* =========================== 导出 =========================== */
 
   /**
+   * 导出前自检:导出的 page 块必须能被本项目的打开流程重新接受.
+   *
+   * 为什么必须挡:导出是唯一的保存动作;越界值(样式窗口数字,超长文字行,超量 items)
+   * 一旦被写进 geo.json,重开时 `validatePage` 会拒绝整份 page 块并回退默认排版,
+   * 用户再导出一次就把原排版永久覆盖.这里把「保存后打不开」提前成「保存时报错」,
+   * 且失败时不清 dirty,不触发下载.
+   */
+  private exportBlocked(): boolean {
+    const errors = exportPageErrors(this.layout, this.geo);
+    if (errors.length === 0) return false;
+    this.notifier.error(`导出前自检失败,已拒绝导出:${errors.slice(0, 3).join(';')}`);
+    return true;
+  }
+
+  /**
    * 导出 `<stem>.geo.json`(Ctrl+S 的入口):geo 全字段 + page 排版块,成功即清脏标记.
    * 为什么先 `normalizePage`:page 的数字口径必须是 3 位小数(与预览/签名一致);
    * geo 块保持原精度(Cartopy 的 view_box 可能有 6 位小数),由 `serializeMapDocFile` 分别处理.
    * 为什么要 `await`:保存对话框是异步的;用户取消(或写入失败后已回退下载)时不能清脏标记.
    */
   async exportGeo(): Promise<boolean> {
+    if (!this.beginExport()) return false;
     const fileName = geoFileNameOf(this.document);
     try {
+      if (this.exportBlocked()) return false;
       const layout = normalizePage(this.layout);
       const outcome = await downloadText(serializeMapDocFile(this.geo, layout), fileName, GEO_MIME);
       if (outcome === 'cancelled') {
@@ -310,6 +332,8 @@ export class PageEditor {
     } catch (error) {
       this.notifier.error(`导出 geo.json 失败:${errorMessage(error)}`);
       return false;
+    } finally {
+      this.exporting = false;
     }
   }
 
@@ -322,14 +346,20 @@ export class PageEditor {
    * 两次合成除 `<defs>` 里的 `@font-face` 外完全相同,字节可复现.
    */
   async exportFinal(): Promise<void> {
+    if (!this.beginExport()) return;
     const fileName = finalFileNameOf(this.document);
     try {
-      const draft = composeFinalSvg(this.document, this.layout);
+      if (this.exportBlocked()) return;
+      // 两次合成必须用同一份 layout 快照:字体子集是按草稿里实际画出的字符裁的,
+      // 若第一遍 await(加载 wasm/字体,可达秒级)期间用户继续编辑,第二遍会把新字符
+      // 带进成品,而字符集来自旧草稿 -> 新字符没有内嵌字形(查看端静默回退系统字体).
+      const layout = normalizePage(this.layout);
+      const draft = composeFinalSvg(this.document, layout);
       const embedded = await embedUsedFontFaces(draft.svg);
       const result =
         embedded.faces.length === 0
           ? draft
-          : composeFinalSvg(this.document, this.layout, { font_faces: embedded.faces });
+          : composeFinalSvg(this.document, layout, { font_faces: embedded.faces });
       const report =
         embedded.warnings.length === 0
           ? result.report
@@ -343,7 +373,19 @@ export class PageEditor {
       this.notifier.info(`已导出 ${fileName}(${report.counts.total} 个元素)`);
     } catch (error) {
       this.notifier.error(`导出 SVG 失败:${errorMessage(error)}`);
+    } finally {
+      this.exporting = false;
     }
+  }
+
+  /** 导出在途守卫:双击按钮/按住 Ctrl+S 不应并发弹保存对话框或重复下载 */
+  private beginExport(): boolean {
+    if (this.exporting) {
+      this.notifier.info('正在导出,请稍候');
+      return false;
+    }
+    this.exporting = true;
+    return true;
   }
 
   /* =========================== 视图 =========================== */
@@ -376,8 +418,20 @@ export class PageEditor {
 
   /* =========================== 添加元素 =========================== */
 
+  /**
+   * 元素数是否到达 page 契约上限.
+   * 为什么在添加入口挡:`validatePage` 要求 items ≤ PAGE_MAX_ITEMS,超限的 page 块在
+   * 重开时会被拒绝并回退默认排版;导出前自检也会拒绝导出,但那时用户已经白加了元素.
+   */
+  private canAddItem(): boolean {
+    if (this.layout.items.length < PAGE_MAX_ITEMS) return true;
+    this.notifier.error(`元素数已达上限 ${PAGE_MAX_ITEMS},无法再添加`);
+    return false;
+  }
+
   /** 添加文字元素(role 决定默认位置/字号) */
   addText(role: TextRole): void {
+    if (!this.canAddItem()) return;
     let newId = 0;
     this.applyPageChange((layout) => {
       newId = allocateItemId(layout);
@@ -393,6 +447,7 @@ export class PageEditor {
 
   /** 添加空图例(默认右栏顶部) */
   addLegend(): void {
+    if (!this.canAddItem()) return;
     let newId = 0;
     this.applyPageChange((layout) => {
       newId = allocateItemId(layout);
@@ -434,6 +489,7 @@ export class PageEditor {
 
   /** 添加色标(配色/刻度来自 geo.relief;没有 relief 的 geo 不能加) */
   addColorbar(): void {
+    if (!this.canAddItem()) return;
     const relief = this.geo.relief;
     if (relief === null) {
       this.notifier.error('该 geo.json 没有 relief 色标数据,无法添加色标');
@@ -666,9 +722,13 @@ export class PageEditor {
   /* =========================== 键盘 =========================== */
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
+    // 模态层(样式设置窗口/确认框)打开时,画布快捷键全部让路:Delete/方向键/空格
+    // 会穿透到 window 并改到画布真值(页面编辑器无撤销).
+    if (isModalOpen()) return;
     // Ctrl+S 优先于「输入框里不响应快捷键」:导出 geo.json 是全局命令
     if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's') {
       event.preventDefault();
+      if (event.repeat) return;
       void this.exportGeo();
       return;
     }

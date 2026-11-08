@@ -1,14 +1,14 @@
 /**
  * 底图(Cartopy 产出的纯几何 SVG)契约检查与根标签内原文切片(纯逻辑,不碰 DOM).
  *
- * 是什么:`readBaseSvg(text)` 对上传的底图做 C1–C4 检查,给出 viewBox / 纸张尺寸与
+ * 是什么:`readBaseSvg(text)` 对上传的底图做 C1–C7 检查,给出 viewBox / 纸张尺寸与
  * 「根 `<svg>` 起始标签之后,最后一个 `</svg>` 之前」的原文 `inner`;`inner` 是合成
  * `final.svg` 时原样内联的唯一来源.同时给出 `inner` 之前/之后的原文(`prefix` / `suffix`),
  * 使「成品 SVG 内嵌的可编辑源」能把底图字节逐字节还原(见 `core/final-svg.ts`).
  * 为什么单独一层:成品必须把底图字节原样嵌进 `<g id="mapdoc-map">`,一旦把「已经合成过的
  * 成品」再当底图,就会越嵌越深;C4 专门拦这种误操作.检查全部是字符串级扫描(不解析
  * 整棵 XML),10 MB 底图也能在毫秒级完成.
- * 口径来源:C1–C4 与中文错误文案沿用本项目无后端改造前的底图契约(该 Python 实现已随
+ * 口径来源:C1–C4 与中文错误文案沿用本项目无后端改造前的底图契约(C5–C7 是 2026-11-08 审计新增的活跃内容/控制字符/文档级 CSS 护栏)(该 Python 实现已随
  * `tools/` 删除,语义见 `docs/PAGE-EDITOR.md` §7),但输入是浏览器已经按 UTF-8 解码好的
  * 文本字符串,所以偏移量是 UTF-16 code unit 下标,只用于本进程内切片,不跨语言比较.
  * 元信息:作者 ToyosatomiminoMiko,2026-11-05.
@@ -139,13 +139,126 @@ function countOccurrences(text: string, needle: string): number {
   return count;
 }
 
+/** 把 `&#106;` / `&#x6A;` 这类数字实体还原成字符,防止用实体混淆 javascript: 等片段 */
+function decodeNumericEntities(text: string): string {
+  return text.replace(/&#(x?)([0-9a-fA-F]+);?/g, (match, hex: string, digits: string) => {
+    const code = Number.parseInt(digits, hex === 'x' ? 16 : 10);
+    return Number.isInteger(code) && code >= 0 && code <= 0x10ffff
+      ? String.fromCodePoint(code)
+      : match;
+  });
+}
+
 /**
- * 检查底图文本是否满足 C1–C4,并返回 viewBox 尺寸与内联原文(纯函数).
+ * C5:底图内联内容里的「活跃内容」检查.
+ *
+ * 为什么必须在打开时拒绝:`composeFinalSvg` 把底图 `inner` **原样**内联进成品
+ * `<g id="mapdoc-map">`(这是 sha256 逐字节往返的前提,导出时不能改写),所以底图里的
+ * `<script>`/事件属性/javascript: 会随 final.svg 分发并在查看端执行;编辑器预览走
+ * `<image>`,脚本不执行,用户在导出前完全无感.
+ * 命名空间前缀(`<svg:script>`)与数字实体混淆都要覆盖;裸文本黑名单防不住所有绕过,
+ * 这里是"纯几何底图契约"的拒绝线,不是通用 sanitizer.
+ */
+function activeContentReason(inner: string): string | null {
+  const text = decodeNumericEntities(inner);
+  if (/<\s*(?:[A-Za-z_][\w.-]*:)?script\b/i.test(text)) {
+    return '底图包含 <script>(脚本会随成品 SVG 分发并在查看端执行)';
+  }
+  if (/<\s*(?:[A-Za-z_][\w.-]*:)?foreignObject\b/i.test(text)) {
+    return '底图包含 <foreignObject>(可嵌入 HTML/脚本)';
+  }
+  if (/\s(?:[A-Za-z_][\w.-]*:)?on[a-z]+\s*=/i.test(text)) {
+    return '底图包含事件属性(on*=)';
+  }
+  if (/javascript\s*:/i.test(text)) return '底图包含 javascript: URI';
+  if (/\sxml:base\s*=/i.test(text)) return '底图包含 xml:base(可重定向相对 URI)';
+  return null;
+}
+
+/** C6:XML 1.0 不允许的字符(除 \t \n \r 外的 C0 控制字符,以及 U+FFFE/U+FFFF) */
+function invalidControlChar(text: string): number | null {
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    const control = code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d;
+    if (control || code === 0xfffe || code === 0xffff) return code;
+  }
+  return null;
+}
+
+/**
+ * C7:底图 `<style>` 是**文档级 CSS**,会作用到成品里的页面文字(预览经 `<image>` 不可见).
+ * 实测底图里一句 `text{fill:#ff0000}` 就能把成品页面文字改红.
+ *
+ * 口径:只放行"几何渲染类"声明(描边连接/端点/虚线/填充规则/渲染提示等),且选择器只允许
+ * `*`;出现 `@` 规则/`url()`/CSS 转义/其它属性(fill/stroke/font/opacity/display...)一律拒绝.
+ * 合法 Cartopy 底图唯一命中的是 `*{stroke-linejoin: round; stroke-linecap: butt}`.
+ */
+const SAFE_STYLE_PROPERTIES = new Set([
+  'stroke-linejoin',
+  'stroke-linecap',
+  'stroke-miterlimit',
+  'stroke-dasharray',
+  'stroke-dashoffset',
+  'fill-rule',
+  'clip-rule',
+  'shape-rendering',
+  'image-rendering',
+  'text-rendering',
+  'vector-effect',
+  'paint-order',
+  'color-interpolation',
+  'color-interpolation-filters',
+]);
+
+function unsafeStyleReason(inner: string): string | null {
+  const styleBlocks = inner.matchAll(
+    /<(?:[A-Za-z_][\w.-]*:)?style\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z_][\w.-]*:)?style\s*>/gi,
+  );
+  for (const block of styleBlocks) {
+    const raw = (block[1] ?? '')
+      .replace(/<!\[CDATA\[/g, '')
+      .replace(/\]\]>/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .trim();
+    if (raw.length === 0) continue;
+    if (/[@\\]|url\s*\(|expression/i.test(raw)) {
+      return '底图 <style> 含 @ 规则/url()/转义(可覆盖成品页面样式或引用外部资源)';
+    }
+    for (const chunk of raw.split('}')) {
+      const trimmed = chunk.trim();
+      if (trimmed.length === 0) continue;
+      const brace = trimmed.indexOf('{');
+      if (brace < 0) return '底图 <style> 不是可识别的 CSS 规则';
+      const selector = trimmed.slice(0, brace).trim();
+      if (selector !== '*') {
+        return `底图 <style> 的选择器「${selector}」可能命中成品页面元素(只允许 *)`;
+      }
+      const body = trimmed.slice(brace + 1);
+      for (const declaration of body.split(';')) {
+        const item = declaration.trim();
+        if (item.length === 0) continue;
+        const colon = item.indexOf(':');
+        if (colon < 0) return '底图 <style> 含无法识别的声明';
+        const property = item.slice(0, colon).trim().toLowerCase();
+        if (!SAFE_STYLE_PROPERTIES.has(property)) {
+          return `底图 <style> 的属性「${property}」可能影响成品文字样式(只允许几何渲染类属性)`;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * 检查底图文本是否满足 C1–C7,并返回 viewBox 尺寸与内联原文(纯函数).
  *
  * - C1:有根 `<svg>`,合法 viewBox,w/h > 0;
  * - C2:不含 `<text`(纯地图,注释/标题/刻度文字都不允许);
  * - C3:`</svg>` 恰好 1 次且位于文件末尾(允许最多一个换行);
- * - C4:不含 mapdoc-overlay / mapdoc-final 痕迹.
+ * - C4:不含 mapdoc-overlay / mapdoc-final 痕迹;
+ * - C5:不含活跃内容(script/foreignObject/on* 事件属性/javascript:/xml:base);
+ * - C6:不含 XML 1.0 不允许的控制字符(否则成品 SVG 非良构);
+ * - C7:内联 `<style>` 只允许几何渲染类声明(文档级 CSS 会改到成品页面文字样式).
  *
  * 为什么 C1 失败时仍填 viewBox 解析到一半的数值:调用方(打开流程)会把 errors 非空
  * 直接拒绝,这里保留能解析出的信息只用于错误提示;`inner` 则一律置空,避免对半坏文件
@@ -222,6 +335,16 @@ export function readBaseSvg(text: string): BaseSvgInfo {
   if (text.includes(FINAL_MARK)) errors.push('C4: 底图包含 mapdoc-final marker');
 
   const inner = c1Failed || innerEnd < innerStart ? '' : text.slice(innerStart, innerEnd);
+  // C5/C6 扫整份底图:根起始标签上的 onload/xml:base 同样是活跃内容(而且底图字节
+  // 会被逐字节还原/预览),不能只扫 inner. C7 只扫 inner:样式块只可能出现在根标签内.
+  const active = activeContentReason(text);
+  if (active !== null) errors.push(`C5: ${active}`);
+  const control = invalidControlChar(text);
+  if (control !== null) {
+    errors.push(`C6: 底图包含 XML 不允许的控制字符 U+${control.toString(16).toUpperCase()}`);
+  }
+  const styleProblem = unsafeStyleReason(inner);
+  if (styleProblem !== null) errors.push(`C7: ${styleProblem}`);
   // prefix/suffix 只用于「成品 SVG 内嵌源 -> 逐字节还原底图」:
   // C1 失败时连根标签都不可信,宁可留空让调用方拒绝;C3 失败时定位不到收尾,suffix 留空.
   const prefix = c1Failed ? '' : text.slice(0, innerStart);

@@ -142,6 +142,10 @@ function boot(): void {
       for (const file of files) {
         uploads.push({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
       }
+      // 等随包字体加载完成再测宽:字体未就绪时 canvas 按回退字体测出的行宽不同,
+      // 打开旧文件会让 enforceAutoWrap 重排 lines,与成品 marker 的 page 摘要失配
+      // (final+geo 配对被误判「不配套」),同一文件在不同机器上也导出不同字节.
+      await document.fonts.ready;
       const opened = openMapFromUploads(uploads, { measureText: measureText.width });
       const pageDocument = opened.document;
       closeSession();

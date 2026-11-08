@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { PAGE_SOURCE_CLEARANCE_MM, PAGE_SOURCE_RESERVED_MM } from '../../src/config/page';
 import {
   allocateItemId,
   countItems,
@@ -41,6 +42,7 @@ import {
   wrapParagraphs,
   wrapText,
 } from '../../src/core/page-layout';
+import { mapCategoryDefaultFontSizeMm } from '../../src/core/text-style';
 import {
   colorbarGradientId,
   dashArray,
@@ -81,7 +83,6 @@ function makeGeo(): Geo {
         x: 719.381081,
         y: 703.365097,
         anchor: 'middle',
-        font_size_pt: 12,
         order: 0,
       },
       {
@@ -91,7 +92,6 @@ function makeGeo(): Geo {
         x: 300,
         y: 400,
         anchor: 'start',
-        font_size_pt: 9,
         order: 1,
       },
     ],
@@ -253,6 +253,18 @@ describe('validatePage', () => {
     }
   });
 
+  it('geo.labels 缺省或残留 font_size_pt 都合法(该字段已从 geo 契约删除)', () => {
+    // 新契约 fixture 没有 font_size_pt;旧 v2 产物残留也被忽略,不影响打开
+    expect(validateGeo(makeGeo())).toEqual([]);
+    const raw = structuredClone(makeGeo()) as unknown as Record<string, unknown>;
+    const labels = raw['labels'] as Record<string, unknown>[];
+    labels[0]!['font_size_pt'] = 12;
+    labels[1]!['font_size_pt'] = 0;
+    const errors = validateGeo(raw);
+    expect(errors).toEqual([]);
+    expect(errors.some((error) => error.includes('font_size_pt'))).toBe(false);
+  });
+
   it('拒绝非法纸张尺寸,重复 id,seq 不大于最大 id', () => {
     const layout = makeScene();
     layout.paper.width_mm = 10;
@@ -277,6 +289,31 @@ describe('validatePage', () => {
     const firstText = empty.items.find((item): item is TextItem => item.kind === 'text')!;
     firstText.lines = [];
     expect(validatePage(empty).ok).toBe(false);
+  });
+
+  it('图例条目 width_mm:0 合法(纯填色/hatch 不画描边),负数非法', () => {
+    // Cartopy 对纯填色/hatch 图例条目给 width_pt: 0.0 -> page 块 width_mm: 0;
+    // 旧校验要求正数会让「导出 -> 重新打开」判 page 块不合法并丢排版.
+    const zero = makeScene();
+    const zeroLegend = zero.items.find((item) => item.kind === 'legend');
+    expect(zeroLegend?.kind).toBe('legend');
+    if (zeroLegend?.kind !== 'legend') return;
+    expect(zeroLegend.entries[0]!.width_mm).toBeGreaterThan(0);
+    zeroLegend.entries[0]!.width_mm = 0;
+    expect(validatePage(zero, makeGeo()).ok).toBe(true);
+
+    const negative = makeScene();
+    const negativeLegend = negative.items.find((item) => item.kind === 'legend');
+    expect(negativeLegend?.kind).toBe('legend');
+    if (negativeLegend?.kind !== 'legend') return;
+    negativeLegend.entries[0]!.width_mm = -0.5;
+    const result = validatePage(negative, makeGeo());
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(
+        result.errors.some((error) => error.includes('entries[0].width_mm: 必须是非负数')),
+      ).toBe(true);
+    }
   });
 
   it('拒绝非法字重/字距(100..900 整数,-1..2 有限数)', () => {
@@ -372,10 +409,8 @@ describe('defaultPageLayout(§9 初始排版)', () => {
     );
     expect(labels).toHaveLength(makeGeo().labels.length);
     expect(labels[0]!.lines).toEqual(['甲国']);
-    // 地名字号按地图缩放比换算(Lead 联调结论:否则相对原图放大 1.7 倍压字)
-    const scale = layout.map.width_mm / makeGeo().base.width_pt;
-    // 地图分类字号恒统一:country 只有一条 12pt -> 中位数 × s,夹 1.5..15mm 并保留 1 位小数
-    const expectedSize = Math.round(Math.min(15, Math.max(1.5, 12 * scale)) * 10) / 10;
+    // 地名字号是前端的纸张 mm 设计常量(role 表),与底图尺寸/地图缩放无关
+    const expectedSize = mapCategoryDefaultFontSizeMm('country');
     expect(labels[0]!.font_size_mm).toBe(expectedSize);
     // 颜色/斜体来自 role 表;描边宽度是纸面常量(不随 s 缩放),旋转统一 0
     expect(labels[0]!.color).toBe('#3a3a3a');
@@ -460,7 +495,24 @@ describe('纸张自适应(defaultPageLayout 的 k)', () => {
     const k = Math.min(1.6, Math.max(0.62, Math.min(a5.width_mm / 297, a5.height_mm / 210)));
     expect(k).toBeLessThan(1);
     const inset = 10;
-    const sourceReserved = 9 * k;
+    // 页底预留是动态的:max(既有最小值 9*k, 底部刻度带 + 折行后来源块高 + 净空).
+    // 来源/刻度的几何含义见 page-bounds.test.ts「页底预留随来源折行/底部刻度动态变化」.
+    const sourceForReserve = layout.items.find(
+      (item): item is TextItem => item.kind === 'text' && item.role === 'source',
+    )!;
+    const sourceBlockHeight =
+      (sourceForReserve.lines.length - 1) *
+        sourceForReserve.font_size_mm *
+        sourceForReserve.line_height +
+      sourceForReserve.font_size_mm;
+    const bottomTickBand =
+      layout.frame.ticks && geo.graticule.lon.some((tick) => tick.side !== 'top')
+        ? layout.frame.tick_length_mm + layout.frame.tick_gap_mm + layout.frame.tick_font_size_mm
+        : 0;
+    const sourceReserved = Math.max(
+      PAGE_SOURCE_RESERVED_MM * k,
+      bottomTickBand + sourceBlockHeight + PAGE_SOURCE_CLEARANCE_MM,
+    );
 
     // 色标不压注记,且不越过页底(内部内缩 + 来源预留区)
     const noteLastBaseline =
@@ -471,7 +523,7 @@ describe('纸张自适应(defaultPageLayout 的 k)', () => {
     );
     expect(colorbar.height_mm).toBeGreaterThanOrEqual(14);
 
-    // 图例/版式间距按 k 缩小;页面文字字号固定(mm),地名字号只跟地图缩放 s
+    // 图例/版式间距按 k 缩小;页面文字与地名字号都是固定设计值(mm),不随纸张/底图缩放
     const legend = layout.items.find((item) => item.kind === 'legend');
     if (legend?.kind === 'legend') expect(legend.font_size_mm).toBeCloseTo(3 * k, 9);
     expect(note.font_size_mm).toBeCloseTo(3, 9);
@@ -486,11 +538,8 @@ describe('纸张自适应(defaultPageLayout 的 k)', () => {
     const label = layout.items.find(
       (item): item is TextItem => item.kind === 'text' && item.geo_label_id !== null,
     );
-    // 地图分类统一字号 = 该分类地名原始字号中位数 × s,夹 1.5..15mm,保留 1 位小数
-    const labelScale = layout.map.width_mm / geo.base.width_pt;
-    expect(label?.font_size_mm).toBe(
-      Math.round(Math.min(15, Math.max(1.5, 12 * labelScale)) * 10) / 10,
-    );
+    // 地图分类统一字号 = role 表纸张 mm 设计字号(country)
+    expect(label?.font_size_mm).toBe(mapCategoryDefaultFontSizeMm('country'));
 
     // 来源仍在页内,地图不越过来源预留区
     const source = layout.items.find(

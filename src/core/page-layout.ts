@@ -40,6 +40,7 @@ import {
   PAGE_MIN_MAP_WIDTH_MM,
   PAGE_NOTE_SIZE_MM,
   PAGE_NOTES_GAP_MM,
+  PAGE_SOURCE_CLEARANCE_MM,
   PAGE_SOURCE_RESERVED_MM,
   PAGE_SOURCE_SIZE_MM,
   PAGE_SUBTITLE_BASELINE_MM,
@@ -926,6 +927,17 @@ function haloOf(halo: Halo | null): Halo | null {
  * `halo` 的 undefined 与 null 语义不同:undefined = 用角色默认,null = 显式关光晕,
  * 所以不能用 `??` 合并(默认光晕可能非 null 的角色会吞掉「关光晕」).
  */
+/**
+ * 把默认排版的文字行收敛到 page 契约上限(`validatePage`:≤40 行,每行 ≤200 字).
+ *
+ * 为什么不只在编辑入口挡:标题/副标题来自 `geo.suggestions`,是 Cartopy 数据;超长时
+ * 默认排版自己就会生成一个「打开时合法,重开/导出时被拒」的 page 块--用户在还没编辑时
+ * 就已经踩进数据丢失路径.这里与 `makeLabelItem` 的地名收敛共用同一组常量.
+ */
+function clampContractLines(lines: readonly string[]): string[] {
+  return lines.slice(0, PAGE_MAX_TEXT_LINES).map((line) => line.slice(0, PAGE_MAX_TEXT_LINE_CHARS));
+}
+
 function makeTextItem(
   id: number,
   role: TextRole,
@@ -957,7 +969,10 @@ function makeTextItem(
     role,
     x,
     y,
-    lines: [...lines],
+    // 默认排版自己也要守 page 契约(单行 ≤200 字,≤40 行):geo.suggestions 的标题/
+    // 副标题来自 Cartopy,可能超长;不收敛的话「刚打开,还没编辑」的默认排版就是非法
+    // page 块,导出会被自检拒绝,或重开时被判不合法而回退.
+    lines: clampContractLines(lines),
     font_size_mm: fontMm,
     font_family: null,
     color: overrides.color ?? style.color,
@@ -989,9 +1004,9 @@ function makeTextItem(
  *   item.y        = page.y + offsetPaper                 // 文字块中心 -> 第一行基线
  * 为什么不再保留 map 空间:全项目只有一个坐标系(纸张 mm);地名打开即换算成纸张坐标,
  * 之后拖拽/改样式都按页面文字处理.移动/缩放地图时由 `remapMapLabelItems` 按仿射变换整批搬移.
- * 字号/描边换算:geo 的 `font_size_pt` 是底图设计字号(底图坐标单位),乘地图缩放 s 得到
- * 纸张 mm;分类统一字号 = 覆盖 ?? (该分类全部地名原始字号中位数 × s),夹 1.5..15mm.
- * 描边宽度是纸张常量(不随 s 缩放).
+ * 字号:role 表(`config/text-style.ts` 的 `MAP_LABEL_ROLE_STYLES[].font_size_mm`)给纸张 mm
+ * 设计字号,分类统一字号 = 覆盖 ?? 该设计值;字号是前端样式常量,不乘地图缩放,不看底图尺寸.
+ * 描边宽度同样是纸张常量.位置仍由 `PageTransform` 换算(那是几何,不是样式).
  * 分类覆盖(§5.2):颜色/斜体/字重/字距/行高/halo 按 `label.role` 查 `layout.text_style`
  * 解析;没有覆盖时逐字段等于 `config/text-style.ts` 的默认值.
  * 行高/字号参与 y 换算,所以必须用解析后的值.
@@ -999,7 +1014,6 @@ function makeTextItem(
 function makeLabelItem(
   id: number,
   label: GeoLabel,
-  geo: Geo,
   transform: PageTransform,
   textStyle: TextStyleOverrides,
 ): TextItem {
@@ -1007,13 +1021,13 @@ function makeLabelItem(
     .split('\n')
     .slice(0, PAGE_MAX_TEXT_LINES)
     .map((line) => line.slice(0, PAGE_MAX_TEXT_LINE_CHARS));
-  const scale = transform.s > 0 ? transform.s : 1;
   // 防御式回退:正常路径已由 validateGeo 保证 role 在枚举内,坏数据由 resolveTextStyleFields
   // 落到 area 的样式(覆盖表里也不存在这个未知分类的键).
   const override = textStyle[label.role];
   const style = resolveTextStyleFields(label.role, override);
-  // 分类统一字号:覆盖 ?? 中位数默认值(同一 role 的每条 label 都算出同一个字号)
-  const fontSize = override?.font_size_mm ?? mapCategoryDefaultFontSizeMm(label.role, geo, scale);
+  // 分类统一字号:覆盖 ?? role 表纸张 mm 设计字号(同一 role 的每条 label 都得到同一个字号,
+  // 与底图缩放/纸张尺寸无关)
+  const fontSize = override?.font_size_mm ?? mapCategoryDefaultFontSizeMm(label.role);
   const step = fontSize * style.line_height;
   const offsetPaper = MAP_LABEL_STYLE.baseline_ratio * fontSize - ((lines.length - 1) * step) / 2;
   const pagePoint = mapPointToPage(transform, label);
@@ -1038,7 +1052,8 @@ function makeLabelItem(
     geo_label_id: label.id,
     // 地图地名位置由底图数据决定,不能被纸张宽度覆盖
     center_h: false,
-    // 地图地名不参与自动折行(文字来自底图数据且已经手动分好行)
+    // 地图地名不参与自动折行:位置与单行文案来自底图数据(折行归 Cartopy 上游决定),
+    // 旧 v2 产物残留的 `\n` 只在上面按行拆开容错,不重建折行宽度
     text: null,
     wrap_width_mm: null,
   };
@@ -1052,8 +1067,8 @@ function makeLabelItem(
  * - 纵向(`paper.height > paper.width * 1.05`):整宽地图 + 下方一排(图例 / 注记 / 色标),
  *   避免竖版纸上地图只占半宽,下方大片空白.
  * 两套都按纸张自适应比例 k(`config/page.ts` 的 `layoutScaleForPaper`,唯一真源)缩放图例/
- * 色标尺寸与版式间距;页面文字字号固定(`config/text-style.ts` 的默认值),地名只按地图缩放
- * s(见 makeLabelItem).
+ * 色标尺寸与版式间距;页面文字与地图地名的字号都是固定设计值(`config/text-style.ts`),
+ * 不随纸张/底图缩放(见 makeLabelItem).
  * 分类覆盖(§5.2):`options.text_style` 里的覆盖逐字段取代默认值;注记/来源的折行测量与
  * 块高用解析后的字号/字重/行高(否则覆盖后文字会溢出或压到下一块).
  */
@@ -1084,10 +1099,9 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   const hasColorbar = relief !== null;
   const hasRightColumn = hasLegend || hasNotes || hasColorbar;
 
-  // 纸张自适应比例 k:图例/色标尺寸与版式间距按它缩放(页面文字字号固定,地名另有地图缩放 s)
+  // 纸张自适应比例 k:图例/色标尺寸与版式间距按它缩放(文字字号固定,不参与缩放)
   const k = layoutScaleForPaper(paper.width_mm, paper.height_mm);
   const columnGap = PAGE_DEFAULT_COLUMN_GAP_MM * k;
-  const sourceReserved = PAGE_SOURCE_RESERVED_MM * k;
   const notesGap = PAGE_NOTES_GAP_MM * k;
   const contentWidth = paper.width_mm - inset * 2;
   const mapTop = PAGE_DEFAULT_MAP_TOP_MM;
@@ -1097,8 +1111,8 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
 
   /*
    * 分类样式解析:页面文字与地图地名都按 `page.text_style` 的覆盖逐字段取代默认值
-   * (解析口径见 core/text-style.ts,与样式设置窗口完全同源).页面文字字号固定,
-   * 不乘纸张比例;地图地名乘地图缩放 s(在 makeLabelItem 里).
+   * (解析口径见 core/text-style.ts,与样式设置窗口完全同源).页面文字与地图地名
+   * 的字号都是固定设计值,不乘纸张比例,也不乘地图缩放.
    */
   const pageStyleOf = (role: TextRole): ResolvedTextStyleFields =>
     resolveTextStyleFields(role, textStyle[role]);
@@ -1138,6 +1152,28 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   );
   const sourceText = geo.suggestions.source;
   const sourceWrapWidth = roundToPageDecimals(Math.max(PAGE_AUTO_WRAP_MIN_MM, contentWidth));
+  // 来源折行结果要在地图定尺寸前算出来:新契约的 source 是单行长文案(带 URL),折行行数不定,
+  // 页底预留高度必须按实际块高算,否则多行来源会压住图框下方的经纬刻度文字.
+  const sourceLines = wrapParagraphs(
+    sourceText.length > 0 ? [sourceText] : [],
+    sourceFont,
+    sourceWrapWidth,
+    sourceMeasure,
+  ).filter((line) => line.length > 0);
+  const sourceBlockHeight =
+    sourceLines.length === 0
+      ? 0
+      : (sourceLines.length - 1) * sourceSize * sourceLineHeight + sourceSize;
+  // 图框下方刻度带:只有「画了图框刻度 + 存在非 top 的经度刻度」时才占用页底空间.
+  const bottomTickBand =
+    frame.ticks && geo.graticule.lon.some((tick) => tick.side !== 'top')
+      ? frame.tick_length_mm + frame.tick_gap_mm + frame.tick_font_size_mm
+      : 0;
+  // 实际预留 = max(既有最小值, 刻度带 + 来源块高 + 净空);无来源/无底部刻度时退回原常量.
+  const sourceReserved = Math.max(
+    PAGE_SOURCE_RESERVED_MM * k,
+    bottomTickBand + sourceBlockHeight + PAGE_SOURCE_CLEARANCE_MM,
+  );
 
   // 图例最小宽度:先按文字测量,再按纸张比例夹到可读区间.
   // 横向沿用固定 150..260pt 区间(A5 横向已验证);纵向随 k 收缩,避免小纸上图例占比过大.
@@ -1393,13 +1429,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
     }
   }
 
-  // 4) 来源(页底一行或折行后多行,最后一行基线贴住页边距)
-  const sourceLines = wrapParagraphs(
-    sourceText.length > 0 ? [sourceText] : [],
-    sourceFont,
-    sourceWrapWidth,
-    sourceMeasure,
-  ).filter((line) => line.length > 0);
+  // 4) 来源(页底一行或折行后多行,最后一行基线贴住页边距;折行结果在定地图尺寸前已算好)
   if (sourceLines.length > 0) {
     const baselines = sourceLines.length;
     // 块高用解析后的行高,保证多行来源的最后一行仍贴住页边距
@@ -1420,7 +1450,7 @@ export function defaultPageLayout(geo: Geo, options: DefaultPageLayoutOptions = 
   //    移动/缩放地图时由 app 层调用 remapMapLabelItems 按仿射变换整批搬移.
   const transform = mapTransform(geo, { x: inset, y: mapTop, width_mm: mapWidth });
   const labels = [...geo.labels].sort((a, b) => a.order - b.order);
-  for (const label of labels) items.push(makeLabelItem(nextId++, label, geo, transform, textStyle));
+  for (const label of labels) items.push(makeLabelItem(nextId++, label, transform, textStyle));
 
   return {
     paper,

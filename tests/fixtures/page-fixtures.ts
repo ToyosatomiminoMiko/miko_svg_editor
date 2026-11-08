@@ -25,9 +25,11 @@ export const BASE_SHA256: string = sha256OfBytes(BASE_BYTES);
 /** 底图契约解析结果(errors 为空才允许打开) */
 export const BASE_INFO = readBaseSvg(BASE_SVG_TEXT);
 /**
- * 构造一份完整的 200×100 geo:2 条经度 + 2 条纬度刻度,2 个地名(单行 + 多行,样式全由 role
- * 决定),高程色标,5 种图例条目(line/rect/point×3 marker),完整默认文案.
- * 每次调用返回新对象,测试可以放心改字段.
+ * 构造一份完整的 200×100 geo:2 条经度 + 2 条纬度刻度,2 个地名(均单行;颜色/斜体来自
+ * role 表,字号由前端 role 表纸张 mm 设计值决定,geo 不带任何文字样式字段),高程色标,
+ * 5 种图例条目(line/rect/point×3 marker),完整默认文案. 每次调用返回新对象,测试可以放心改字段.
+ * 为什么地名 fixture 是单行:Cartopy 新契约要求 `labels[].text` 单行(折行由前端负责),
+ * fixture 必须表达新契约;需要验证多行容错/渲染的用例自己就地改 `text`/`lines`.
  */
 export function makeGeo(): Geo {
   return {
@@ -59,17 +61,15 @@ export function makeGeo(): Geo {
         x: 100,
         y: 50,
         anchor: 'middle',
-        font_size_pt: 12,
         order: 0,
       },
       {
         id: 'label-river-B',
         role: 'river',
-        text: '乙河\n第二行',
+        text: '乙河',
         x: 160,
         y: 80,
         anchor: 'start',
-        font_size_pt: 9,
         order: 1,
       },
     ],
