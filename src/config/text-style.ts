@@ -201,6 +201,22 @@ export const TEXT_STYLE_FONT_SIZE_MIN_MM = 0.35;
 export const TEXT_STYLE_FONT_SIZE_MAX_MM = 180;
 export const TEXT_STYLE_HALO_WIDTH_MAX_MM = 7;
 
+/**
+ * 「样式设置」窗口「字号」数字框的步进(mm).
+ * 为什么单列:步进是交互口径,不属于数据契约(契约只有取值范围);与下面的 UI 下限放在
+ * 一起,「min 必须是 step 的整数倍」这条约束才看得见,测得到.
+ */
+export const TEXT_STYLE_FONT_SIZE_STEP_MM = 0.5;
+
+/**
+ * 「样式设置」窗口「字号」数字框的下限(mm).
+ * 为什么不是契约下限 0.35:`<input type=number>` 用 `min` 当步进基准(step base),
+ * min 与 step 不同余时方向键会落在 0.35/0.85/1.35 上(默认值 8 按一次↓只走 0.15),
+ * 看起来就像「步长被改成 0.85/0.35」.取 step 的整数倍后步进回到 0.5/1.0/1.5;
+ * 该值仍严于契约下限 0.35,UI 写出的值不会被 `validateTextStyleOverride` 拒绝.
+ */
+export const TEXT_STYLE_FONT_SIZE_UI_MIN_MM = 0.5;
+
 /* ---------------- 样式设置:分类元信息 ---------------- */
 
 /**

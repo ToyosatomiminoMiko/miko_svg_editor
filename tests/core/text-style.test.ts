@@ -23,6 +23,10 @@ import {
   TEXT_HALO,
   TEXT_STYLE_CATEGORY_IDS,
   TEXT_STYLE_CATEGORY_META,
+  TEXT_STYLE_FONT_SIZE_MAX_MM,
+  TEXT_STYLE_FONT_SIZE_MIN_MM,
+  TEXT_STYLE_FONT_SIZE_STEP_MM,
+  TEXT_STYLE_FONT_SIZE_UI_MIN_MM,
   type MapLabelRole,
   type MapLabelRoleStyle,
   type PageTextRole,
@@ -1159,5 +1163,23 @@ describe('分类默认样式:与 config 真源一致(§2/§3)', () => {
     expect(readTextCategoryStyle(layout, geo, 'title').font_size_mm).toBe(5);
     applyTextStyle(layout, geo, 'title', { font_size_mm: 26 });
     expect(readTextCategoryStyle(layout, geo, 'title').font_size_mm).toBe(26);
+  });
+});
+
+describe('样式设置数字框:min 必须与 step 同余(HTML 步进基准)', () => {
+  /**
+   * 回归:字号框曾直接用契约下限 0.35 当 DOM `min`,而 `<input type=number>` 把 `min`
+   * 当 step base,于是方向键产出 0.35/0.85/1.35...;默认值 8 按一次↓只走 0.15,
+   * 用户看到的就是「步长变成 0.85/0.35 了」.修法是 UI 下限取 step 的整数倍.
+   */
+  it('字号框:min 是 step 的整数倍', () => {
+    expect(TEXT_STYLE_FONT_SIZE_UI_MIN_MM % TEXT_STYLE_FONT_SIZE_STEP_MM).toBe(0);
+  });
+
+  it('字号框:UI 下限不越过持久化契约,上界也落在 step 网格上', () => {
+    // 严于契约是安全的(UI 只会写出合法值);松于契约才会写出重开被拒的 page 块
+    expect(TEXT_STYLE_FONT_SIZE_UI_MIN_MM).toBeGreaterThanOrEqual(TEXT_STYLE_FONT_SIZE_MIN_MM);
+    expect(TEXT_STYLE_FONT_SIZE_UI_MIN_MM).toBeLessThanOrEqual(TEXT_STYLE_FONT_SIZE_MAX_MM);
+    expect(TEXT_STYLE_FONT_SIZE_MAX_MM % TEXT_STYLE_FONT_SIZE_STEP_MM).toBe(0);
   });
 });

@@ -52,7 +52,8 @@ import {
   TEXT_STYLE_CATEGORY_GROUPS,
   TEXT_STYLE_CATEGORY_META,
   TEXT_STYLE_FONT_SIZE_MAX_MM,
-  TEXT_STYLE_FONT_SIZE_MIN_MM,
+  TEXT_STYLE_FONT_SIZE_STEP_MM,
+  TEXT_STYLE_FONT_SIZE_UI_MIN_MM,
   TEXT_STYLE_HALO_WIDTH_MAX_MM,
   type MapLabelRole,
   type TextStyleCategoryId,
@@ -461,11 +462,13 @@ export class StyleSettingsWindow {
       () => this.readStyle().font_size_mm,
       (value) => this.apply({ font_size_mm: value }),
       {
-        // 与 validateTextStyleOverride 共用同一组边界(见 config/text-style.ts):
+        // 与 validateTextStyleOverride 共用同一份契约上限(见 config/text-style.ts):
         // UI 允许写入但校验拒绝的值会让整份 page 块在重开时回退默认版式.
-        min: TEXT_STYLE_FONT_SIZE_MIN_MM,
+        // 下限不能用契约下限 0.35:浏览器把 min 当步进基准,0.35 与 0.5 不同余会让方向键
+        // 落在 0.35/0.85/1.35 上;UI 下限取 step 的整数倍(0.5,仍严于契约).
+        min: TEXT_STYLE_FONT_SIZE_UI_MIN_MM,
         max: TEXT_STYLE_FONT_SIZE_MAX_MM,
-        step: 0.5,
+        step: TEXT_STYLE_FONT_SIZE_STEP_MM,
         reset: { field: 'font_size_mm', readDefault: () => this.defaultFontSizeMm() },
       },
     );
