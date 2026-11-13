@@ -14,9 +14,9 @@
  * 按钮表来自 operations.ts 的 TOOLS / CONSTRAINT_OPERATIONS / EDIT_OPERATIONS,
  * 动作由调用方(Editor)注入.
  *
- * 两种模式只差「视图与文件」区的即时命令:草图模式导出本地 SVG;地图排版页有自己的
- * 工具条(`ui/page-toolbar.ts`:打开... / 导出 geo.json / 导出 SVG),本文件只服务草图页,
- * 工具与约束分组保持不变(同一编辑内核).
+ * 两种模式只差「视图与文件」区的即时命令:草图模式从本地 SVG 导入几何并导出本地 SVG;
+ * 地图排版页有自己的工具条(`ui/page-toolbar.ts`:打开... / 导出 geo.json / 导出 SVG),
+ * 本文件只服务草图页,工具与约束分组保持不变(同一编辑内核).
  *
  * 与命令模型的关系:工具与约束/固定/构造按钮都只是「启动一个操作」--操作把参数槽位
  * 填满后立即执行(见 operations.ts 与 ui/editor-controls.ts).工具栏不保存任何参数,
@@ -46,6 +46,8 @@ export interface ToolbarHandlers {
   armOperation(id: OperationId): void;
   toggleSnap(): void;
   fitView(): void;
+  /** 从本地 SVG 导入几何图元 */
+  importSVG(): void;
   /** 本地导出当前草图 */
   exportSVG(): void;
   clearAll(): void;
@@ -106,7 +108,7 @@ export function buildToolbar(root: HTMLElement, handlers: ToolbarHandlers): Tool
     addActionButton(constraintRow, op.id, op.label, '参数可在画布上补齐,填满立即执行');
   toolZone.appendChild(createControlGroup('约束', constraintRow));
 
-  // 右分区:视图与文件(吸附开关 + 即时命令,草图 3 个 / 地图 4 个)
+  // 右分区:视图与文件(吸附开关 + 即时命令,草图 4 个 / 地图 4 个)
   const actionZone = create_element({ tag: 'div' }, { class: 'dock-actions app-dock-actions' });
   const viewFileRow = create_element({ tag: 'div' }, { class: 'app-button-row' });
 
@@ -122,9 +124,14 @@ export function buildToolbar(root: HTMLElement, handlers: ToolbarHandlers): Tool
   for (const op of EDIT_OPERATIONS)
     addActionButton(viewFileRow, op.id, op.label, '参数可在画布上补齐,填满立即执行');
 
-  // 即时命令表:适应视图 / 导出本地 SVG / 清空
+  // 即时命令表:适应视图 / 导入本地 SVG / 导出本地 SVG / 清空
   const viewFileButtons: readonly ViewFileButton[] = [
     { text: '适应', title: '缩放显示整张草图', run: () => handlers.fitView() },
+    {
+      text: '导入SVG',
+      title: '从本地 SVG 导入几何图元(替换当前草图)',
+      run: () => handlers.importSVG(),
+    },
     { text: '导出SVG', title: '下载当前草图', run: () => handlers.exportSVG() },
     { text: '清空', title: '删除所有图元', run: () => handlers.clearAll() },
   ];

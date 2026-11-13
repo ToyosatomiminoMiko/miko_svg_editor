@@ -60,40 +60,42 @@ flowchart TB
 
 ### 1.2 `src/app/`:装配与事件控制
 
-| 文件             | 一句话职责                                                                                                             |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `main.ts`        | 组合根:引样式 -> `mountAppShell` -> 读主题/文本测量 -> `new Editor` -> 通知区 -> `buildToolbar` -> `bindToolbar`       |
-| `editor.ts`      | 指针/键盘事件接线 + 手势状态机(拖拽/平移/尺寸/框选);把点击交给 `EditorControls`,自己不写领域逻辑                       |
-| `page-main.ts`   | 地图排版页组合根:建外壳 -> 上传面板 -> 读 File 字节 -> `core/open-map` -> sidebar/PageEditor/样式窗口/toolbar -> start |
-| `page-editor.ts` | 地图排版页状态机:选择/拖拽/缩放/平移/脏标记;地图摆放变化时 `remapMapLabelItems` 整批搬移地名;导出 geo.json/SVG         |
-| `font-embed.ts`  | 导出 SVG 的字体子集编排:取 harfbuzz wasm/随包资产,按成品用字裁字,返回 `font_faces` 与中文告警                          |
+| 文件             | 一句话职责                                                                                                              |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `main.ts`        | 组合根:引样式 -> `mountAppShell` -> 读主题/文本测量 -> `new Editor` -> 通知区 -> `buildToolbar` -> `bindToolbar`        |
+| `editor.ts`      | 指针/键盘事件接线 + 手势状态机(拖拽/平移/尺寸/框选)+ `Ctrl/Cmd+O` 导入 SVG;把点击交给 `EditorControls`,自己不写领域逻辑 |
+| `page-main.ts`   | 地图排版页组合根:建外壳 -> 上传面板 -> 读 File 字节 -> `core/open-map` -> sidebar/PageEditor/样式窗口/toolbar -> start  |
+| `page-editor.ts` | 地图排版页状态机:选择/拖拽/缩放/平移/脏标记;地图摆放变化时 `remapMapLabelItems` 整批搬移地名;导出 geo.json/SVG          |
+| `font-embed.ts`  | 导出 SVG 的字体子集编排:取 harfbuzz wasm/随包资产,按成品用字裁字,返回 `font_faces` 与中文告警                           |
 
 ### 1.3 `src/core/`:纯逻辑领域层(可在 node 里直接测)
 
-| 文件                | 一句话职责                                                                                                      |
-| ------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `types.ts`          | 非图元的数据类型:`Point`,`Constraint`,`Selection`,`Snap`,`Marquee`,`MeasureText` 等                             |
-| `vec.ts`            | 二维向量纯函数(`safeLen` 零长度返回 1,供残差归一化)                                                             |
-| `camera.ts`         | 世界 ↔ 屏幕换算,缩放钳制,网格间距;全局 `cam` 快照 `CameraView`                                                  |
-| `viewport.ts`       | 视图交互写入口:`fitView` / `wheelZoom` / `beginPan` / `applyPan`                                                |
-| `state.ts`          | 交互状态单例 `state` + 有序选择集操作(`setSelection` / `deselect` / `toggleSelected` 等)                        |
-| `model.ts`          | 点/图元/约束容器单例 `model`(`pts`/`ents`/`cons`/`seq`)与增删查,级联清理,注入门面                               |
-| `entities.ts`       | 图元多态类 `EntityBase` 子类(直线/圆/圆弧/点图元)-> 几何归一为 `EntityPrimitive`                                |
-| `geometry.ts`       | 拾取,吸附,包围盒,框选判定;只对 `segment`/`circular`/`dot` 三种基元写一次数学                                    |
-| `constraints.ts`    | 引用校验 `isConstraintRefsValid` + 残差表 `RESID`(`Record<ConstraintKind, ...>` 强制穷尽)                       |
-| `solver.ts`         | `solveSketch`:LM + 数值雅可比,原地写回点坐标/圆半径,报告 `invalidConstraints`                                   |
-| `dimensions.ts`     | 尺寸单一元数据表 `DIM_META`:取值/设值/文案/校验/布局/命中/拖拽/图元匹配                                         |
-| `selection.ts`      | 选择语义:单击/Shift/框选方向,拖拽点集,已选列表数据,命令悬停候选                                                 |
-| `sketch-actions.ts` | 原子领域动作与统一求解入口 `solve`:画图/加约束/删除/固定/构造/尺寸/拖拽                                         |
-| `operations.ts`     | 统一操作引擎:`Operand`/`SlotSpec`/`OperationMeta`,命令会话,槽位填充,命令文案/预览,`TOOLS`                       |
-| `text-style.ts`     | 地图排版页:分类文字样式解析/批量应用/恢复默认(整分类与单字段),地图分类统一字号(覆盖 ?? role 表纸张 mm 设计字号) |
-| `base-svg.ts`       | 地图排版页:底图契约 C1–C4 + 根标签内原文切片 inner/prefix/suffix(纯逻辑)                                        |
-| `open-map.ts`       | 地图排版页:两条打开路径(底图+geo / 内嵌源的成品 SVG)-> PageDocument + 初始排版;旧版成品直接拒绝                 |
-| `final-svg.ts`      | 地图排版页:成品 SVG 再编辑(内嵌源读取,mapdoc-map 定位,底图逐字节还原)                                           |
-| `base64.ts`         | 地图排版页:内嵌源/marker 的 UTF-8 base64 编解码                                                                 |
-| `document.ts`       | 地图排版页:PageDocument + createPageDocument 一致性校验 + 上传分类/导出文件名                                   |
-| `page.ts`           | 地图排版页:geo/page 类型,normalize/validate(含 `paper.locked` 与 `margin`),center_h 约束,digest/serialize       |
-| `page-layout.ts`    | 地图排版页:§5 布局公式(mm)+ `defaultPageLayout` + `remapMapLabelItems` + `itemBoundsMm`(页边距不参与版式)       |
+| 文件                | 一句话职责                                                                                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`          | 非图元的数据类型:`Point`,`Constraint`,`Selection`,`Snap`,`Marquee`,`MeasureText` 等                                                                     |
+| `vec.ts`            | 二维向量纯函数(`safeLen` 零长度返回 1,供残差归一化)                                                                                                     |
+| `camera.ts`         | 世界 ↔ 屏幕换算,缩放钳制,网格间距;全局 `cam` 快照 `CameraView`                                                                                          |
+| `viewport.ts`       | 视图交互写入口:`fitView` / `wheelZoom` / `beginPan` / `applyPan`                                                                                        |
+| `state.ts`          | 交互状态单例 `state` + 有序选择集操作(`setSelection` / `deselect` / `toggleSelected` 等)                                                                |
+| `model.ts`          | 点/图元/约束容器单例 `model`(`pts`/`ents`/`cons`/`seq`)与增删查,级联清理,注入门面                                                                       |
+| `entities.ts`       | 图元多态类 `EntityBase` 子类(直线/圆/圆弧/点图元)-> 几何归一为 `EntityPrimitive`                                                                        |
+| `geometry.ts`       | 拾取,吸附,包围盒,框选判定;只对 `segment`/`circular`/`dot` 三种基元写一次数学                                                                            |
+| `constraints.ts`    | 引用校验 `isConstraintRefsValid` + 残差表 `RESID`(`Record<ConstraintKind, ...>` 强制穷尽)                                                               |
+| `solver.ts`         | `solveSketch`:LM + 数值雅可比,原地写回点坐标/圆半径,报告 `invalidConstraints`                                                                           |
+| `dimensions.ts`     | 尺寸单一元数据表 `DIM_META`:取值/设值/文案/校验/布局/命中/拖拽/图元匹配                                                                                 |
+| `selection.ts`      | 选择语义:单击/Shift/框选方向,拖拽点集,已选列表数据,命令悬停候选                                                                                         |
+| `svg-path.ts`       | SVG 输入侧纯数学:transform 列表 -> 2D 仿射矩阵;path `d` -> 线段/圆圆弧/曲线离散折线(贝塞尔,椭圆弧);node 可测,不碰 DOM/model                            |
+| `svg-import.ts`     | SVG 导入:DOM 无关 `SvgNode` 树 -> 导入计划(世界坐标图元,transform 逐层继承,点图元识别,损失警告,上限截断)-> `applySvgImport` 写模型并按坐标复用共享点 |
+| `sketch-actions.ts` | 原子领域动作与统一求解入口 `solve`:画图/加约束/删除/固定/构造/尺寸/拖拽                                                                                 |
+| `operations.ts`     | 统一操作引擎:`Operand`/`SlotSpec`/`OperationMeta`,命令会话,槽位填充,命令文案/预览,`TOOLS`                                                               |
+| `text-style.ts`     | 地图排版页:分类文字样式解析/批量应用/恢复默认(整分类与单字段),地图分类统一字号(覆盖 ?? role 表纸张 mm 设计字号)                                         |
+| `base-svg.ts`       | 地图排版页:底图契约 C1–C4 + 根标签内原文切片 inner/prefix/suffix(纯逻辑)                                                                                |
+| `open-map.ts`       | 地图排版页:两条打开路径(底图+geo / 内嵌源的成品 SVG)-> PageDocument + 初始排版;旧版成品直接拒绝                                                         |
+| `final-svg.ts`      | 地图排版页:成品 SVG 再编辑(内嵌源读取,mapdoc-map 定位,底图逐字节还原)                                                                                   |
+| `base64.ts`         | 地图排版页:内嵌源/marker 的 UTF-8 base64 编解码                                                                                                         |
+| `document.ts`       | 地图排版页:PageDocument + createPageDocument 一致性校验 + 上传分类/导出文件名                                                                           |
+| `page.ts`           | 地图排版页:geo/page 类型,normalize/validate(含 `paper.locked` 与 `margin`),center_h 约束,digest/serialize                                               |
+| `page-layout.ts`    | 地图排版页:§5 布局公式(mm)+ `defaultPageLayout` + `remapMapLabelItems` + `itemBoundsMm`(页边距不参与版式)                                               |
 
 ### 1.4 `src/render/`:绘图与输出层
 
@@ -121,8 +123,9 @@ flowchart TB
 | 文件                       | 一句话职责                                                                                                                                                                              |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `app-shell.ts`             | `mountAppShell`:在 `#app` 网格里建侧栏/dock/画布/通知区宿主,并接侧栏拖拽条                                                                                                              |
-| `toolbar.ts`               | `buildToolbar`:顶部 dock(工具分段,约束按钮,固定/构造,吸附开关,适应/导出/清空)                                                                                                           |
-| `editor-controls.ts`       | 工具栏命令实现 + 唯一同步入口 `sync()`(重绘 + 已选列表 + 状态栏)                                                                                                                        |
+| `toolbar.ts`               | `buildToolbar`:顶部 dock(工具分段,约束按钮,固定/构造,吸附开关,「视图与文件」即时命令 适应/导入SVG/导出SVG/清空)                                                                         |
+| `editor-controls.ts`       | 工具栏命令实现 + 唯一同步入口 `sync()`(重绘 + 已选列表 + 状态栏)+ 导入流水线(选文件 -> 计划 -> 确认替换 -> 清空写入 -> 适应视图)                                                        |
+| `svg-file.ts`              | 导入文件适配:隐藏文件框 `openSvgFilePicker` + `readSvgFile`(File 读取 + `DOMParser` -> `SvgNode`;style 摊平;大小/节点上限)                                                              |
 | `status-panel.ts`          | 左侧通高状态栏外壳:标题 + 「已选择」插槽 + 状态/输入插槽                                                                                                                                |
 | `selection-list.ts`        | 「已选择」列表:行,种类徽章,行内约束胶囊「×」,内容签名去重                                                                                                                               |
 | `hint-editor.ts`           | 状态区两行 `<output>` + 尺寸数字输入框(提交/取消/非法态/闪示 info)                                                                                                                      |
@@ -153,6 +156,7 @@ flowchart TB
 | `angle.ts`            | `TAU` / `sweepOf` / `normalizeAngle` / `isFullSweep` / 折线段数                                                                                                                    |
 | `constraints-meta.ts` | 16 种约束的 `CONSTRAINT_META`(label / refs / unorderedRefs)+ 去重键 + 引用字段推导                                                                                                 |
 | `export.ts`           | 导出标定:颜色/线宽/精度/文件名/虚线/点半径/空图文案                                                                                                                                |
+| `import.ts`           | 导入标定:accept / 大小上限 8 MB / 节点上限 20000 / 图元上限 5000,曲线 12 段与椭圆 48 段离散,跳过元素种类提示上限 4 与空/非法文案                                                   |
 | `format.ts`           | `formatNumber` / `formatDimValue`(显示格式;回填用全精度 `String(value)`)                                                                                                           |
 | `layout.ts`           | 侧栏宽度记忆键与键盘步长;CSS 读不到时的兜底值                                                                                                                                      |
 | `limits.ts`           | 视图/模型上限:缩放范围,网格,退化阈值,id 初值                                                                                                                                       |
@@ -170,6 +174,8 @@ flowchart TB
 | `tests/core/*.test.ts`               | core 与 config 的纯逻辑:vec/angle/format,model,entities,geometry,constraints,solver,dimensions,selection,sketch-actions,operations,point-entity,coincident/collinear |
 | `tests/core/fonts.test.ts`           | 全项目字体栈:页面默认值 / CSS `--font-family-base` 与 `config/fonts.ts` 逐字一致                                                                                     |
 | `tests/core/fixtures.ts`             | 夹具:`addArcByAngles` 把「圆心+半径+起终角」换成三个点                                                                                                               |
+| `tests/core/svg-path.test.ts`        | transform/path 解析:矩阵乘法顺序,rotate 绕点,圆弧参数化(F.6.5),曲线折线化,非法输入与警告                                                                         |
+| `tests/core/svg-import.test.ts`      | 树 -> 计划 -> 模型:图元识别,点图元往返,点复用,transform 继承,圆弧扫向/翻转,损失警告,上限截断与纯函数性                                                         |
 | `tests/render/export-svg.test.ts`    | `buildSVG` 的纯输出(整圆 `<circle>`,弧 `<path>`,构造虚线,无 NaN)                                                                                                     |
 | `tests/render/used-text.test.ts`     | 成品文字扫描:字符集去重排序,族名/字重收集,XML 实体只还原一遍                                                                                                         |
 | `tests/render/embedded-font.test.ts` | 内嵌字体:sfnt 格式识别,按字重选面,自定义族识别,`@font-face` CSS 字节口径                                                                                             |
@@ -204,7 +210,7 @@ flowchart TB
 9. **`buildToolbar(dockRoot, editor.handlers)`**(`src/ui/toolbar.ts`):
    - 工具分段 `createSegmented`(`TOOLS` 顺序,默认 `select`)-> 点击 `handlers.setTool(id)`;
    - 约束按钮(`CONSTRAINT_OPERATIONS`)-> 点击 `handlers.armOperation(op.id)`;
-   - 视图与文件区:吸附开关 `createSwitch`(`toggleSnap`),固定/构造(`EDIT_OPERATIONS`),适应/导出/清空;
+   - 视图与文件区:吸附开关 `createSwitch`(`toggleSnap`),固定/构造(`EDIT_OPERATIONS`),即时命令 适应/导入SVG/导出SVG/清空;
    - 返回 `ToolbarHandle`:`setActiveTool` / `setActiveOperation` / `setSnap`.
 10. **`editor.bindToolbar(toolbar)`**:`toolbar.setSnap(state.snapEnabled)`,然后 `controls.setTool('select')` -> `cancelCommand()` -> `showTool('select', null)` -> `sync()`,第一帧状态栏显示「选择(V)」及其提示.
 
@@ -364,17 +370,56 @@ sequenceDiagram
 
 `src/app/editor.ts` 是唯一的 DOM 事件入口,规则很短:
 
-| 事件                          | 路由                                                                                                                                                                                    |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pointerdown` 左键            | `onPrimaryClick`:有命令 -> `EditorControls.clickCommand`;否则选择工具:尺寸命中 -> 尺寸手势,点/图元 -> 选择/拖拽,空白 -> 开始框选                                                        |
-| `pointerdown` 中/右键         | `gesture = {kind:'pan'}` + `beginPan`;右键单击未拖动 = 取消当前操作                                                                                                                     |
-| `pointermove`                 | 依次判断 pan -> drag -> dim -> marquee,否则 `updateHover` + `sync()`                                                                                                                    |
-| `pointerup` / `pointercancel` | `finishGesture`:拖拽结束 `controls.finishDrag(cancelled)`;尺寸未拖动 = 单击打开输入框;框选结算 `applyMarquee`                                                                           |
-| `wheel`                       | `wheelZoom`(以指针为锚)+ `sync()`                                                                                                                                                       |
-| `keydown`                     | 输入框编辑中让位;`Enter` 兜底执行;`Esc` 阶梯:输入框 -> 框选 -> 命令 -> 工具回选择 -> 清空选择;`Backspace` 有命令回退参数,无命令删除选中;`Delete` 删除;`S` 开关吸附;其余单键命中 `TOOLS` |
-| 尺寸输入框                    | `ui/hint-editor.ts` 自己处理 `Enter`/`Esc`/失焦提交,并 `stopPropagation` 让画布快捷键失效                                                                                               |
+| 事件                          | 路由                                                                                                                                                                                                                                |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pointerdown` 左键            | `onPrimaryClick`:有命令 -> `EditorControls.clickCommand`;否则选择工具:尺寸命中 -> 尺寸手势,点/图元 -> 选择/拖拽,空白 -> 开始框选                                                                                                    |
+| `pointerdown` 中/右键         | `gesture = {kind:'pan'}` + `beginPan`;右键单击未拖动 = 取消当前操作                                                                                                                                                                 |
+| `pointermove`                 | 依次判断 pan -> drag -> dim -> marquee,否则 `updateHover` + `sync()`                                                                                                                                                                |
+| `pointerup` / `pointercancel` | `finishGesture`:拖拽结束 `controls.finishDrag(cancelled)`;尺寸未拖动 = 单击打开输入框;框选结算 `applyMarquee`                                                                                                                       |
+| `wheel`                       | `wheelZoom`(以指针为锚)+ `sync()`                                                                                                                                                                                                   |
+| `keydown`                     | 输入框编辑中让位;`Enter` 兜底执行;`Esc` 阶梯:输入框 -> 框选 -> 命令 -> 工具回选择 -> 清空选择;`Backspace` 有命令回退参数,无命令删除选中;`Delete` 删除;`S` 开关吸附;`Ctrl/Cmd+O` 导入 SVG(在修饰键让路之前处理);其余单键命中 `TOOLS` |
+| 尺寸输入框                    | `ui/hint-editor.ts` 自己处理 `Enter`/`Esc`/失焦提交,并 `stopPropagation` 让画布快捷键失效                                                                                                                                           |
 
 手势状态只在 `Editor.gesture`(`pan` / `drag` / `dim`)与 `state.marquee` 里,结束即清;不写进模型.
+
+### 6.1 SVG 导入链路(按钮 / Ctrl+O -> 图元)
+
+入口两条:工具栏「视图与文件」的「导入SVG」按钮(`buildToolbar` 里 `onClick -> handlers.importSVG`)与
+`Ctrl/Cmd+O`(`Editor.onKeyDown` 抢在「修饰键组合让路」之前处理,因为文件选择框必须由用户手势同步唤起).
+两条都落到 `EditorControls.importSVG`,再进同一条异步流水线:
+
+1. **入口**:`importSVG` 先查重入守卫 `importing`(解析/确认期间再触发直接返回),再 `openSvgFilePicker`
+   (`ui/svg-file.ts`)弹复用的隐藏 `<input type="file">`(`accept = IMPORT_ACCEPT = '.svg,image/svg+xml'`);
+   用户取消选择不回调,模型不动.
+2. **文件 -> `SvgNode`**:`readSvgFile` 先按 `IMPORT_MAX_BYTES`(8 MB)在读取前拒绝超大文件,再 `file.text()`
+   交给 `DOMParser().parseFromString(text, 'image/svg+xml')`;根元素不是 `<svg>` 或文档里出现 `<parsererror>`
+   抛中文 `IMPORT_INVALID_MESSAGE`;`toSvgNode` 递归建 DOM 无关的 `SvgNode { tag, attrs, children }`,把
+   `style` 属性摊平进 `attrs`(style 优先),节点数超过 `IMPORT_MAX_NODES`(20000)抛错.**DOM 只在这一层**:
+   core 因此能在 node 里手工拼树单测.
+3. **树 -> 计划**:`planSvgImport(root)` 是纯函数,只读树,不动 model:按容器/静默/可见跳过三类标签分派;
+   `resolveStyle` 把 `transform` 逐层累乘(`parseTransform` 解析 + `multiplyMatrix(父矩阵, 本元素矩阵)`),
+   点坐标用 `applyMatrix` 一次性变换到世界坐标;`parsePathData`(`core/svg-path.ts`)把 `d` 化成线段/圆圆弧/
+   曲线折线.不支持的可见元素(按标签计数),贝塞尔与椭圆折线化,非均匀缩放,圆角矩形,百分比长度,
+   非法 `transform`,嵌套 `<svg>`,points 奇数,路径解析警告全部进 `SvgImportPlan.warnings`;图元数达到
+   `IMPORT_MAX_SHAPES`(5000)后截断并提示.
+4. **确认替换**:先用 `countImportableShapes(plan)` 预检(与 `applySvgImport` 的退化判定同源):
+   为 0 -> 提示 `IMPORT_EMPTY_MESSAGE` 直接返回,模型一个字节不动--否则「计划非空但全是退化几何」会
+   先清空旧草图,结果什么都没导入(草图没有撤销);当前草图非空(`isEmpty()`)-> `askConfirm` 弹
+   「导入将替换当前草图(将写入 N 个图元),继续?」,N 就是可导入数量,取消直接返回.
+5. **写入**:确认后先 `hintEditor.cancel()` + `endCommand()` 收尾旧交互,再 `clearModel()` +
+   `resetInteraction()`,然后 `applySvgImport(plan)` 只做容器写入(按坐标完全相等的 key 复用 `Point`,
+   退化图元兜底丢弃并计数);最后 `showTool('select', null)` + `fitView()`(导入内容坐标范围与旧草图无关,
+   统一适应视口;`fitView` 内部已 `sync()`).
+6. **提示**:成功把「已导入 N 个图元」与 warnings 合成一条 info(状态栏闪示是覆盖式的,分开发只剩最后一句);
+   读取/解析抛出的中文错误走 `notify(..., 'error')`.
+
+**为什么计划/写入分两步**:第 3 步纯函数不写模型,所以读取失败,计划为空,用户取消都不会出现「解析到
+一半旧草图已被清掉」;`applySvgImport` 只做写入,不再做校验或截断决策.
+
+**数据流边界**:约束与尺寸不在 SVG 里(导出也不含它们),导入只重建线段/圆/圆弧/点图元;需要保留旧草图请
+先「导出SVG」.构造几何靠继承的 `stroke-dasharray` 判定;点图元只由「显式 fill + 显式 `stroke="none"`」
+的 `<circle>` 识别(本编辑器导出点图元的写法),构造点在导出格式里与构造圆同形,导入回来是构造圆;整圆弧
+导出成 `<circle>`,导入回来是圆图元(几何等价).
 
 ## 7. 数据模型速览
 
@@ -644,7 +689,8 @@ const input = (w: Vec, snap: Snap | null = null): ClickInput => ({
 
 ## 13. 已知边界
 
-- **demo 定位**:无撤销/重做,无文件保存/打开,无剪贴板;刷新页面即丢失.
+- **demo 定位**:无撤销/重做,无工程文件保存/打开,无剪贴板;刷新页面即丢失.导入/导出都只是 SVG 几何快照:导入只重建几何图元,约束与尺寸不往返.
+- **导入 SVG 有损且有上限**:`<text>`/`<image>`/`<use>`/`<foreignObject>` 等可见元素跳过(按标签计数),贝塞尔离散 12 段/段,椭圆 48 段,圆角矩形按直角,非均匀缩放下圆/圆弧按近似圆,百分比长度跳过,非法 `transform` 按无变换,嵌套 `<svg>` 的 viewBox 不换算;文件上限 8 MB,节点 20000(超限直接拒绝),图元 5000(超出截断);解析在主线程同步完成,大文件可能短暂卡顿.损失全部在状态栏/消息区提示,不做静默近似.
 - **无多文档**:`model`,`state`,`cam` 都是模块级单例;测试靠 `clearModel()` / `resetInteraction()` 隔离.
 - **导出不含约束与尺寸**:`export-svg.ts` 只导出几何图元(点图元也算);构造线/构造点用虚线/空心样式.
 - **只适配桌面/鼠标**:没有专门的触屏/移动端适配;视图操作只有滚轮缩放,中/右键拖拽平移,「适应」按钮(无缩放/平移按钮).
@@ -657,19 +703,20 @@ const input = (w: Vec, snap: Snap | null = null): ClickInput => ({
 
 本文档描述的是**目录职责,依赖方向,点击链路**,这些恰是重构时最容易变的部分.以下变化发生时必须回来改本文:
 
-| 变化                                                                            | 要改的小节                                                                                                |
-| ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| 新增/移动/删除 `src/{app,core,render,ui,config}` 下的文件或目录                 | §1 目录地图,相关链路的文件名                                                                              |
-| 调整分层或 ESLint 的 `no-restricted-imports`                                    | §8 依赖规则;同时检查 `eslint.config.js` 里的提示文案是否仍指向本文                                        |
-| 调整 `scripts/check_architecture.mjs` 的 `ALLOWED` 白名单 / 归层规则            | §8.3(与 ESLint 的 `forbidLayers` 同步);检查 `npm run arch` 的输出(文件数/违规数)与 README「运行与质量门」 |
-| 新增 `npm run` 脚本或 CI 步骤(如质量门顺序变化)                                 | §11.3,§8.3;链回 README「运行与质量门」                                                                    |
-| 修改命令模型(`Operand`/`SlotSpec`/`CommandSession`/执行时机)                    | §3,§4,§5                                                                                                  |
-| 修改装配顺序(`main.ts`,`Editor` 构造,工具栏/通知)                               | §2                                                                                                        |
-| 修改渲染编排(`renderer.render` 的顺序或 `draw-*` 拆分)                          | §1.4,§7                                                                                                   |
-| 修改 `EntityBase` 能力集 / `EntityPrimitive` / `DIM_META` / `RESID`             | §7.2,§7.4,§7.5,§9                                                                                         |
-| 修改求解器入口或 `ITER_*` 语义                                                  | §7.6,§9                                                                                                   |
-| README 更新了「目录结构 / 依赖方向与配置分层 / 运行与质量门 / ESLint 规则要点」 | §1 顶部说明与 §9/§11 的 README 链接                                                                       |
-| 新增/变更测试约定(环境,fixture,命令引擎测试写法)                                | §11                                                                                                       |
+| 变化                                                                            | 要改的小节                                                                                                                |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| 新增/移动/删除 `src/{app,core,render,ui,config}` 下的文件或目录                 | §1 目录地图,相关链路的文件名                                                                                              |
+| 调整分层或 ESLint 的 `no-restricted-imports`                                    | §8 依赖规则;同时检查 `eslint.config.js` 里的提示文案是否仍指向本文                                                        |
+| 调整 `scripts/check_architecture.mjs` 的 `ALLOWED` 白名单 / 归层规则            | §8.3(与 ESLint 的 `forbidLayers` 同步);检查 `npm run arch` 的输出(文件数/违规数)与 README「运行与质量门」                 |
+| 新增 `npm run` 脚本或 CI 步骤(如质量门顺序变化)                                 | §11.3,§8.3;链回 README「运行与质量门」                                                                                    |
+| 修改命令模型(`Operand`/`SlotSpec`/`CommandSession`/执行时机)                    | §3,§4,§5                                                                                                                  |
+| 新增/修改 SVG 导入的元素映射,阈值或入口                                        | §1.3(`svg-path`/`svg-import`),§1.5(`svg-file`/`toolbar`/`editor-controls`),§1.6(`import.ts`),§6.1;同步 README「导入 SVG」 |
+| 修改装配顺序(`main.ts`,`Editor` 构造,工具栏/通知)                               | §2                                                                                                                        |
+| 修改渲染编排(`renderer.render` 的顺序或 `draw-*` 拆分)                          | §1.4,§7                                                                                                                   |
+| 修改 `EntityBase` 能力集 / `EntityPrimitive` / `DIM_META` / `RESID`             | §7.2,§7.4,§7.5,§9                                                                                                         |
+| 修改求解器入口或 `ITER_*` 语义                                                  | §7.6,§9                                                                                                                   |
+| README 更新了「目录结构 / 依赖方向与配置分层 / 运行与质量门 / ESLint 规则要点」 | §1 顶部说明与 §9/§11 的 README 链接                                                                                       |
+| 新增/变更测试约定(环境,fixture,命令引擎测试写法)                                | §11                                                                                                                       |
 
 最后:**文档里引用的函数名如果对不上,以源码为准,并把本文修正**--这份文档的价值就在于它和代码同步.
 

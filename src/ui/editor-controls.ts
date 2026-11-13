@@ -13,10 +13,11 @@
  */
 
 import { cam } from '../core/camera';
-import { EXPORT_EMPTY_MESSAGE, ITER_FULL } from '../config';
+import { EXPORT_EMPTY_MESSAGE, IMPORT_EMPTY_MESSAGE, ITER_FULL } from '../config';
 import type { DimConstraint } from '../core/dimensions';
 import { buildSVG } from '../render/export-svg';
 import { clearModel, isEmpty } from '../core/model';
+import { applySvgImport, countImportableShapes, planSvgImport } from '../core/svg-import';
 import {
   cancelCommand as cancelOperationSession,
   clickCommand as clickCommandOperation,
@@ -56,6 +57,7 @@ import { downloadSvg } from './download';
 import type { HintEditor } from './hint-editor';
 import { notify, notifyAll, askConfirm } from './notify';
 import { SelectionListView } from './selection-list';
+import { openSvgFilePicker, readSvgFile } from './svg-file';
 
 export interface EditorControlsDeps {
   readonly canvas: HTMLCanvasElement;
@@ -73,6 +75,8 @@ type ExecuteSource = 'click' | 'arm' | 'keyboard';
 export class EditorControls implements ToolbarHandlers {
   /** 已选择列表:选中集变化时由 sync() 推给面板,行内「移除」回调走 removeSelection */
   private readonly selectionList: SelectionListView;
+  /** 导入流程的并发守卫:文件框回调/解析/确认都是异步的,重入会叠加两份「替换当前草图」 */
+  private importing = false;
 
   constructor(private readonly deps: EditorControlsDeps) {
     this.selectionList = new SelectionListView(deps.selectionSlot, {
@@ -357,6 +361,63 @@ export class EditorControls implements ToolbarHandlers {
     notify('已导出 SVG');
   }
 
+  /**
+   * 导入本地 SVG:弹出文件选择框,选中的文件交给异步流水线.
+   * 为什么先查守卫再开框:解析/确认期间用户仍能再按一次快捷键或按钮,
+   * 重入会叠加两次「清空 -> 写入」,第二次把第一次的结果也替换掉.
+   */
+  importSVG(): void {
+    if (this.importing) return;
+    openSvgFilePicker((file) => {
+      void this.loadSvgFile(file);
+    });
+  }
+
+  /**
+   * 导入的异步流水线:读取 -> 计划(纯函数,不动模型)-> 非空时确认 -> 清空 -> 写入 -> 适应视图.
+   * 模型只在用户确认之后的「清空/写入」段被改动,读取失败或取消时旧草图一个字节都不变.
+   */
+  private async loadSvgFile(file: File): Promise<void> {
+    this.importing = true;
+    try {
+      const root = await readSvgFile(file);
+      const plan = planSvgImport(root);
+      // 只按「真能写进模型」的图元计数:全是退化几何(零长度线/过小半径)时必须在清空前拦住,
+      // 否则会清掉旧草图却什么都没导入(草图没有撤销)
+      const importable = countImportableShapes(plan);
+      if (importable === 0) {
+        notify(IMPORT_EMPTY_MESSAGE, 'error');
+        if (plan.warnings.length > 0) notify(plan.warnings.join(';'), 'info');
+        return;
+      }
+      if (!isEmpty()) {
+        const ok = await askConfirm(`导入将替换当前草图(将写入 ${importable} 个图元),继续?`);
+        if (!ok) return;
+      }
+      // 确认后按「先收尾交互,再清模型,再写入」的顺序:旧命令会话/尺寸输入框引用会在清空后失效
+      this.deps.hintEditor.cancel();
+      this.endCommand();
+      clearModel();
+      resetInteraction();
+      const applied = applySvgImport(plan);
+      // 导入内容的坐标范围与旧草图无关,统一适应视口(内部会 sync)
+      this.showTool('select', null);
+      this.fitView();
+      if (applied.entities === 0) {
+        notify('没有可导入的有效图元(尺寸过小?)', 'error');
+        if (plan.warnings.length > 0) notify(plan.warnings.join(';'), 'info');
+        return;
+      }
+      // 成功文案与警告合成一条 info:状态栏闪示是覆盖式的,分开发只剩最后一句
+      notify([`已导入 ${applied.entities} 个图元`, ...plan.warnings].join(';'), 'info');
+    } catch (error) {
+      // 读取/解析/确认阶段失败时还没动过模型;提示文案统一由 notify 显示
+      notify(error instanceof Error ? error.message : String(error), 'error');
+    } finally {
+      this.importing = false;
+    }
+  }
+
   /** 清空:空判定与导出一致用 model.isEmpty()(BUG-4),确认框非阻塞自绘 */
   clearAll(): void {
     void this.confirmClearAll();
@@ -419,6 +480,7 @@ export function createToolbarHandlers(controls: EditorControls): ToolbarHandlers
     armOperation: (id) => controls.armOperation(id),
     toggleSnap: () => controls.toggleSnap(),
     fitView: () => controls.fitView(),
+    importSVG: () => controls.importSVG(),
     exportSVG: () => controls.exportSVG(),
     clearAll: () => controls.clearAll(),
   };

@@ -14,7 +14,7 @@
   按选中顺序列出图元与点,并在每个对象的行内显示它已有的约束(尺寸类带显示值,无约束时不多占一行),
   每颗约束胶囊末尾的「×」可逐条删除该约束;行末「移除」把对象移出选择集;状态栏宽度可拖拽并在刷新后保持;
   按住任一已选图元/点即可整体拖动全部已选
-- 视图与文件:吸附开关,固定,构造,适应视图,导出 SVG,清空
+- 视图与文件:吸附开关,固定,构造,适应视图,导入 SVG,导出 SVG,清空
 - 图元是多态类(`EntityBase` 子类),几何归一到线段/圆弧/点三种基元;拾取,吸附,包围盒,
   渲染与导出只认基元,新增复用已有基元的图元时这些层不需要改
 
@@ -73,16 +73,16 @@ npm run ui:status    # 打印当前解析的是本地库还是 npm 版,版本与
 
 UI 代码里没有手写控件 DOM,也没有第二套控件 CSS:
 
-| UI 区块                   | miko_ui 组件                                                                                                                                                                                                                                                                                                              | 应用侧只保留                                                                                                 |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| 顶部 dock(工具栏)         | `.dock.app-dock` 宿主(`create_element` 建,外观复用库的 `.dock`)+ `createSegmented`(8 个工具,单选)+ `createButton`(10 个约束 + 固定/构造 + 3 个即时命令)+ `createSwitch` / `createInlineToggle`(吸附开关)+ `createControlGroup`(工具 / 约束 / 视图与文件三组);两个分区是 `.dock-group` / `.dock-actions`,不建面板,无标题栏 | `.app-dock*` 定位,窄视口换行与分节线                                                                         |
-| 左侧状态栏(已选择 + 状态) | `createPanel`(通高面板,标题「草图状态」)+ `createObjectRow` / `createRowActions` / `createBadge` / `createButton`(已选择行;约束胶囊用 `createBadge` 做壳,内嵌一颗 `createButton` 的「×」)+ `createValueDisplay<string>` ×2(「当前操作」与「操作提示」各一行 `<output>`,各自由 signal 驱动)                                | `.app-status*` / `.app-selection*` 布局与紧凑行样式                                                          |
-| 尺寸输入框                | `createNumberField` + `createNumberRow`(文字 + `<input type="number">`)                                                                                                                                                                                                                                                   | `.app-dim-field`(宽度 / 非法红框)                                                                            |
-| 左侧栏宽度拖拽条          | `bindWindowResize`(与桌面窗口边缘缩放手柄同一条手势接线,方向 `'e'`:报告指针绝对位置)                                                                                                                                                                                                                                      | `.app-sidebar-resizer` 定位与拖动中高亮;起手锚 + 总位移夹取,键盘与 localStorage 记忆在 ui/sidebar-resizer.ts |
-| 错误提示                  | `createMessageArea` + `MessageList`(`aria-live` 容器,条目外观,自动消失)                                                                                                                                                                                                                                                   | `.app-notices` / `.app-notice-list` 定位                                                                     |
-| info 提示                 | 复用左侧状态栏的 `ValueDisplay`(`flashInfo` 闪示,不占额外位置)                                                                                                                                                                                                                                                            | 无                                                                                                           |
-| 清空确认框                | `createPanel`(`role="dialog"`)+ `createButton`(取消 / 确定主按钮变体)                                                                                                                                                                                                                                                     | `.app-confirm-*` 遮罩与按钮变体                                                                              |
-| 页面外壳                  | `create_element`(canvas + 左侧状态栏 / dock / 通知区三个宿主 + 分隔条)+ CSS 网格                                                                                                                                                                                                                                          | `#app` 网格,`--status-sidebar-width`,`.app-sidebar-resizer`                                                  |
+| UI 区块                   | miko_ui 组件                                                                                                                                                                                                                                                                                                                                              | 应用侧只保留                                                                                                 |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 顶部 dock(工具栏)         | `.dock.app-dock` 宿主(`create_element` 建,外观复用库的 `.dock`)+ `createSegmented`(8 个工具,单选)+ `createButton`(10 个约束 + 固定/构造 + 4 个即时命令:适应 / 导入SVG / 导出SVG / 清空)+ `createSwitch` / `createInlineToggle`(吸附开关)+ `createControlGroup`(工具 / 约束 / 视图与文件三组);两个分区是 `.dock-group` / `.dock-actions`,不建面板,无标题栏 | `.app-dock*` 定位,窄视口换行与分节线                                                                         |
+| 左侧状态栏(已选择 + 状态) | `createPanel`(通高面板,标题「草图状态」)+ `createObjectRow` / `createRowActions` / `createBadge` / `createButton`(已选择行;约束胶囊用 `createBadge` 做壳,内嵌一颗 `createButton` 的「×」)+ `createValueDisplay<string>` ×2(「当前操作」与「操作提示」各一行 `<output>`,各自由 signal 驱动)                                                                | `.app-status*` / `.app-selection*` 布局与紧凑行样式                                                          |
+| 尺寸输入框                | `createNumberField` + `createNumberRow`(文字 + `<input type="number">`)                                                                                                                                                                                                                                                                                   | `.app-dim-field`(宽度 / 非法红框)                                                                            |
+| 左侧栏宽度拖拽条          | `bindWindowResize`(与桌面窗口边缘缩放手柄同一条手势接线,方向 `'e'`:报告指针绝对位置)                                                                                                                                                                                                                                                                      | `.app-sidebar-resizer` 定位与拖动中高亮;起手锚 + 总位移夹取,键盘与 localStorage 记忆在 ui/sidebar-resizer.ts |
+| 错误提示                  | `createMessageArea` + `MessageList`(`aria-live` 容器,条目外观,自动消失)                                                                                                                                                                                                                                                                                   | `.app-notices` / `.app-notice-list` 定位                                                                     |
+| info 提示                 | 复用左侧状态栏的 `ValueDisplay`(`flashInfo` 闪示,不占额外位置)                                                                                                                                                                                                                                                                                            | 无                                                                                                           |
+| 清空确认框                | `createPanel`(`role="dialog"`)+ `createButton`(取消 / 确定主按钮变体)                                                                                                                                                                                                                                                                                     | `.app-confirm-*` 遮罩与按钮变体                                                                              |
+| 页面外壳                  | `create_element`(canvas + 左侧状态栏 / dock / 通知区三个宿主 + 分隔条)+ CSS 网格                                                                                                                                                                                                                                                                          | `#app` 网格,`--status-sidebar-width`,`.app-sidebar-resizer`                                                  |
 
 样式加载顺序固定为 `miko_ui/styles.css`(token + 字体 + 控件 + 反馈)-> `src/styles.css`(只写页面布局,
 `.app-*` 消费者类与 canvas 绘制 token).页面布局是 `#app` 上的 CSS 网格:左列是通高的左侧状态栏,
@@ -100,18 +100,20 @@ UI 代码里没有手写控件 DOM,也没有第二套控件 CSS:
 
 ### 工具与快捷键
 
-| 工具 | 快捷键 | 操作                                                                                                                                                                  |
-| ---- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 选择 | `V`    | 点图元/点选中;`Shift` 点击加减选;按住任一已选对象整体拖动;空白拖拽框选(不启动命令)                                                                                    |
-| 点   | `P`    | 点一个位置立即放独立点;吸附到已有点(含直线/圆弧端点,圆心)时复用该点并把它提升为点图元                                                                                 |
-| 直线 | `L`    | 点起点,终点立即画线;连续画自动以上一段终点作为下一段起点,`Esc`/右键结束                                                                                               |
-| 圆   | `C`    | 点圆心,半径位置立即创建                                                                                                                                               |
-| 圆弧 | `A`    | 圆心 -> 起点 -> 终点立即创建,三个点都进入模型并可直接复用已有点;半径由圆心->起点决定,终点只决定终止角;终点吸到不共圆的已有点时会报错;起终点同角(含浮点误差)按整圆处理 |
-| 矩形 | `R`    | 点两个对角点立即创建;四角优先复用已有点,并自动加水平/竖直约束                                                                                                         |
-| 尺寸 | `D`    | Smart Dimension:点目标 -> 点放置;两点距离 / 线长 / 半径(引线 + 箭头)/ 两线夹角(角度弧 + 箭头)/ 改已有尺寸;标注可直接拖动                                              |
-| 删除 | `E`    | 点对象立即删除,可继续点,`Esc`/右键结束;删点会级联删除引用它的图元,删点图元会删除其点与引用该点的约束                                                                  |
+| 工具     | 快捷键       | 操作                                                                                                                                                                  |
+| -------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 选择     | `V`          | 点图元/点选中;`Shift` 点击加减选;按住任一已选对象整体拖动;空白拖拽框选(不启动命令)                                                                                    |
+| 点       | `P`          | 点一个位置立即放独立点;吸附到已有点(含直线/圆弧端点,圆心)时复用该点并把它提升为点图元                                                                                 |
+| 直线     | `L`          | 点起点,终点立即画线;连续画自动以上一段终点作为下一段起点,`Esc`/右键结束                                                                                               |
+| 圆       | `C`          | 点圆心,半径位置立即创建                                                                                                                                               |
+| 圆弧     | `A`          | 圆心 -> 起点 -> 终点立即创建,三个点都进入模型并可直接复用已有点;半径由圆心->起点决定,终点只决定终止角;终点吸到不共圆的已有点时会报错;起终点同角(含浮点误差)按整圆处理 |
+| 矩形     | `R`          | 点两个对角点立即创建;四角优先复用已有点,并自动加水平/竖直约束                                                                                                         |
+| 尺寸     | `D`          | Smart Dimension:点目标 -> 点放置;两点距离 / 线长 / 半径(引线 + 箭头)/ 两线夹角(角度弧 + 箭头)/ 改已有尺寸;标注可直接拖动                                              |
+| 删除     | `E`          | 点对象立即删除,可继续点,`Esc`/右键结束;删点会级联删除引用它的图元,删点图元会删除其点与引用该点的约束                                                                  |
+| 导入 SVG | `Ctrl/Cmd+O` | 弹出文件选择框选本地 `.svg`(上限 8 MB),导入几何图元替换当前草图(非空时先确认);带修饰键,不与单键工具冲突                                                               |
 
-单键(`V/P/L/C/A/R/D/E`)切换工具/启动对应操作,`S` 开关吸附,带 `Ctrl`/`Meta`/`Alt` 时忽略.
+单键(`V/P/L/C/A/R/D/E`)切换工具/启动对应操作,`S` 开关吸附,带 `Ctrl`/`Meta`/`Alt` 时忽略(唯一例外是
+`Ctrl/Cmd+O` 导入 SVG).
 
 ### 统一命令:参数槽位 + 填满即执行
 
@@ -264,7 +266,7 @@ UI 代码里没有手写控件 DOM,也没有第二套控件 CSS:
   `Esc`/右键结束.构造线/构造点在画布与导出里都用虚线,
   但单位不同:canvas 虚线是屏幕像素(`styles.css` 的 `--dash-construction: 5 5`),SVG 导出是用户单位
   (`config/export.ts` 的 `EXPORT_DASH: '5 5'`).构造点在画布上只画虚线外环,不填实心中心.
-- **适应 / 导出SVG / 清空**是即时命令(没有参数槽位,点击即执行),不需要 `Enter`.
+- **适应 / 导入SVG / 导出SVG / 清空**是即时命令(没有参数槽位,点击即执行),不需要 `Enter`.
 - **适应**:按草图包围盒(含留白,点图元也参与)缩放到视口 90%,空草图回到默认缩放与原点.
 - **导出SVG**(工具栏按钮名):导出图元(直线/圆/圆弧/点),约束与尺寸标注不导出;普通点导出为实心小圆
   (半径 = 线宽 × `EXPORT_POINT_RADIUS_FACTOR`),构造点导出为空心虚线圈;整圆弧导出为 `<circle>`,
@@ -273,11 +275,42 @@ UI 代码里没有手写控件 DOM,也没有第二套控件 CSS:
   只有点图元时也能导出;没有任何图元时提示「没有可导出的图元」.下载文件名为 `sketch.svg`.
 - **清空**:用 miko_ui 的面板 + 按钮自绘确认框(不使用阻塞的 `alert/confirm`);草图已经为空时在状态栏提示「草图已经是空的」.
 
+### 导入 SVG
+
+- **入口**:工具栏「视图与文件」的「导入SVG」,或 `Ctrl/Cmd+O`;弹出系统文件选择框选本地 `.svg`(只收
+  `.svg` / `image/svg+xml`,单个文件上限 8 MB).文件选择框只能由用户手势同步唤起,所以 `Ctrl/Cmd+O`
+  抢在「修饰键组合让路」之前处理.
+- **替换语义**:当前草图非空时先弹确认框「导入将替换当前草图(将写入 N 个图元),继续?」;取消则草图与
+  交互状态原样不动.确认后清空模型,写入导入图元,回到选择工具并自动「适应」视口.解析/确认期间再次
+  触发导入会被守卫忽略,不会叠出两份「替换当前草图」.确认框里的 N 只算真正能写进模型的图元:零长度
+  线段,半径过小的圆/弧在确认前就被排除;若一个有效图元都没有则直接提示「没有可导入的几何图元」,
+  不会清空旧草图.
+- **支持的元素**:`line` / `rect` / `circle` / `ellipse`(正圆复用圆图元,其余折线近似)/ `polyline` /
+  `polygon` / `path`(绝对与相对的 `M L H V C S Q T A Z`);`transform` 属性(`translate` / `scale` /
+  `rotate` / `matrix` / `skewX` / `skewY`)逐层继承,直接作用到坐标,不在模型里保留.
+  `stroke-dasharray` 为虚线的图元导入为构造几何;`display:none` 子树与 `visibility:hidden` 图元跳过.
+- **有损口径**(全部进状态栏/消息区提示,不静默):`<text>` / `<image>` / `<use>` / `<foreignObject>` 等
+  草图表达不了的可见元素跳过(按标签计数);贝塞尔曲线离散成折线(每段 12 小段);椭圆与椭圆弧离散
+  48 段;圆角矩形按直角矩形导入;非均匀缩放下圆/圆弧按近似圆导入;百分比长度跳过,无法解析的
+  `transform` 按无变换处理;嵌套 `<svg>` 的 viewBox 不换算.
+- **点图元往返**:只有元素**自己显式写 `fill`(非 `none`/`transparent`),且显式写 `stroke="none"` 的
+  `<circle>`** 才还原成点图元(这正是本编辑器导出点图元的写法);普通圆,以及继承 `fill:none` 的圆
+  仍导入成圆.
+- **构造点会变成构造圆**:**构造点**导出时是 `fill="none"` + 虚线外圈,和构造圆在导出格式里完全同形,
+  导入无法区分,因此会还原成「构造圆」而不是点图元;整圆弧导出也是 `<circle>`,导入回来是「圆」图元
+  (两者几何等价,不是缺陷).
+- **约束与尺寸不随导入恢复**:导入只重建几何图元,约束和尺寸标注都会丢失(导出本来也不含它们).
+  替换前需要保留旧草图请先「导出SVG」.
+- **上限与性能**:8 MB 文件 / 20000 节点 / 5000 图元;文件过大或节点超限直接拒绝并给中文原因,图元
+  达到 5000 后截断并提示其余内容已忽略.导入在主线程同步解析(大文件可能短暂卡顿).
+- **坐标复用**:坐标完全相同的端点会复用同一个点(导出的共享端点逐字节相同),导入后可直接继续加
+  约束;容差内但不相等的坐标不合并.
+
 ### 当前不支持
 
-- 无撤销/重做,无文件保存/打开,无剪贴板;刷新页面即丢失(demo 定位).
+- 无工程文件保存/打开(导入/导出都只是 SVG 几何快照,约束与尺寸不往返),无撤销/重做,无剪贴板;刷新页面即丢失(demo 定位).
 - 没有单独的放大/缩小,平移按钮:滚轮缩放,中键/右键拖拽平移,「适应」按钮已覆盖视图操作;未专门适配触屏/移动端.
-- 尺寸与约束不随 SVG 导出(导出只含几何图元,点图元也算图元).
+- 尺寸与约束不随 SVG 导出/导入(两者都只含几何图元,点图元也算图元).
 
 ## 地图出版排版编辑器(`map.html`)
 
@@ -461,7 +494,7 @@ src/
     main.ts                  草图入口:mountAppShell 建网格外壳(左侧状态栏 / dock / 画布 / 通知区),
                              引样式,读主题,组装 Editor 与工具栏
     editor.ts                草图控制器:指针/键盘事件接线 + 手势状态机(拖拽/平移/框选)+ Enter/Backspace/Esc
-                             路由 + ResizeObserver 跟随布局重设画布;命令实现委托 ui/editor-controls.ts
+                             路由 + Ctrl/Cmd+O 导入 SVG + ResizeObserver 跟随布局重设画布;命令实现委托 ui/editor-controls.ts
     page-main.ts             排版编辑器组合根:建三栏外壳 -> 上传面板(SVG/JSON 两栏)-> 读取/校验
                              base.svg + geo.json -> PageDocument -> defaultPageLayout -> PageEditor +
                              侧栏/工具条/通知 + 样式设置窗口 + 导出;换文档时销毁窗口
@@ -495,6 +528,10 @@ src/
                              布局输出屏幕绘制原语(线段/圆弧/箭头/文字),render 层,pickDim,尺寸拖拽共用
     selection.ts             选择语义:单击/Shift/框选方向与结果;拖拽点集,已选列表数据(含行内约束
                              id/文案),命令收集态的悬停候选(点图元按 ent;尺寸标注悬停优先于几何)
+    svg-path.ts              SVG 输入侧纯数学:transform 列表 -> 2D 仿射矩阵;path d -> 线段/圆圆弧/
+                             曲线折线(贝塞尔,椭圆弧);node 可测,不碰 DOM/model
+    svg-import.ts            SVG 导入:DOM 无关 SvgNode 树 -> 导入计划(世界坐标图元,transform 逐层继承,
+                             点图元识别,跳过/折线化/近似警告,上限截断)-> applySvgImport 写模型并按坐标复用点
     viewport.ts              视图交互写入口:适应视图,滚轮缩放,平移
     camera.ts                世界 ↔ 屏幕换算,缩放范围,网格间距(纯函数)
     vec.ts                   二维向量纯函数(含 safeLen / unitPerp 的零向量约定)
@@ -535,8 +572,12 @@ src/
     hb-subset.ts             harfbuzz hb-subset(wasm)最小绑定:整份字体 -> 只含给定字符的子集
   ui/                        miko_ui 组件封装(左侧状态栏 / 顶部 dock / 输入 / 通知)
     toolbar.ts               顶部 dock 工具栏:miko_ui 的分段按钮组 / 按钮 / 开关 / 控制组 + 操作按钮高亮
-                             (两个分区 .dock-group / .dock-actions,不建面板;工具表来自 core.TOOLS)
-    editor-controls.ts       工具栏命令实现与唯一同步入口 sync()(render + 已选列表 + 左侧状态栏)
+                             (两个分区 .dock-group / .dock-actions,不建面板;工具表来自 core.TOOLS;
+                             视图与文件即时命令 适应 / 导入SVG / 导出SVG / 清空)
+    editor-controls.ts       工具栏命令实现与唯一同步入口 sync()(render + 已选列表 + 左侧状态栏);
+                             导入流水线:选文件 -> 计划 -> 确认替换 -> 清空写入 -> 适应视图
+    svg-file.ts              SVG 导入的文件适配:隐藏文件框 + File 读取 + DOMParser -> SvgNode
+                             (style 摊平;大小/节点上限)
     app-shell.ts             应用外壳:在 #app 网格里建侧栏宿主 / 分隔条 / dock 宿主 / 画布 / 通知区,并接上拖拽条
     sidebar-resizer.ts       侧栏宽度:miko_ui bindWindowResize(与窗口边缘缩放同一套)+ 总位移 clamp(240–560px,画布 ≥420px),←/->/Home/End,localStorage 记忆
     status-panel.ts          左侧通高状态栏外壳:标题「草图状态」+ 已选择插槽 + 状态/尺寸输入插槽
@@ -579,10 +620,12 @@ src/
                              页面文字固定默认字号,20 个分类
                              (6 页面文字 + 14 地图地名)与两组顺序,分类描述/示例/语义小标题
                              (样式唯一真源)
-    index.ts                 汇总出口,业务统一从 './config' 引入
+    index.ts                 汇总出口,业务统一从 './config' 引入(含 IMPORT_* 导入标定)
     angle.ts                 TAU / sweepOf / normalizeAngle / 弧段数
     constraints-meta.ts      16 种约束元数据,去重键,引用字段推导(操作槽位/执行在 core/operations.ts)
     export.ts                导出标定:颜色/线宽/精度/文件名/虚线/点半径/空图文案
+    import.ts                导入标定:accept / 大小(8 MB)/ 节点(20000)/ 图元(5000)上限,曲线 12 段
+                             与椭圆 48 段离散,跳过元素种类提示上限与空/非法文案
     format.ts                formatNumber / formatDimValue(显示格式,与回填全精度分开)
     layout.ts                侧栏宽度记忆键,键盘步长,布局变量读不到时的兜底值(宽度与上下限的真相在 styles.css :root)
     limits.ts                缩放/网格/留白/退化阈值/初始 id 序列/尺寸默认偏移
@@ -596,8 +639,9 @@ src/
                              由 scripts/build_font_assets.py 生成
 tests/                       node 环境单测,按被测层分组
   core/                      纯逻辑层:草图 model/entities/geometry/constraints/solver/dimensions/
-                              operations/sketch-actions/selection/vec/camera,以及排版文档的
-                              base-svg/base64/final-svg/open-map/page/text-style/page-geo(fixtures.ts 是建图辅助)
+                              operations/sketch-actions/selection/vec/camera,导入的 svg-path/svg-import,
+                              以及排版文档的 base-svg/base64/final-svg/open-map/page/text-style/page-geo
+                              (fixtures.ts 是建图辅助)
   render/                    SVG 导出(buildSVG),浏览器内合成(composeFinalSvg),字体子集
                              (used-text / embedded-font / hb-subset / compose-fonts)
   ui/                        无 DOM 的 UI 纯函数(尺寸输入解析 parseDimInput)

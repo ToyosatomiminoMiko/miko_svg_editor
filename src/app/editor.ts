@@ -263,6 +263,14 @@ export class Editor {
     // 模态层(确认框等)打开时让路:确认框焦点在按钮上,Delete 会穿透删掉选中图元,
     // 而草图编辑器没有撤销;焦点在可编辑控件/表单控件上时同理.
     if (isModalOpen() || isEditableTarget(ev.target)) return;
+
+    // Ctrl/Cmd+O 导入 SVG.文件选择框只能由用户手势唤起(键盘事件也算手势,但不能放在
+    // 定时器/异步回调里再 open),所以这条必须抢在下面的「修饰键组合让路」之前处理.
+    if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.key.toLowerCase() === 'o') {
+      ev.preventDefault();
+      this.handlers.importSVG();
+      return;
+    }
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
 
     if (ev.key === 'Enter') {
